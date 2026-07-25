@@ -1,0 +1,2317 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="meshforge",
+        description="Surfaces in, solver-ready wall volume meshes out.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="Read-only inspection of a surface file (counts, bounds, area, "
+        "watertightness, volume); writes a report to the outputs dir.",
+    )
+    p_inspect.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_inspect.add_argument(
+        "--outputs",
+        type=Path,
+        default=Path("outputs"),
+        help="directory for generated reports (default: outputs/)",
+    )
+
+    p_export = sub.add_parser(
+        "export",
+        help="Export a surface to a neutral format (VTU default, VTK/PLY/OBJ); "
+        "never overwrites the input.",
+    )
+    p_export.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_export.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output path (default: outputs/<stem>.<format>)",
+    )
+    p_export.add_argument(
+        "--format",
+        dest="fmt",
+        default=None,
+        help="vtu (default) | vtk | ply | obj; inferred from --out suffix when omitted",
+    )
+    p_export.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_check = sub.add_parser(
+        "check",
+        help="Surface readiness check: open edges, non-manifold edges, "
+        "watertight, all-triangles, mesh_ready.",
+    )
+    p_check.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_check.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_synth = sub.add_parser(
+        "synth",
+        help="Generate a synthetic watertight tube surface + exact analytic "
+        "centerline truth (straight_tube, curved_tube, tapered_tube, "
+        "constricted_tube, torus).",
+    )
+    p_synth.add_argument("shape", help="generator name (see --help text)")
+    p_synth.add_argument(
+        "--set",
+        dest="params",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override a generator parameter (repeatable), e.g. --set radius=2.5",
+    )
+    p_synth.add_argument(
+        "--degrade-noise",
+        type=float,
+        default=0.0,
+        help="degrade: gaussian vertex noise sigma (repair regression aid)",
+    )
+    p_synth.add_argument(
+        "--degrade-holes", type=int, default=0, help="degrade: poke N face holes"
+    )
+    p_synth.add_argument(
+        "--degrade-dup-faces", type=int, default=0, help="degrade: duplicate N faces"
+    )
+    p_synth.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_repair = sub.add_parser(
+        "repair",
+        help="Repair a surface: merge duplicate vertices, drop degenerate/"
+        "duplicate faces, fill small holes; non-manifold edges are reported, "
+        "never auto-fixed.",
+    )
+    p_repair.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_repair.add_argument(
+        "--merge-tol",
+        type=float,
+        default=None,
+        help="absolute vertex merge tolerance (default: 1e-9 x bbox diagonal)",
+    )
+    p_repair.add_argument(
+        "--max-hole-edges",
+        type=int,
+        default=16,
+        help="fill holes up to this many boundary edges (default 16)",
+    )
+    p_repair.add_argument("--out", type=Path, default=None, help="repaired surface path")
+    p_repair.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_vol = sub.add_parser(
+        "volmesh",
+        help="Volume-mesh the wall region of a tubular surface "
+        "(backends: swept hexahedra, gmsh tetrahedra).",
+    )
+    p_vol.add_argument("surface", type=Path)
+    p_vol.add_argument(
+        "--thickness", type=float, default=None, help="wall thickness (scalar)"
+    )
+    p_vol.add_argument(
+        "--outer-surface",
+        type=Path,
+        default=None,
+        help="measured outer surface file (mutually exclusive with --thickness)",
+    )
+    p_vol.add_argument("--backend", default="swept", help="swept (default) | tet")
+    p_vol.add_argument("--n-theta", type=int, default=32)
+    p_vol.add_argument("--n-axial", type=int, default=60)
+    p_vol.add_argument("--n-layers", type=int, default=4, help="radial layers (swept only)")
+    p_vol.add_argument(
+        "--layer-ratio",
+        type=float,
+        default=1.0,
+        help="radial grading ratio, outer/inner layer thickness (swept only)",
+    )
+    p_vol.add_argument("--mesh-size", type=float, default=None, help="target size (tet only)")
+    p_vol.add_argument(
+        "--no-optimize",
+        action="store_true",
+        help="skip gmsh mesh optimization (tet only; default: Netgen with fallback)",
+    )
+    p_vol.add_argument("--out", type=Path, default=None, help="output .vtu path")
+    p_vol.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_lumen = sub.add_parser(
+        "lumen",
+        help="Fill the blood volume (lumen) of a tubular surface: swept "
+        "O-grid hexahedra where the geometry permits, automatic gmsh tet "
+        "fallback with a loud fold-number note where it does not (V47).",
+    )
+    p_lumen.add_argument("surface", type=Path)
+    p_lumen.add_argument(
+        "--method",
+        default="auto",
+        help="auto (default: O-grid, tet fallback on failure) | ogrid | tet",
+    )
+    p_lumen.add_argument("--n-theta", type=int, default=32, help="rays per station")
+    p_lumen.add_argument(
+        "--n-axial", type=int, default=40, help="stations along the centerline"
+    )
+    p_lumen.add_argument(
+        "--core-fraction",
+        type=float,
+        default=0.5,
+        help="O-grid core size fraction of centroid-to-rim (V26)",
+    )
+    p_lumen.add_argument(
+        "--smooth",
+        type=int,
+        default=4,
+        help="guarded smoothing iterations, sj_min can never regress (0 = off)",
+    )
+    p_lumen.add_argument(
+        "--mesh-size",
+        type=float,
+        default=None,
+        help="tet-fallback target size (default: 1.5x median ring edge)",
+    )
+    p_lumen.add_argument("--out", type=Path, default=None, help="output .vtu path")
+    p_lumen.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_cad = sub.add_parser(
+        "import-cad",
+        help="Import a 2-D CAD drawing (DXF, or DWG via dwg2dxf) as a cleaned-up "
+        "profile: chains loose segments into closed loops, classifies "
+        "outers/holes; writes profile JSON + report to the outputs dir.",
+    )
+    p_cad.add_argument("file", type=Path, help="drawing file (.dxf/.dwg)")
+    p_cad.add_argument(
+        "--block",
+        default=None,
+        help="block name to import (default: modelspace, falling back to the "
+        "largest named block when modelspace has no supported entities)",
+    )
+    p_cad.add_argument(
+        "--list-blocks",
+        action="store_true",
+        help="list modelspace + named blocks with entity counts, then exit",
+    )
+    p_cad.add_argument(
+        "--layers", default=None, help="comma-separated layer names to import"
+    )
+    p_cad.add_argument(
+        "--mode",
+        default="auto",
+        choices=("auto", "chain", "faces"),
+        help="loop recovery: 'chain' endpoint chaining (dirty part outlines), "
+        "'faces' planar face extraction (tiled/architectural drawings), "
+        "'auto' chain first then faces if chains stay unclosed at junctions",
+    )
+    p_cad.add_argument(
+        "--chain-tol",
+        type=float,
+        default=None,
+        help="endpoint chaining tolerance (default: 1e-6 x bbox diagonal)",
+    )
+    p_cad.add_argument(
+        "--arc-tol",
+        type=float,
+        default=None,
+        help="curve flattening tolerance, max sagitta "
+        "(default: 1e-4 x bbox diagonal)",
+    )
+    p_cad.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_deck = sub.add_parser(
+        "deck",
+        help="Write a complete solver input deck: wall mesh + material + "
+        "boundary conditions + loads + step (targets: abaqus/ccx .inp, "
+        "nastran .bdf, lsdyna .k, ansys .cdb — LS-DYNA and ANSYS are "
+        "format-level only, no solver installed).",
+    )
+    p_deck.add_argument("surface", type=Path, help="inner surface file")
+    p_deck.add_argument("--thickness", type=float, default=None)
+    p_deck.add_argument("--outer-surface", type=Path, default=None)
+    p_deck.add_argument("--backend", default="swept", help="swept (default) | tet")
+    p_deck.add_argument("--n-theta", type=int, default=32)
+    p_deck.add_argument("--n-axial", type=int, default=60)
+    p_deck.add_argument("--n-layers", type=int, default=4)
+    p_deck.add_argument("--layer-ratio", type=float, default=1.0)
+    p_deck.add_argument("--mesh-size", type=float, default=None)
+    p_deck.add_argument(
+        "--material",
+        default="elastic",
+        choices=("elastic", "neo_hooke", "mooney_rivlin", "thermal"),
+    )
+    p_deck.add_argument(
+        "--analysis",
+        default="static",
+        choices=("static", "frequency", "heat", "buckle"),
+        help="step kind: frequency = *FREQUENCY modal (needs --density; "
+        "--preloaded adds a *STATIC preload step, V32), heat = *HEAT "
+        "TRANSFER (needs --material thermal --conductivity; --transient "
+        "for time stepping), buckle = *BUCKLE (factor x load = critical "
+        "load, V32)",
+    )
+    p_deck.add_argument(
+        "--n-modes", type=int, default=10,
+        help="eigenmodes/buckling factors (frequency/buckle; buckle trap: "
+        "too few factors makes ccx silently skip the lowest modes)",
+    )
+    p_deck.add_argument(
+        "--preloaded",
+        action="store_true",
+        help="preloaded modes (V32): *STATIC step with the loads, then "
+        "*FREQUENCY, PERTURBATION (frequency only)",
+    )
+    p_deck.add_argument(
+        "--conductivity", type=float, default=None, help="thermal conductivity k"
+    )
+    p_deck.add_argument(
+        "--temp",
+        action="append",
+        default=[],
+        metavar="NAME,value",
+        help="fixed temperature on a boundary group (repeatable, heat)",
+    )
+    p_deck.add_argument(
+        "--flux",
+        action="append",
+        default=[],
+        metavar="NAME,value",
+        help="*DFLUX surface heat flux, positive into the body (repeatable, heat)",
+    )
+    p_deck.add_argument(
+        "--film",
+        action="append",
+        default=[],
+        metavar="NAME,sink,h",
+        help="*FILM convection on a boundary group, expanded element-wise "
+        "(repeatable, heat, V31)",
+    )
+    p_deck.add_argument(
+        "--radiate",
+        action="append",
+        default=[],
+        metavar="NAME,sink,emiss",
+        help="*RADIATE environmental radiation on a boundary group, expanded "
+        "element-wise (repeatable, heat, V41; needs --stefan-boltzmann and "
+        "--absolute-zero for *PHYSICAL CONSTANTS)",
+    )
+    p_deck.add_argument(
+        "--stefan-boltzmann",
+        type=float,
+        default=None,
+        help="Stefan-Boltzmann constant for *PHYSICAL CONSTANTS (with --radiate)",
+    )
+    p_deck.add_argument(
+        "--absolute-zero",
+        type=float,
+        default=None,
+        help="absolute-zero offset in the model temperature unit: 0 (Kelvin) "
+        "or -273.15 (Celsius) — a wrong offset is silently wrong (with --radiate)",
+    )
+    p_deck.add_argument(
+        "--conductivity-table",
+        default=None,
+        metavar="k@T,k@T,...",
+        help="temperature-dependent *CONDUCTIVITY, e.g. 2@0,12@1000 "
+        "(heat, V41; use instead of --conductivity)",
+    )
+    p_deck.add_argument(
+        "--specific-heat",
+        type=float,
+        default=None,
+        help="specific heat c_p (transient heat needs it plus --density)",
+    )
+    p_deck.add_argument(
+        "--transient",
+        action="store_true",
+        help="transient *HEAT TRANSFER, DIRECT (V31; needs --dt --period --t0; "
+        "dt is the accuracy dial — ccx integrates backward Euler, first order)",
+    )
+    p_deck.add_argument(
+        "--dt", type=float, default=None, help="transient time increment"
+    )
+    p_deck.add_argument(
+        "--period", type=float, default=None, help="transient total time"
+    )
+    p_deck.add_argument(
+        "--t0", type=float, default=None,
+        help="initial temperature (transient — never guessed)",
+    )
+    p_deck.add_argument("--E", dest="E", type=float, default=None, help="Young's modulus")
+    p_deck.add_argument("--nu", type=float, default=None, help="Poisson's ratio")
+    p_deck.add_argument("--density", type=float, default=None)
+    p_deck.add_argument("--c10", type=float, default=None)
+    p_deck.add_argument("--c01", type=float, default=None)
+    p_deck.add_argument("--d1", type=float, default=None)
+    p_deck.add_argument(
+        "--fix",
+        action="append",
+        default=[],
+        metavar="NAME,first[,last]",
+        help="zero a DOF range on a boundary group (repeatable), "
+        "e.g. --fix inlet,3 or --fix inlet,1,3",
+    )
+    p_deck.add_argument(
+        "--pin-lateral",
+        action="store_true",
+        help="add three tangential single-node pins on the inlet "
+        "(removes Tx/Ty/Rz without radial constraint)",
+    )
+    p_deck.add_argument(
+        "--pressure",
+        action="append",
+        default=[],
+        metavar="NAME,value",
+        help="*DSLOAD pressure on a boundary surface (repeatable), "
+        "e.g. --pressure inner,1.5",
+    )
+    p_deck.add_argument(
+        "--cload",
+        action="append",
+        default=[],
+        metavar="NAME,dof,value",
+        help="*CLOAD on a boundary group (repeatable)",
+    )
+    p_deck.add_argument(
+        "--expansion", type=float, default=None, metavar="ALPHA",
+        help="thermal-expansion coefficient -> *EXPANSION (static thermal "
+        "stress; needs --temperature or --temperature-from + --t-ref, V45)",
+    )
+    p_deck.add_argument(
+        "--temperature", type=float, default=None, metavar="VALUE",
+        help="uniform *TEMPERATURE soak on all nodes (static; needs "
+        "--expansion + --t-ref)",
+    )
+    p_deck.add_argument(
+        "--temperature-from", default=None, metavar="HEAT.frd",
+        help="solved heat .frd whose NDTEMP field becomes the *TEMPERATURE "
+        "load — chains a heat solve into thermal stress (static; needs "
+        "--expansion + --t-ref)",
+    )
+    p_deck.add_argument(
+        "--temperature-time", type=float, default=None, metavar="TIME",
+        help="snapshot time to take from the --temperature-from frd's "
+        "transient history (V46; default = last increment; must match one "
+        "of the frd's own recorded times exactly — no interpolation)",
+    )
+    p_deck.add_argument(
+        "--t-ref", type=float, default=None, metavar="VALUE",
+        help="stress-free reference temperature -> *INITIAL CONDITIONS "
+        "(REQUIRED with a thermal load — never guessed: ccx's expansion "
+        "reference is the initial temperature only)",
+    )
+    p_deck.add_argument(
+        "--target", default="abaqus",
+        choices=("abaqus", "ccx", "nastran", "lsdyna", "ansys"),
+    )
+    p_deck.add_argument(
+        "--formulation",
+        default=None,
+        choices=("full", "reduced", "hybrid"),
+        help="element formulation (default: hybrid for abaqus, full for ccx)",
+    )
+    p_deck.add_argument("--nlgeom", action="store_true")
+    p_deck.add_argument(
+        "--riks", action="store_true",
+        help="*STATIC, RIKS arc-length continuation for post-buckling "
+        "(static step, needs --nlgeom; the true load is the reaction RF, "
+        "not the frd time — auto-requested, V42)",
+    )
+    p_deck.add_argument(
+        "--riks-max-lpf", type=float, default=None,
+        help="RIKS load-proportionality-factor cap = data-line field 2 "
+        "(default 1.0)",
+    )
+    p_deck.add_argument(
+        "--riks-dl-init", type=float, default=None,
+        help="RIKS initial arc-length increment (default 0.05)",
+    )
+    p_deck.add_argument(
+        "--riks-dl-min", type=float, default=None,
+        help="RIKS minimum arc-length increment (default 1e-5)",
+    )
+    p_deck.add_argument(
+        "--riks-dl-max", type=float, default=None,
+        help="RIKS maximum arc-length increment (default 0.5)",
+    )
+    p_deck.add_argument("--out", type=Path, default=None, help="output .inp path")
+    p_deck.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_blocks = sub.add_parser(
+        "blocks",
+        help="Multi-block hex mesh from a rectilinear CAD profile "
+        "(import-cad JSON): block decomposition, structured quads, "
+        "extrusion with named face groups.",
+    )
+    p_blocks.add_argument(
+        "profile", type=Path, help="profile JSON written by import-cad"
+    )
+    p_blocks.add_argument(
+        "--outer",
+        type=int,
+        default=0,
+        help="component index whose outer loop bounds the material (default 0)",
+    )
+    p_blocks.add_argument(
+        "--component-holes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="include the selected component's own holes (default: yes)",
+    )
+    p_blocks.add_argument(
+        "--holes-like",
+        default=None,
+        metavar="WxH",
+        help="also punch holes at every component whose outer bbox is "
+        "W x H (e.g. 177.03x170.68 for the cottage panes)",
+    )
+    p_blocks.add_argument(
+        "--holes-tol",
+        type=float,
+        default=0.5,
+        help="bbox match tolerance for --holes-like (default 0.5)",
+    )
+    p_blocks.add_argument(
+        "--project",
+        action="store_true",
+        help="allow curved/skewed loops: mesh their bounding-box proxies, "
+        "then project rim nodes onto the true curves (V6 projection method)",
+    )
+    p_blocks.add_argument(
+        "--ogrid",
+        action="store_true",
+        help="O-grid (butterfly) disk layout: central square block + 4 ring "
+        "blocks with rims exactly on the curve — one star-shaped loop, no "
+        "holes (V26); lifts the projected-disk quality floor",
+    )
+    p_blocks.add_argument(
+        "--core-fraction",
+        type=float,
+        default=0.5,
+        help="O-grid core square size as a fraction of the centroid-to-rim "
+        "distance (default 0.5)",
+    )
+    p_blocks.add_argument(
+        "--smooth",
+        action="store_true",
+        help="elliptic (Winslow) smoothing pass over block interiors before "
+        "extrusion (boundaries and rims stay fixed)",
+    )
+    p_blocks.add_argument(
+        "--grade-ratio",
+        type=float,
+        default=1.0,
+        help="transition grading: max/min spacing within each grid interval, "
+        "fine cells at the coarse grid lines (default 1 = uniform)",
+    )
+    p_blocks.add_argument("--target-size", type=float, default=None,
+                          help="max element edge length (default: bbox diag / 60)")
+    p_blocks.add_argument("--thickness", type=float, default=1.0)
+    p_blocks.add_argument("--n-layers", type=int, default=1)
+    p_blocks.add_argument("--out", type=Path, default=None, help="output .vtu path")
+    p_blocks.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_run = sub.add_parser(
+        "run",
+        help="Run a YAML recipe: pipeline steps + parameter sweeps; each "
+        "variant lands in outputs/<recipe>/<slug>/ with a manifest.json.",
+    )
+    p_run.add_argument("recipe", type=Path, help="recipe .yaml file")
+    p_run.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="STEP.PARAM=VALUE",
+        help="override a step parameter in every variant (repeatable; "
+        "applied after the sweep, so it wins)",
+    )
+    p_run.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_replay = sub.add_parser(
+        "replay",
+        help="Re-run a saved .mfwork session work file, optionally overriding "
+        "step parameters; only steps downstream of an override recompute.",
+    )
+    p_replay.add_argument("workfile", type=Path, help=".mfwork file (see save-workfile)")
+    p_replay.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="STEP.KNOB=VALUE",
+        help="override a recorded step parameter (repeatable)",
+    )
+    p_replay.add_argument(
+        "--save-workfile",
+        type=Path,
+        default=None,
+        help="write the updated journal back to this .mfwork path",
+    )
+
+    p_bl = sub.add_parser(
+        "blayers",
+        help="External-flow boundary layers (V22): grow geometric wedge "
+        "layers outward from a closed triangulated body surface "
+        "(CFD pre-processing; exits 1 on inverted cells).",
+    )
+    p_bl.add_argument("surface", type=Path, help="closed body surface")
+    p_bl.add_argument(
+        "--first", type=float, required=True, help="first layer thickness"
+    )
+    p_bl.add_argument("--n-layers", type=int, default=5)
+    p_bl.add_argument("--growth", type=float, default=1.2)
+    p_bl.add_argument("--normal-smoothing", type=int, default=10)
+    p_bl.add_argument("--out", type=Path, default=None, help="output .vtu path")
+    p_bl.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_img = sub.add_parser(
+        "import-image",
+        help="Volume ingest (V18): .npy / .nii(.gz) / DICOM directory -> "
+        "marching-cubes iso-surface (.vtp) + provenance JSON; exits 1 "
+        "when the surface is not mesh_ready.",
+    )
+    p_img.add_argument("volume", type=Path, help="volume file or DICOM dir")
+    p_img.add_argument(
+        "--level", type=float, required=True,
+        help="iso level (segmentation threshold, e.g. 300 for CT bone HU)",
+    )
+    p_img.add_argument(
+        "--spacing", default=None, metavar="X,Y,Z",
+        help="voxel spacing override (for .npy inputs)",
+    )
+    p_img.add_argument("--out", type=Path, default=None, help="output .vtp path")
+    p_img.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_cso = sub.add_parser(
+        "import-cso",
+        help="MeVisLab Binary .cso contour ingest (V38): loft (or voxelise) the "
+        "closed cross-section contours into a watertight tube surface (.vtp) + "
+        "provenance JSON; exits 1 when the surface is not mesh_ready.",
+    )
+    p_cso.add_argument("file", type=Path, help="MeVisLab Binary .cso file")
+    p_cso.add_argument(
+        "--method", choices=("auto", "loft", "voxel"), default="auto",
+        help="auto (default, V40: loft else voxel — whichever sweeps to a clean "
+        "volmesh) | loft (skin rings into a tube) | voxel (label volume + "
+        "marching cubes)",
+    )
+    p_cso.add_argument(
+        "--n-ring", type=int, default=48, help="resample count per ring (loft)",
+    )
+    p_cso.add_argument(
+        "--voxel-size", type=float, default=None,
+        help="voxel size for the label volume (voxel method)",
+    )
+    p_cso.add_argument(
+        "--no-cap", action="store_true",
+        help="do not cap the end rings (leaves an open surface)",
+    )
+    p_cso.add_argument(
+        "--on-open", choices=("skip", "close", "error"), default="skip",
+        help="open editor contour policy (V39): skip (default: drop it with a "
+        "loud note) | close (only if near-closed) | error (refuse)",
+    )
+    p_cso.add_argument(
+        "--dicom", type=Path, default=None,
+        help="anchor to a DICOM series/.dcm (V39): voxelise the contours onto "
+        "its image grid so the mask aligns with the scan (read-only, forces voxel)",
+    )
+    p_cso.add_argument("--out", type=Path, default=None, help="output .vtp path")
+    p_cso.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_cad3d = sub.add_parser(
+        "import-cad3d",
+        help="Import a STEP/IGES/BREP solid via gmsh OCC, surface-mesh it, "
+        "and write the triangulated surface (.vtp) + provenance JSON; "
+        "exits 1 when the result is not mesh_ready.",
+    )
+    p_cad3d.add_argument("file", type=Path, help="STEP/IGES/BREP file")
+    p_cad3d.add_argument("--mesh-size", type=float, default=None)
+    p_cad3d.add_argument(
+        "--mesh-size-factor",
+        type=float,
+        default=None,
+        help="scale the default size (bbox diagonal / 50); "
+        "mutually exclusive with --mesh-size",
+    )
+    p_cad3d.add_argument("--out", type=Path, default=None, help="output .vtp path")
+    p_cad3d.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_foam = sub.add_parser(
+        "foam",
+        help="OpenFOAM polyMesh export: mesh a wall from a surface (like "
+        "volmesh) and write constant/polyMesh with named boundary patches.",
+    )
+    p_foam.add_argument("surface", type=Path, help="inner surface file")
+    p_foam.add_argument("--thickness", type=float, default=None)
+    p_foam.add_argument("--outer-surface", type=Path, default=None)
+    p_foam.add_argument("--backend", default="swept", help="swept (default) | tet")
+    p_foam.add_argument("--n-theta", type=int, default=32)
+    p_foam.add_argument("--n-axial", type=int, default=60)
+    p_foam.add_argument("--n-layers", type=int, default=4)
+    p_foam.add_argument("--layer-ratio", type=float, default=1.0)
+    p_foam.add_argument("--mesh-size", type=float, default=None)
+    p_foam.add_argument(
+        "--patch-type",
+        action="append",
+        default=[],
+        metavar="NAME,TYPE",
+        help="override a patch type (repeatable), e.g. --patch-type inner,wall; "
+        "default: inlet/outlet -> patch, everything else -> wall",
+    )
+    p_foam.add_argument(
+        "--default-patch",
+        default=None,
+        metavar="NAME",
+        help="collect boundary faces not covered by any group into this patch "
+        "(without it, uncovered faces are a hard error)",
+    )
+    p_foam.add_argument("--case", type=Path, default=None, help="case directory")
+    p_foam.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_fluent = sub.add_parser(
+        "fluent",
+        help="ANSYS FLUENT .msh export: mesh a wall from a surface (like "
+        "volmesh) and write a face-based ASCII mesh with named boundary "
+        "zones (V28).",
+    )
+    p_fluent.add_argument("surface", type=Path, help="inner surface file")
+    p_fluent.add_argument("--thickness", type=float, default=None)
+    p_fluent.add_argument("--outer-surface", type=Path, default=None)
+    p_fluent.add_argument("--backend", default="swept", help="swept (default) | tet")
+    p_fluent.add_argument("--n-theta", type=int, default=32)
+    p_fluent.add_argument("--n-axial", type=int, default=60)
+    p_fluent.add_argument("--n-layers", type=int, default=4)
+    p_fluent.add_argument("--layer-ratio", type=float, default=1.0)
+    p_fluent.add_argument("--mesh-size", type=float, default=None)
+    p_fluent.add_argument(
+        "--bc-type",
+        action="append",
+        default=[],
+        metavar="NAME,TYPE",
+        help="override a boundary zone type (repeatable), e.g. "
+        "--bc-type inner,symmetry; types: wall, velocity-inlet, "
+        "pressure-inlet, pressure-outlet, symmetry, outflow; default: "
+        "inlet/outlet names -> velocity-inlet/pressure-outlet, else wall",
+    )
+    p_fluent.add_argument(
+        "--default-patch",
+        default=None,
+        metavar="NAME",
+        help="collect boundary faces not covered by any group into this zone "
+        "(without it, uncovered faces are a hard error)",
+    )
+    p_fluent.add_argument("--out", type=Path, default=None, help="output .msh path")
+    p_fluent.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_solve = sub.add_parser(
+        "solve",
+        help="Run a solver deck and read the results back: .inp goes to "
+        "CalculiX (.dat/.frd), .bdf to MYSTRAN (F06, V25); both persist a "
+        "results .vtu with displacement point data and a summary JSON "
+        "under outputs/solve/<deck>/. .k and .cdb decks refuse loudly — "
+        "no LS-DYNA/ANSYS solver is wired.",
+    )
+    p_solve.add_argument(
+        "deck", type=Path, help="runnable .inp or .bdf (see the deck command)"
+    )
+    p_solve.add_argument(
+        "--ccx",
+        default=None,
+        help="CalculiX executable (default: MESHFORGE_CCX, then PATH, then "
+        "the ccxsolve conda env)",
+    )
+    p_solve.add_argument(
+        "--mystran",
+        default=None,
+        help="MYSTRAN executable for .bdf decks (default: MESHFORGE_MYSTRAN, "
+        "then PATH, then the mystran conda env)",
+    )
+    p_solve.add_argument("--timeout", type=float, default=600.0)
+    p_solve.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_cfd = sub.add_parser(
+        "cfd",
+        help="Run OpenFOAM on a case directory and read U/p back: with "
+        "--inlet/--outlet the dir needs only constant/polyMesh (see the "
+        "foam command) and the solver files are written from the flags; "
+        "without them the case must already be complete. Persists a "
+        "results .vtu + summary JSON under outputs/cfd/<case>/.",
+    )
+    p_cfd.add_argument("case", type=Path, help="OpenFOAM case directory")
+    p_cfd.add_argument(
+        "--solver", default="simpleFoam", help="simpleFoam (steady) | icoFoam (transient)"
+    )
+    p_cfd.add_argument("--nu", type=float, default=1e-3, help="kinematic viscosity")
+    p_cfd.add_argument(
+        "--inlet",
+        default=None,
+        metavar="NAME=VX,VY,VZ",
+        help="velocity inlet patch, e.g. --inlet inlet=0,0,1",
+    )
+    p_cfd.add_argument(
+        "--outlet",
+        default=None,
+        metavar="NAME=P",
+        help="pressure outlet patch (kinematic p), e.g. --outlet outlet=0",
+    )
+    p_cfd.add_argument("--end-time", type=float, default=2000.0)
+    p_cfd.add_argument(
+        "--delta-t", type=float, default=None, help="time step (icoFoam only)"
+    )
+    p_cfd.add_argument("--write-interval", type=float, default=None)
+    p_cfd.add_argument("--timeout", type=float, default=600.0)
+    p_cfd.add_argument(
+        "--turbulence",
+        default="laminar",
+        choices=("laminar", "kOmegaSST"),
+        help="turbulence model for built cases (steady kOmegaSST RANS, V27)",
+    )
+    p_cfd.add_argument(
+        "--intensity",
+        type=float,
+        default=0.05,
+        help="inlet turbulence intensity I (kOmegaSST; default 0.05)",
+    )
+    p_cfd.add_argument(
+        "--turb-length",
+        type=float,
+        default=None,
+        help="inlet mixing length, e.g. 0.07*D for a pipe (REQUIRED with "
+        "--turbulence kOmegaSST)",
+    )
+    p_cfd.add_argument(
+        "--moving-wall",
+        default=None,
+        metavar="NAME=VX,VY,VZ",
+        help="tangentially moving wall patch (V30 closed cavities), "
+        "e.g. --moving-wall lid=1,0,0",
+    )
+    p_cfd.add_argument(
+        "--empty",
+        default=None,
+        metavar="NAMES",
+        help="comma-separated patches to treat as the OpenFOAM 2-D "
+        "'empty' direction, e.g. --empty front,back (V30)",
+    )
+    p_cfd.add_argument(
+        "--closed-cavity",
+        action="store_true",
+        help="sealed domain: no pressure BC anywhere, pressure level "
+        "pinned by pRefCell/pRefValue (V30)",
+    )
+    p_cfd.add_argument(
+        "--p-ref-cell", type=int, default=0,
+        help="reference cell index (--closed-cavity; default 0)",
+    )
+    p_cfd.add_argument(
+        "--p-ref-value", type=float, default=0.0,
+        help="reference kinematic pressure (--closed-cavity; default 0)",
+    )
+    p_cfd.add_argument(
+        "--checkmesh",
+        action="store_true",
+        help="run checkMesh only (no solve); loud unless the mesh is OK",
+    )
+    p_cfd.add_argument(
+        "--series",
+        action="store_true",
+        help="read ALL written time steps back and persist one .vtu per "
+        "frame (V29; combine with --write-interval below --end-time)",
+    )
+    p_cfd.add_argument("--outputs", type=Path, default=Path("outputs"))
+
+    p_web = sub.add_parser(
+        "web",
+        help="Serve the local web app (FastAPI over MeshingSession) on "
+        "127.0.0.1:<free port> and print the URL (V35). Deps: the 'web' "
+        "extra (pip install .[web]).",
+    )
+    p_web.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="port to bind (default: an OS-assigned free port)",
+    )
+
+    p_desktop = sub.add_parser(
+        "desktop",
+        help="Open the Workbench in a native window (QtWebEngine over the "
+        "local 127.0.0.1 web server; V35b). Deps: the 'desktop' extra "
+        "(conda-forge qt6-webengine, plus the 'web'/'viewport' extras).",
+    )
+    p_desktop.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="port for the child web server (default: an OS-assigned free port)",
+    )
+
+    args = parser.parse_args(argv)
+    if args.command == "web":
+        return _cmd_web(args)
+    if args.command == "desktop":
+        return _cmd_desktop(args)
+    if args.command == "cfd":
+        return _cmd_cfd(args)
+    if args.command == "blayers":
+        return _cmd_blayers(args)
+    if args.command == "import-image":
+        return _cmd_import_image(args)
+    if args.command == "import-cso":
+        return _cmd_import_cso(args)
+    if args.command == "import-cad3d":
+        return _cmd_import_cad3d(args)
+    if args.command == "foam":
+        return _cmd_foam(args)
+    if args.command == "fluent":
+        return _cmd_fluent(args)
+    if args.command == "solve":
+        return _cmd_solve(args)
+    if args.command == "replay":
+        return _cmd_replay(args)
+    if args.command == "repair":
+        return _cmd_repair(args)
+    if args.command == "run":
+        return _cmd_run(args)
+    if args.command == "blocks":
+        return _cmd_blocks(args)
+    if args.command == "deck":
+        return _cmd_deck(args)
+    if args.command == "import-cad":
+        return _cmd_import_cad(args)
+    if args.command == "volmesh":
+        return _cmd_volmesh(args)
+    if args.command == "lumen":
+        return _cmd_lumen(args)
+    if args.command == "inspect":
+        return _cmd_inspect(args)
+    if args.command == "export":
+        return _cmd_export(args)
+    if args.command == "check":
+        return _cmd_check(args)
+    if args.command == "synth":
+        return _cmd_synth(args)
+    parser.error(f"unknown command: {args.command}")
+    return 2
+
+
+def _cmd_web(args: argparse.Namespace) -> int:
+    # Lazy: the web stack (FastAPI/uvicorn) is imported only for this command,
+    # so importing meshforge.cli never pulls it (rule 5 / D50).
+    from meshforge.web.server import serve
+
+    serve(port=args.port)
+    return 0
+
+
+def _cmd_desktop(args: argparse.Namespace) -> int:
+    # Lazy: the shell pulls PySide6/QtWebEngine only for this command, so
+    # importing meshforge.cli never pulls Qt (rule 5 / D50; V35b).
+    from meshforge.gui.shell import run
+
+    return run(port=args.port)
+
+
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    # Lazy imports: subcommands must not pull deps they don't use.
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.quality import inspect_surface
+
+    surface: Path = args.surface
+    try:
+        checksum_before = file_sha256(surface)
+        mesh = load_surface(surface)
+        report = inspect_surface(mesh, path=str(surface), sha256=checksum_before)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface) != checksum_before:
+        print(f"error: input file changed on disk during inspection: {surface}", file=sys.stderr)
+        return 1
+
+    outputs: Path = args.outputs
+    outputs.mkdir(parents=True, exist_ok=True)
+    json_path = outputs / f"{surface.stem}_inspect.json"
+    txt_path = outputs / f"{surface.stem}_inspect.txt"
+    json_path.write_text(report.to_json() + "\n")
+    txt_path.write_text(report.to_text())
+
+    print(report.to_text(), end="")
+    print(f"report      : {json_path}")
+    print(f"report      : {txt_path}")
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    from meshforge.export import DEFAULT_FORMAT, SUPPORTED_FORMATS, export_surface
+    from meshforge.io import file_sha256, load_surface
+
+    surface: Path = args.surface
+    out: Path | None = args.out
+    if out is None:
+        fmt = (args.fmt or DEFAULT_FORMAT).lower()
+        suffix = SUPPORTED_FORMATS.get(fmt, f".{fmt}")
+        out = args.outputs / f"{surface.stem}{suffix}"
+
+    try:
+        checksum_before = file_sha256(surface)
+        mesh = load_surface(surface)
+        written = export_surface(mesh, out, fmt=args.fmt, input_path=surface)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface) != checksum_before:
+        print(f"error: input file changed on disk during export: {surface}", file=sys.stderr)
+        return 1
+
+    print(f"exported    : {surface} -> {written}")
+    return 0
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.quality import check_surface
+
+    surface: Path = args.surface
+    try:
+        checksum_before = file_sha256(surface)
+        mesh = load_surface(surface)
+        report = check_surface(mesh, path=str(surface), sha256=checksum_before)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface) != checksum_before:
+        print(f"error: input file changed on disk during check: {surface}", file=sys.stderr)
+        return 1
+
+    outputs: Path = args.outputs
+    outputs.mkdir(parents=True, exist_ok=True)
+    json_path = outputs / f"{surface.stem}_check.json"
+    txt_path = outputs / f"{surface.stem}_check.txt"
+    json_path.write_text(report.to_json() + "\n")
+    txt_path.write_text(report.to_text())
+
+    print(report.to_text(), end="")
+    print(f"report             : {json_path}")
+    print(f"report             : {txt_path}")
+    return 0
+
+
+def _parse_param(item: str) -> tuple[str, float | int]:
+    """Parse KEY=VALUE into a numeric generator parameter (no eval)."""
+    key, sep, raw = item.partition("=")
+    if not sep or not key or not raw:
+        raise ValueError(f"expected KEY=VALUE, got {item!r}")
+    try:
+        return key, int(raw)
+    except ValueError:
+        pass
+    try:
+        return key, float(raw)
+    except ValueError:
+        raise ValueError(f"parameter {key!r} must be numeric, got {raw!r}") from None
+
+
+def _cmd_synth(args: argparse.Namespace) -> int:
+    from meshforge.synth import GENERATORS, generate, generate_primitive
+
+    try:
+        params = dict(_parse_param(item) for item in args.params)
+        from meshforge.synth import TREES, generate_tree
+
+        if args.shape in GENERATORS:
+            surface, truth = generate(args.shape, **params)
+        elif args.shape in TREES:
+            surface, truth = generate_tree(args.shape, **params)
+        else:  # primitive registry; unknown names fail loudly listing all
+            try:
+                surface, truth = generate_primitive(args.shape, **params)
+            except ValueError as exc:
+                if "unknown primitive" in str(exc):
+                    from meshforge.synth import PRIMITIVES
+
+                    raise ValueError(
+                        f"unknown shape {args.shape!r}; available: "
+                        f"{', '.join(sorted(GENERATORS) + sorted(PRIMITIVES) + sorted(TREES))}"
+                    ) from None
+                raise
+        if args.degrade_noise or args.degrade_holes or args.degrade_dup_faces:
+            from meshforge.quality import degrade_surface
+
+            surface = degrade_surface(
+                surface,
+                noise=args.degrade_noise,
+                poke_holes=args.degrade_holes,
+                duplicate_faces=args.degrade_dup_faces,
+            )
+            print(
+                f"degraded    : noise={args.degrade_noise} "
+                f"holes={args.degrade_holes} dup_faces={args.degrade_dup_faces}"
+            )
+    except (ValueError, TypeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    outputs: Path = args.outputs
+    outputs.mkdir(parents=True, exist_ok=True)
+    surface_path = outputs / f"{args.shape}.vtp"
+    truth_path = outputs / f"{args.shape}_truth.json"
+    surface.save(surface_path)
+    truth_path.write_text(truth.to_json() + "\n")
+
+    vol = "n/a" if truth.volume is None else f"{truth.volume:.6g}"
+    area = "n/a" if truth.surface_area is None else f"{truth.surface_area:.6g}"
+    print(f"shape       : {truth.shape}  ({surface.n_points} pts, {surface.n_cells} tris)")
+    if hasattr(truth, "branches"):
+        j = truth.junction
+        print(
+            f"branches    : {truth.n_branches}   junction: "
+            f"({j[0]:.6g}, {j[1]:.6g}, {j[2]:.6g})"
+        )
+    elif hasattr(truth, "length"):
+        print(f"length      : {truth.length:.6g}   closed loop: {truth.closed}")
+    else:
+        print(f"exact truth : {truth.exact}   expected faces: {truth.n_faces}")
+    print(f"truth volume: {vol}   truth area: {area}")
+    print(f"surface     : {surface_path}")
+    print(f"truth       : {truth_path}")
+    return 0
+
+
+def _cmd_import_cad(args: argparse.Namespace) -> int:
+    from meshforge.io import file_sha256
+    from meshforge.io.cad import list_blocks, load_profile
+
+    src: Path = args.file
+    try:
+        checksum_before = file_sha256(src)
+        if args.list_blocks:
+            entries = list_blocks(src)
+            print(f"blocks in   : {src}")
+            for e in entries:
+                types = ", ".join(f"{k} x{v}" for k, v in sorted(e["types"].items()))
+                print(
+                    f"  {e['name']:<28} {e['n_entities']:>5} entities, "
+                    f"{e['n_supported']:>5} supported  [{types}]"
+                )
+            if file_sha256(src) != checksum_before:
+                print(f"error: input file changed on disk: {src}", file=sys.stderr)
+                return 1
+            return 0
+        layers = None
+        if args.layers:
+            layers = [s.strip() for s in args.layers.split(",") if s.strip()]
+        profile = load_profile(
+            src,
+            block=args.block,
+            chain_tol=args.chain_tol,
+            arc_tol=args.arc_tol,
+            layers=layers,
+            mode=args.mode,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(src) != checksum_before:
+        print(f"error: input file changed on disk during import: {src}", file=sys.stderr)
+        return 1
+
+    outputs: Path = args.outputs
+    outputs.mkdir(parents=True, exist_ok=True)
+    json_path = outputs / f"{src.stem}_profile.json"
+    txt_path = outputs / f"{src.stem}_profile.txt"
+    json_path.write_text(profile.to_json() + "\n")
+    txt_path.write_text(profile.to_text())
+
+    print(profile.to_text(), end="")
+    print(f"profile     : {json_path}")
+    print(f"report      : {txt_path}")
+    return 0 if profile.mesh_ready else 1
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    from meshforge.pipeline import load_workfile, replay
+
+    overrides: dict[str, dict] = {}
+    try:
+        for item in args.overrides:
+            key, sep, raw = item.partition("=")
+            step, dot, knob = key.partition(".")
+            if not sep or not dot:
+                raise ValueError(f"--set expects STEP.KNOB=VALUE, got {item!r}")
+            _, value = _parse_param(f"{knob}={raw}")
+            overrides.setdefault(step, {})[knob] = value
+        session = load_workfile(args.workfile)
+        results = replay(session, overrides)
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    for result in results:
+        print(result.text, end="")
+    if args.save_workfile is not None:
+        written = session.save_workfile(args.save_workfile)
+        print(f"workfile    : {written}")
+    print(f"replayed    : {len(results)} step(s) from {args.workfile}")
+    return 0
+
+
+def _cmd_repair(args: argparse.Namespace) -> int:
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.quality import repair_surface
+
+    src: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{src.stem}_repaired.vtp")
+    try:
+        checksum_before = file_sha256(src)
+        mesh = load_surface(src)
+        repaired, report = repair_surface(
+            mesh, merge_tol=args.merge_tol, max_hole_edges=args.max_hole_edges
+        )
+        guard_output_path(out, input_paths=[src])
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(src) != checksum_before:
+        print(f"error: input changed on disk during repair: {src}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    repaired.save(out)
+    json_path = args.outputs / f"{src.stem}_repair.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(report.to_json() + "\n")
+
+    print(report.to_text(), end="")
+    print(f"repaired    : {out}")
+    print(f"report      : {json_path}")
+    return 0 if report.mesh_ready else 1
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    from meshforge.recipes import run_recipe
+
+    overrides: dict = {}
+    try:
+        import yaml
+
+        for item in args.overrides:
+            key, sep, raw = item.partition("=")
+            if not sep or "." not in key:
+                raise ValueError(f"--set expects STEP.PARAM=VALUE, got {item!r}")
+            overrides[key] = yaml.safe_load(raw)
+        manifest = run_recipe(args.recipe, outputs=args.outputs, overrides=overrides)
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    for v in manifest["variants"]:
+        mark = "ok    " if v["status"] == "ok" else "FAILED"
+        extra = f"  ({v['error']})" if v["error"] else ""
+        q = v["quality"]
+        qtxt = (
+            f"  inverted={q['n_inverted']} sj_min={q['sj_min']:.4g}" if q else ""
+        )
+        print(f"variant {mark}: {v['slug']}{qtxt}{extra}")
+    print(
+        f"recipe      : {manifest['recipe']}  "
+        f"({manifest['n_ok']} ok, {manifest['n_failed']} failed)"
+    )
+    print(f"manifest    : {args.outputs / manifest['recipe'] / 'manifest.json'}")
+    return 0 if manifest["n_failed"] == 0 else 1
+
+
+def _cmd_blocks(args: argparse.Namespace) -> int:
+    import json
+
+    import numpy as np
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256
+    from meshforge.meshing import build_block_mesh, extrude_blocks
+
+    src: Path = args.profile
+    out: Path = args.out or (args.outputs / f"{src.stem}_blocks.vtu")
+
+    try:
+        checksum_before = file_sha256(src)
+        from meshforge.meshing.blocks import select_loops
+
+        data = json.loads(src.read_text())
+        selected, n_matched = select_loops(
+            data["loops"],
+            data["components"],
+            outer=args.outer,
+            component_holes=args.component_holes,
+            holes_like=args.holes_like,
+            holes_tol=args.holes_tol,
+        )
+        if n_matched:
+            print(f"holes-like  : matched {n_matched} component(s)")
+
+        target = args.target_size
+        if target is None:
+            allpts = np.vstack(selected)
+            target = float(np.hypot(*(allpts.max(0) - allpts.min(0)))) / 60.0
+        if args.ogrid and args.project:
+            raise ValueError("--ogrid and --project are mutually exclusive")
+        if args.ogrid and args.grade_ratio != 1.0:
+            raise ValueError(
+                "--grade-ratio applies to lattice meshes only, not --ogrid"
+            )
+        if args.ogrid:
+            from meshforge.meshing import ogrid_disk
+
+            bm = ogrid_disk(
+                selected, target_size=target, core_fraction=args.core_fraction
+            )
+        elif args.project:
+            from meshforge.meshing import project_profile
+
+            bm = project_profile(
+                selected, target_size=target, grade_ratio=args.grade_ratio
+            )
+        else:
+            bm = build_block_mesh(
+                selected, target_size=target, grade_ratio=args.grade_ratio
+            )
+        if args.smooth:
+            from meshforge.meshing.smooth import smooth_lattice
+
+            bm = smooth_lattice(bm)
+            if args.grade_ratio > 1.0:
+                bm.notes.append(
+                    "WARNING: Winslow smoothing equidistributes — it partially "
+                    "undoes the transition grading"
+                )
+        wall = extrude_blocks(bm, thickness=args.thickness, n_layers=args.n_layers)
+        guard_output_path(out, input_paths=[src])
+    except (FileNotFoundError, KeyError, TypeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(src) != checksum_before:
+        print(f"error: input changed on disk: {src}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wall.grid.save(out)
+    summary = wall.summary()
+    summary_path = out.with_suffix(".summary.json")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    q = summary["quality"]
+    print(f"backend     : {summary['backend']}")
+    print(f"cells       : {summary['n_cells']}  points: {summary['n_points']}")
+    print(f"boundary    : {summary['boundary_faces']}")
+    print(
+        f"quality     : inverted={q['n_inverted']}  sj_min={q['sj_min']:.4g}  "
+        f"volume={q['total_volume']:.6g}"
+    )
+    for note in summary["notes"]:
+        print(f"note        : {note}")
+    print(f"mesh        : {out}")
+    print(f"summary     : {summary_path}")
+    return 0 if q["n_inverted"] == 0 else 1
+
+
+def _cmd_deck(args: argparse.Namespace) -> int:
+    from meshforge.export.deck import (
+        BoundaryCondition,
+        DeckSpec,
+        Load,
+        Material,
+        PhysicalConstants,
+        Step,
+        lateral_pins,
+        write_deck,
+    )
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing import get_backend
+
+    surface_path: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{surface_path.stem}_{args.target}.inp")
+
+    try:
+        # Trap #5 precedence: exactly one thickness source, loudly.
+        if args.thickness is not None and args.outer_surface is not None:
+            raise ValueError(
+                "--thickness and --outer-surface are mutually exclusive; "
+                "drop --thickness to use the measured outer surface"
+            )
+        if args.thickness is None and args.outer_surface is None:
+            raise ValueError("give either --thickness or --outer-surface")
+
+        if args.material == "elastic":
+            if args.E is None or args.nu is None:
+                raise ValueError("--material elastic needs --E and --nu")
+            material = Material.elastic(
+                args.E, args.nu, density=args.density,
+                expansion=args.expansion,
+            )
+        elif args.material == "thermal":
+            if args.conductivity_table is not None:
+                if args.conductivity is not None:
+                    raise ValueError(
+                        "give either --conductivity or --conductivity-table, "
+                        "not both"
+                    )
+                rows = []
+                for tok in filter(None, (t.strip() for t in
+                                         args.conductivity_table.split(","))):
+                    k_str, sep, t_str = tok.partition("@")
+                    if not sep:
+                        raise ValueError(
+                            f"--conductivity-table entry {tok!r}: expected k@T"
+                        )
+                    rows.append((float(k_str), float(t_str)))
+                material = Material.thermal(
+                    rows, density=args.density, specific_heat=args.specific_heat,
+                )
+            elif args.conductivity is None:
+                raise ValueError(
+                    "--material thermal needs --conductivity or "
+                    "--conductivity-table"
+                )
+            else:
+                material = Material.thermal(
+                    args.conductivity,
+                    density=args.density,
+                    specific_heat=args.specific_heat,
+                )
+        elif args.material == "neo_hooke":
+            if args.c10 is None or args.d1 is None:
+                raise ValueError("--material neo_hooke needs --c10 and --d1")
+            material = Material.neo_hookean(args.c10, args.d1, density=args.density)
+        else:
+            if args.c10 is None or args.c01 is None or args.d1 is None:
+                raise ValueError(
+                    "--material mooney_rivlin needs --c10, --c01 and --d1"
+                )
+            material = Material.mooney_rivlin(
+                args.c10, args.c01, args.d1, density=args.density
+            )
+        if args.expansion is not None and args.material != "elastic":
+            raise ValueError(
+                "--expansion applies to --material elastic only (thermal "
+                "stress needs an elastic material)"
+            )
+
+        bcs: list[BoundaryCondition] = []
+        for item in args.fix:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) not in (2, 3):
+                raise ValueError(f"--fix expects NAME,first[,last], got {item!r}")
+            bcs.append(
+                BoundaryCondition(
+                    parts[0],
+                    int(parts[1]),
+                    int(parts[2]) if len(parts) == 3 else None,
+                )
+            )
+        loads: list[Load] = []
+        for item in args.pressure:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 2:
+                raise ValueError(f"--pressure expects NAME,value, got {item!r}")
+            loads.append(Load.pressure(parts[0], float(parts[1])))
+        for item in args.cload:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"--cload expects NAME,dof,value, got {item!r}")
+            target: str | int = int(parts[0]) if parts[0].isdigit() else parts[0]
+            loads.append(Load.concentrated(target, int(parts[1]), float(parts[2])))
+        for item in args.temp:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 2:
+                raise ValueError(f"--temp expects NAME,value, got {item!r}")
+            bcs.append(BoundaryCondition(parts[0], 11, 11, float(parts[1])))
+        for item in args.flux:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 2:
+                raise ValueError(f"--flux expects NAME,value, got {item!r}")
+            loads.append(Load.surface_flux(parts[0], float(parts[1])))
+        for item in args.film:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"--film expects NAME,sink,h, got {item!r}")
+            loads.append(Load.film(parts[0], float(parts[1]), float(parts[2])))
+        for item in args.radiate:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 3:
+                raise ValueError(
+                    f"--radiate expects NAME,sink,emiss, got {item!r}"
+                )
+            loads.append(Load.radiate(parts[0], float(parts[1]), float(parts[2])))
+
+        physical_constants = None
+        if args.radiate:
+            if args.stefan_boltzmann is None or args.absolute_zero is None:
+                raise ValueError(
+                    "--radiate needs --stefan-boltzmann and --absolute-zero "
+                    "(the *PHYSICAL CONSTANTS for the σT⁴ law)"
+                )
+            physical_constants = PhysicalConstants(
+                stefan_boltzmann=args.stefan_boltzmann,
+                absolute_zero=args.absolute_zero,
+            )
+        elif args.stefan_boltzmann is not None or args.absolute_zero is not None:
+            raise ValueError(
+                "--stefan-boltzmann/--absolute-zero only feed --radiate — add "
+                "a --radiate load or drop them"
+            )
+
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        if args.outer_surface is not None:
+            from meshforge.geometry import ThicknessSpec
+
+            t_arg = ThicknessSpec.from_outer_surface(load_surface(args.outer_surface))
+        else:
+            t_arg = args.thickness
+        backend = get_backend(args.backend)
+        kwargs: dict = {"n_theta": args.n_theta, "n_axial": args.n_axial}
+        if args.backend == "swept":
+            kwargs["n_layers"] = args.n_layers
+            kwargs["layer_ratio"] = args.layer_ratio
+        if args.backend == "tet" and args.mesh_size is not None:
+            kwargs["mesh_size"] = args.mesh_size
+        wall = backend.mesh_wall(mesh, t_arg, **kwargs)
+        if wall.quality.n_inverted > 0:
+            raise ValueError(
+                f"refusing to write a deck from a mesh with "
+                f"{wall.quality.n_inverted} inverted cell(s)"
+            )
+        if args.pin_lateral:
+            bcs.extend(lateral_pins(wall))
+
+        # V45 thermal load: uniform value, or a solved heat frd's NDTEMP
+        # re-emitted per-node (the frd must BE this mesh — same 1..N ids and
+        # coordinates). Trap-level refusals (missing --expansion/--t-ref)
+        # are DeckSpec.validate()'s.
+        if args.temperature is not None and args.temperature_from is not None:
+            raise ValueError(
+                "give either --temperature or --temperature-from, not both"
+            )
+        if args.temperature_time is not None and args.temperature_from is None:
+            raise ValueError(
+                "--temperature-time selects a snapshot from the "
+                "--temperature-from frd's transient history — add "
+                "--temperature-from, or drop it"
+            )
+        nodal_temps = None
+        if args.temperature_from is not None:
+            import numpy as np
+
+            from meshforge.solve import nodal_temperatures, read_frd
+
+            frd_path = Path(args.temperature_from)
+            if not frd_path.is_file():
+                raise ValueError(
+                    f"--temperature-from frd not found: {frd_path}"
+                )
+            frd = read_frd(frd_path)
+            n = wall.grid.n_points
+            if len(frd.node_ids) != n or not np.array_equal(
+                frd.node_ids, np.arange(1, n + 1)
+            ):
+                raise ValueError(
+                    f"--temperature-from frd carries {len(frd.node_ids)} "
+                    f"node(s) that are not this wall mesh's 1..{n} — the "
+                    f"temperature field belongs to a different mesh"
+                )
+            pts = np.asarray(wall.grid.points)
+            scale = max(1.0, float(np.abs(pts).max()))
+            if not np.allclose(pts, frd.points, rtol=0.0, atol=2e-5 * scale):
+                raise ValueError(
+                    "--temperature-from frd node coordinates do not match "
+                    "this wall mesh — the temperature field belongs to a "
+                    "different mesh"
+                )
+            nodal_temps = nodal_temperatures(frd, time=args.temperature_time)
+
+        # nlgeom, preloaded, the transient knobs and the riks knobs are passed
+        # through for every kind so --nlgeom/--preloaded/--dt/--riks with the
+        # wrong step fail loudly, never dropped.
+        passthrough = dict(
+            transient=args.transient, dt=args.dt, period=args.period,
+            initial_temperature=args.t0, preloaded=args.preloaded,
+            riks=args.riks, riks_max_lpf=args.riks_max_lpf,
+            riks_dl_init=args.riks_dl_init, riks_dl_min=args.riks_dl_min,
+            riks_dl_max=args.riks_dl_max,
+        )
+        step = (
+            Step(
+                kind="frequency", n_modes=args.n_modes, nlgeom=args.nlgeom,
+                **passthrough,
+            )
+            if args.analysis == "frequency"
+            else Step(
+                kind="buckle", n_modes=args.n_modes, nlgeom=args.nlgeom,
+                **passthrough,
+            )
+            if args.analysis == "buckle"
+            else Step(kind="heat", nlgeom=args.nlgeom, **passthrough)
+            if args.analysis == "heat"
+            else Step(nlgeom=args.nlgeom, **passthrough)
+        )
+        spec = DeckSpec(
+            material=material,
+            step=step,
+            boundary_conditions=tuple(bcs),
+            loads=tuple(loads),
+            target=args.target,
+            formulation=args.formulation,
+            physical_constants=physical_constants,
+            uniform_temperature=args.temperature,
+            nodal_temperatures=nodal_temps,
+            reference_temperature=args.t_ref,
+        )
+        written = write_deck(
+            wall, spec, out, input_path=surface_path
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(
+            f"error: input changed on disk during deck build: {surface_path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    q = wall.quality
+    print(f"target      : {spec.target}  formulation: {spec.resolved_formulation()}")
+    print(f"material    : {material.kind}  {material.params}")
+    print(f"cells       : {wall.grid.n_cells}  points: {wall.grid.n_points}")
+    print(f"quality     : inverted={q.n_inverted}  sj_min={q.sj_min:.4g}")
+    print(f"bcs/loads   : {len(bcs)} boundary condition(s), {len(loads)} load(s)")
+    print(f"deck        : {written}")
+    return 0
+
+
+def _cmd_blayers(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing.prism import mesh_boundary_layers
+
+    surface_path: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{surface_path.stem}_blayers.vtu")
+
+    try:
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        wall = mesh_boundary_layers(
+            mesh,
+            args.first,
+            n_layers=args.n_layers,
+            growth=args.growth,
+            normal_smoothing=args.normal_smoothing,
+        )
+        guard_output_path(out, input_paths=[surface_path])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(f"error: input changed on disk during meshing: {surface_path}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wall.grid.save(out)
+    summary = wall.summary()
+    summary_path = out.with_suffix(".summary.json")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    q = summary["quality"]
+    print(f"cells       : {summary['n_cells']} wedges  points: {summary['n_points']}")
+    print(f"boundary    : {summary['boundary_faces']}")
+    print(
+        f"quality     : inverted={q['n_inverted']}  sj_min={q['sj_min']:.4g}  "
+        f"volume={q['total_volume']:.6g}"
+    )
+    for note in summary["notes"]:
+        print(f"note        : {note}")
+    print(f"mesh        : {out}")
+    print(f"summary     : {summary_path}")
+    return 0 if q["n_inverted"] == 0 else 1
+
+
+def _cmd_import_image(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io.image import load_volume, volume_input_sha256, volume_to_surface
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.volume
+    out: Path = args.out or (args.outputs / f"{src.stem}_surface.vtp")
+
+    try:
+        checksum_before = volume_input_sha256(src)
+        array, spacing, origin = load_volume(src)
+        if args.spacing:
+            parts = [s.strip() for s in args.spacing.split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"--spacing expects X,Y,Z, got {args.spacing!r}")
+            spacing = tuple(float(v) for v in parts)
+        surface, provenance = volume_to_surface(
+            array, args.level, spacing=spacing, origin=origin
+        )
+        guard_output_path(out, input_paths=[src if src.is_file() else None])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if volume_input_sha256(src) != checksum_before:
+        print(f"error: input changed on disk during import: {src}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    surface.save(out)
+    report = check_surface(surface, path=str(src), sha256=checksum_before)
+    provenance["check"] = report.to_dict()
+    prov_path = out.parent / f"{src.stem}_image.json"
+    prov_path.write_text(json.dumps(provenance, indent=2) + "\n")
+
+    print(f"volume      : shape {provenance['shape']}  spacing {provenance['spacing']}")
+    print(f"iso level   : {provenance['level']:g}  (data {provenance['data_range'][0]:.6g}"
+          f"..{provenance['data_range'][1]:.6g})")
+    print(f"mesh        : {provenance['n_points']} pts, {provenance['n_triangles']} tris")
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+    for note in provenance["notes"]:
+        print(f"note        : {note}")
+    print(f"surface     : {out}")
+    print(f"provenance  : {prov_path}")
+    if not report.mesh_ready:
+        print("error: iso-surface is not mesh_ready — see check report",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_import_cso(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io.cso import cso_input_sha256, cso_to_surface, load_cso
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.file
+    out: Path = args.out or (args.outputs / f"{src.stem}_surface.vtp")
+
+    method = args.method
+    dicom_before = None
+    try:
+        checksum_before = cso_input_sha256(src)
+        data = load_cso(src, on_open=args.on_open)
+        grid = None
+        if args.dicom is not None:
+            from meshforge.io.image import dicom_grid, volume_input_sha256
+
+            dicom_before = volume_input_sha256(args.dicom)  # rule 1
+            grid = dicom_grid(args.dicom)
+            method = "voxel"
+        if method == "auto":
+            from meshforge.pipeline import auto_cso_surface
+
+            surface, provenance, _cl, strategy = auto_cso_surface(
+                data,
+                n_ring=args.n_ring,
+                voxel_size=args.voxel_size,
+                cap_ends=not args.no_cap,
+            )
+        else:
+            surface, provenance = cso_to_surface(
+                data,
+                method=method,
+                n_ring=args.n_ring,
+                voxel_size=args.voxel_size,
+                cap_ends=not args.no_cap,
+                grid=grid,
+            )
+            strategy = provenance["method"]
+        provenance["strategy"] = strategy
+        guard_output_path(out, input_paths=[src])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if cso_input_sha256(src) != checksum_before:
+        print(f"error: input changed on disk during import: {src}", file=sys.stderr)
+        return 1
+    if args.dicom is not None and volume_input_sha256(args.dicom) != dicom_before:
+        print(f"error: DICOM changed on disk during import: {args.dicom}", file=sys.stderr)
+        return 1
+
+    provenance.update(
+        {
+            "version": list(data.version),
+            "n_contours": len(data.contours),
+            "n_guides": len(data.guides),
+            "on_open": args.on_open,
+            "frameOfReferenceUID": data.frame_of_reference_uid,
+            "seriesInstanceUID": data.series_instance_uid,
+        }
+    )
+    if args.dicom is not None:
+        provenance["dicom"] = str(args.dicom)
+        provenance["dicom_sha256"] = dicom_before
+    provenance["notes"] = list(provenance.get("notes", [])) + list(data.notes)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    surface.save(out)
+    report = check_surface(surface, path=str(src), sha256=checksum_before)
+    provenance["check"] = report.to_dict()
+    prov_path = out.parent / f"{src.stem}_cso.json"
+    prov_path.write_text(json.dumps(provenance, indent=2) + "\n")
+
+    print(f"contours    : {provenance['n_contours']}  guides {provenance['n_guides']}"
+          f"  version {tuple(data.version)}")
+    print(f"method      : {provenance['method']}")
+    print(f"strategy    : {provenance.get('strategy', provenance['method'])}")
+    print(f"mesh        : {provenance['n_points']} pts, {provenance['n_triangles']} tris")
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+    for note in provenance["notes"]:
+        print(f"note        : {note}")
+    print(f"surface     : {out}")
+    print(f"provenance  : {prov_path}")
+    if not report.mesh_ready:
+        print("error: CSO surface is not mesh_ready — see check report",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_import_cad3d(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256
+    from meshforge.io.cad3d import load_solid
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.file
+    out: Path = args.out or (args.outputs / f"{src.stem}_surface.vtp")
+
+    try:
+        checksum_before = file_sha256(src)
+        surface, provenance = load_solid(
+            src, mesh_size=args.mesh_size, mesh_size_factor=args.mesh_size_factor
+        )
+        guard_output_path(out, input_paths=[src])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(src) != checksum_before:
+        print(f"error: input file changed on disk during import: {src}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    surface.save(out)
+    report = check_surface(surface, path=str(src), sha256=checksum_before)
+    provenance["check"] = report.to_dict()
+    prov_path = out.parent / f"{src.stem}_cad3d.json"
+    prov_path.write_text(json.dumps(provenance, indent=2) + "\n")
+
+    print(f"format      : {provenance['format']}  volumes: {provenance['n_volumes']}"
+          f"  surfaces: {provenance['n_surfaces']}")
+    print(f"mesh        : {provenance['n_points']} pts, "
+          f"{provenance['n_triangles']} tris (size {provenance['mesh_size']:.6g})")
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+    print(f"surface     : {out}")
+    print(f"provenance  : {prov_path}")
+    if not report.mesh_ready:
+        print("error: imported surface is not mesh_ready — see check report",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_foam(args: argparse.Namespace) -> int:
+    from meshforge.export.foam import write_polymesh
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing import get_backend, valid_group_name
+
+    surface_path: Path = args.surface
+    case: Path = args.case or (args.outputs / f"{surface_path.stem}_foam")
+
+    try:
+        if args.thickness is not None and args.outer_surface is not None:
+            raise ValueError(
+                "--thickness and --outer-surface are mutually exclusive; "
+                "drop --thickness to use the measured outer surface"
+            )
+        if args.thickness is None and args.outer_surface is None:
+            raise ValueError("give either --thickness or --outer-surface")
+        if args.default_patch is not None:
+            valid_group_name(args.default_patch)  # F1: minted patch name
+        patch_types: dict[str, str] = {}
+        for item in args.patch_type:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 2 or not all(parts):
+                raise ValueError(f"--patch-type expects NAME,TYPE, got {item!r}")
+            patch_types[valid_group_name(parts[0])] = parts[1]  # F1
+
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        if args.outer_surface is not None:
+            from meshforge.geometry import ThicknessSpec
+
+            t_arg = ThicknessSpec.from_outer_surface(load_surface(args.outer_surface))
+        else:
+            t_arg = args.thickness
+        backend = get_backend(args.backend)
+        kwargs: dict = {"n_theta": args.n_theta, "n_axial": args.n_axial}
+        if args.backend == "swept":
+            kwargs["n_layers"] = args.n_layers
+            kwargs["layer_ratio"] = args.layer_ratio
+        if args.backend == "tet" and args.mesh_size is not None:
+            kwargs["mesh_size"] = args.mesh_size
+        wall = backend.mesh_wall(mesh, t_arg, **kwargs)
+        if wall.quality.n_inverted > 0:
+            raise ValueError(
+                f"refusing to export a mesh with "
+                f"{wall.quality.n_inverted} inverted cell(s)"
+            )
+        written = write_polymesh(
+            wall, case, patch_types=patch_types,
+            default_patch=args.default_patch, input_path=surface_path,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(
+            f"error: input changed on disk during export: {surface_path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    q = wall.quality
+    print(f"cells       : {wall.grid.n_cells}  points: {wall.grid.n_points}")
+    print(f"quality     : inverted={q.n_inverted}  sj_min={q.sj_min:.4g}")
+    print(
+        "patches     : "
+        + "  ".join(f"{k}({g.n_faces})" for k, g in wall.boundary.items())
+    )
+    print(f"polyMesh    : {written}")
+    return 0
+
+
+def _cmd_fluent(args: argparse.Namespace) -> int:
+    from meshforge.export.fluent import write_fluent
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing import get_backend, valid_group_name
+
+    surface_path: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{surface_path.stem}.msh")
+
+    try:
+        if args.thickness is not None and args.outer_surface is not None:
+            raise ValueError(
+                "--thickness and --outer-surface are mutually exclusive; "
+                "drop --thickness to use the measured outer surface"
+            )
+        if args.thickness is None and args.outer_surface is None:
+            raise ValueError("give either --thickness or --outer-surface")
+        if args.default_patch is not None:
+            valid_group_name(args.default_patch)  # F1: minted zone name
+        bc_types: dict[str, str] = {}
+        for item in args.bc_type:
+            parts = [p.strip() for p in item.split(",")]
+            if len(parts) != 2 or not all(parts):
+                raise ValueError(f"--bc-type expects NAME,TYPE, got {item!r}")
+            bc_types[valid_group_name(parts[0])] = parts[1]  # F1
+
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        if args.outer_surface is not None:
+            from meshforge.geometry import ThicknessSpec
+
+            t_arg = ThicknessSpec.from_outer_surface(load_surface(args.outer_surface))
+        else:
+            t_arg = args.thickness
+        backend = get_backend(args.backend)
+        kwargs: dict = {"n_theta": args.n_theta, "n_axial": args.n_axial}
+        if args.backend == "swept":
+            kwargs["n_layers"] = args.n_layers
+            kwargs["layer_ratio"] = args.layer_ratio
+        if args.backend == "tet" and args.mesh_size is not None:
+            kwargs["mesh_size"] = args.mesh_size
+        wall = backend.mesh_wall(mesh, t_arg, **kwargs)
+        if wall.quality.n_inverted > 0:
+            raise ValueError(
+                f"refusing to export a mesh with "
+                f"{wall.quality.n_inverted} inverted cell(s)"
+            )
+        written = write_fluent(
+            wall, out, bc_types=bc_types,
+            default_patch=args.default_patch, input_path=surface_path,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(
+            f"error: input changed on disk during export: {surface_path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    q = wall.quality
+    print(f"cells       : {wall.grid.n_cells}  points: {wall.grid.n_points}")
+    print(f"quality     : inverted={q.n_inverted}  sj_min={q.sj_min:.4g}")
+    print(
+        "zones       : "
+        + "  ".join(f"{k}({g.n_faces})" for k, g in wall.boundary.items())
+    )
+    print(f"fluent mesh : {written}")
+    return 0
+
+
+def _cmd_cfd(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.pipeline import _parse_inlet_spec, _parse_outlet_spec
+    from meshforge.solve import CfdBC, CfdSpec, check_mesh, solve_case, write_case_files
+
+    case: Path = args.case
+    try:
+        if args.checkmesh:
+            report = check_mesh(case, timeout=args.timeout)
+            print(f"checkMesh   : Mesh OK  {report}")
+            return 0
+
+        builds_case = bool(
+            args.inlet or args.outlet or args.moving_wall or args.empty
+        )
+        if not builds_case and args.turbulence != "laminar":
+            raise ValueError(
+                "--turbulence applies only when the solver files are built "
+                "here (--inlet/--outlet/--moving-wall); a complete case "
+                "already carries its turbulence setup"
+            )
+        if not builds_case and args.closed_cavity:
+            raise ValueError(
+                "--closed-cavity applies only when the solver files are "
+                "built here; a complete case already carries its fvSolution"
+            )
+        if builds_case:
+            bcs: dict[str, CfdBC] = {}
+            if args.inlet:
+                name, velocity = _parse_inlet_spec(args.inlet)
+                bcs[name] = CfdBC("velocity", velocity)
+            if args.outlet:
+                name, p_value = _parse_outlet_spec(args.outlet)
+                bcs[name] = CfdBC("pressure", p_value)
+            if args.moving_wall:
+                name, velocity = _parse_inlet_spec(args.moving_wall)
+                bcs[name] = CfdBC("moving_wall", velocity)
+            for patch in filter(
+                None, (p.strip() for p in (args.empty or "").split(","))
+            ):
+                bcs[patch] = CfdBC("empty")
+            spec = CfdSpec(
+                solver=args.solver,
+                nu=args.nu,
+                bcs=bcs,
+                end_time=args.end_time,
+                delta_t=args.delta_t,
+                write_interval=args.write_interval,
+                turbulence=args.turbulence,
+                turbulence_intensity=args.intensity,
+                turbulence_length=args.turb_length,
+                closed_cavity=args.closed_cavity,
+                p_ref_cell=args.p_ref_cell,
+                p_ref_value=args.p_ref_value,
+            )
+            patch_kinds = write_case_files(case, spec)
+            print(f"case        : {case}  patches {patch_kinds}")
+        result = solve_case(case, timeout=args.timeout, series=args.series)
+
+        out_dir: Path = args.outputs / "cfd" / case.name
+        vtu = out_dir / f"{case.name}_results.vtu"
+        guard_output_path(vtu, input_paths=[])
+        frame_paths = []
+        if result.frames is not None:
+            # Index-named (time-named files would depend on float
+            # formatting); the JSON summary maps index -> time.
+            frame_paths = [
+                out_dir / f"{case.name}_t{i:04d}.vtu"
+                for i in range(len(result.frames))
+            ]
+            for path in frame_paths:
+                guard_output_path(path, input_paths=[])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result.grid.save(vtu)
+    for path, frame in zip(frame_paths, result.frames or []):
+        frame.save(path)
+    summary = result.summary()
+    summary["results_vtu"] = str(vtu)
+    if frame_paths:
+        summary["frame_vtus"] = [str(p) for p in frame_paths]
+    summary_path = out_dir / f"{case.name}_cfd.json"
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    print(result.to_text(), end="")
+    print(f"results     : {vtu}")
+    if frame_paths:
+        print(f"frames      : {frame_paths[0].name} .. {frame_paths[-1].name}")
+    print(f"summary     : {summary_path}")
+    return 0
+
+
+def _cmd_solve(args: argparse.Namespace) -> int:
+    if args.deck.suffix.lower() == ".bdf":
+        return _cmd_solve_mystran(args)
+    if args.deck.suffix.lower() == ".k":
+        print(
+            "error: no LS-DYNA solver is wired — .k decks are format-level "
+            "exports only (D29 pattern; validate them in your LS-DYNA "
+            "environment)",
+            file=sys.stderr,
+        )
+        return 1
+    if args.deck.suffix.lower() == ".cdb":
+        print(
+            "error: no ANSYS solver is wired — .cdb decks are format-level "
+            "exports only (D29 pattern; validate them in your ANSYS "
+            "environment)",
+            file=sys.stderr,
+        )
+        return 1
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256
+    from meshforge.solve import frd_to_grid, solve_deck
+
+    deck: Path = args.deck
+    out_dir: Path = args.outputs / "solve" / deck.stem
+
+    try:
+        checksum_before = file_sha256(deck)
+        result = solve_deck(deck, out_dir, ccx=args.ccx, timeout=args.timeout)
+        grid = frd_to_grid(result.frd)
+        vtu = out_dir / f"{deck.stem}_results.vtu"
+        guard_output_path(vtu, input_paths=[deck])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(deck) != checksum_before:
+        print(f"error: deck changed on disk during the solve: {deck}", file=sys.stderr)
+        return 1
+
+    grid.save(vtu)
+    summary = result.summary()
+    summary["results_vtu"] = str(vtu)
+    summary_path = out_dir / f"{deck.stem}_solve.json"
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    print(result.to_text(), end="")
+    print(f"results     : {vtu}")
+    print(f"summary     : {summary_path}")
+    return 0
+
+
+def _cmd_solve_mystran(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256
+    from meshforge.solve import solve_bdf
+
+    deck: Path = args.deck
+    out_dir: Path = args.outputs / "solve" / deck.stem
+
+    try:
+        checksum_before = file_sha256(deck)
+        result = solve_bdf(
+            deck, out_dir, mystran=args.mystran, timeout=args.timeout
+        )
+        # Rebuild the mesh from the bdf (meshio read-back was V15's exactness
+        # check) and attach the F06 displacements as point data.
+        import meshio
+        import numpy as np
+        import pyvista as pv
+
+        mesh = meshio.read(deck, file_format="nastran")
+        grid = pv.from_meshio(mesh)
+        if grid.n_points != len(result.grid_ids):
+            raise RuntimeError(
+                f"F06 grid count {len(result.grid_ids)} != bdf point count "
+                f"{grid.n_points} — deck and results disagree"
+            )
+        grid.point_data["U"] = result.displacements
+        grid.point_data["U_mag"] = np.linalg.norm(result.displacements, axis=1)
+        grid.point_data.active_scalars_name = "U_mag"
+        vtu = out_dir / f"{deck.stem}_results.vtu"
+        guard_output_path(vtu, input_paths=[deck])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(deck) != checksum_before:
+        print(f"error: deck changed on disk during the solve: {deck}", file=sys.stderr)
+        return 1
+
+    grid.save(vtu)
+    summary = result.summary()
+    summary["results_vtu"] = str(vtu)
+    summary_path = out_dir / f"{deck.stem}_solve.json"
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    print(result.to_text(), end="")
+    print(f"results     : {vtu}")
+    print(f"summary     : {summary_path}")
+    return 0
+
+
+def _cmd_volmesh(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing import get_backend
+
+    surface_path: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{surface_path.stem}_wall_{args.backend}.vtu")
+
+    try:
+        # Trap #5 precedence: exactly one thickness source, loudly.
+        if args.thickness is not None and args.outer_surface is not None:
+            raise ValueError(
+                "--thickness and --outer-surface are mutually exclusive; "
+                "drop --thickness to use the measured outer surface"
+            )
+        if args.thickness is None and args.outer_surface is None:
+            raise ValueError("give either --thickness or --outer-surface")
+
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        if args.outer_surface is not None:
+            from meshforge.geometry import ThicknessSpec
+
+            t_arg = ThicknessSpec.from_outer_surface(load_surface(args.outer_surface))
+        else:
+            t_arg = args.thickness
+        backend = get_backend(args.backend)
+        kwargs: dict = {
+            "n_theta": args.n_theta,
+            "n_axial": args.n_axial,
+        }
+        if args.backend == "swept":
+            kwargs["n_layers"] = args.n_layers
+            kwargs["layer_ratio"] = args.layer_ratio
+        if args.backend == "tet" and args.mesh_size is not None:
+            kwargs["mesh_size"] = args.mesh_size
+        if args.backend == "tet" and args.no_optimize:
+            kwargs["optimize"] = False
+        wall = backend.mesh_wall(mesh, t_arg, **kwargs)
+        guard_output_path(out, input_paths=[surface_path, args.outer_surface])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(f"error: input changed on disk during meshing: {surface_path}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wall.grid.save(out)
+    summary = wall.summary()
+    summary_path = out.with_suffix(".summary.json")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    q = summary["quality"]
+    print(f"backend     : {summary['backend']}")
+    print(f"cells       : {summary['n_cells']}  points: {summary['n_points']}")
+    print(f"boundary    : {summary['boundary_faces']}")
+    print(
+        f"quality     : inverted={q['n_inverted']}  "
+        f"sj_min={q['sj_min']:.4g}  sj_mean={q['sj_mean']:.4g}  "
+        f"volume={q['total_volume']:.6g}"
+    )
+    for note in summary["notes"]:
+        print(f"note        : {note}")
+    print(f"mesh        : {out}")
+    print(f"summary     : {summary_path}")
+    return 0 if q["n_inverted"] == 0 else 1
+
+
+def _cmd_lumen(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.meshing.lumen import fill_lumen
+
+    surface_path: Path = args.surface
+    out: Path = args.out or (args.outputs / f"{surface_path.stem}_lumen.vtu")
+
+    try:
+        checksum_before = file_sha256(surface_path)
+        mesh = load_surface(surface_path)
+        lumen = fill_lumen(
+            mesh,
+            method=args.method,
+            n_theta=args.n_theta,
+            n_axial=args.n_axial,
+            core_fraction=args.core_fraction,
+            smooth=args.smooth,
+            mesh_size=args.mesh_size,
+        )
+        guard_output_path(out, input_paths=[surface_path])
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if file_sha256(surface_path) != checksum_before:
+        print(f"error: input changed on disk during meshing: {surface_path}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lumen.grid.save(out)
+    summary = lumen.summary()
+    summary_path = out.with_suffix(".summary.json")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+
+    q = summary["quality"]
+    print(f"backend     : {summary['backend']}")
+    print(f"cells       : {summary['n_cells']}  points: {summary['n_points']}")
+    print(f"boundary    : {summary['boundary_faces']}")
+    print(
+        f"quality     : inverted={q['n_inverted']}  "
+        f"sj_min={q['sj_min']:.4g}  sj_mean={q['sj_mean']:.4g}  "
+        f"volume={q['total_volume']:.6g}"
+    )
+    for note in summary["notes"]:
+        print(f"note        : {note}")
+    print(f"mesh        : {out}")
+    print(f"summary     : {summary_path}")
+    return 0 if q["n_inverted"] == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

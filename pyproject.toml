@@ -1,0 +1,118 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meshforge"
+version = "0.1.0"
+description = "Research-grade meshing toolkit: tubular/closed surfaces to solver-ready wall volume meshes"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Levent Sirtas" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+# Known-good bands (V43, D65): lower bound = the API the code needs, upper
+# bound = the next major, EXCEPT the fragile numpy<->vtk pair which gets
+# tight minor caps: NumPy 2.5 deprecated assigning to ndarray.shape and
+# vtk<=9.6's numpy_support still does it on every conversion — the NumPy
+# release that removes the setter hard-breaks VTK. Re-widen only after VTK
+# ships a fixed numpy_support (see [tool.pytest.ini_options] filterwarnings).
+# The conda env (environment.yml) stays the primary reproducible path.
+dependencies = [
+    "pyvista>=0.47,<1",  # 0.47 adds extract_surface(algorithm=...) — web/viewport.py + meshing/tet.py pass it
+    "vtk>=9.3,<9.7",
+    "meshio>=5,<6",
+    "numpy>=1.26,<2.6",
+    "scipy>=1.11,<2",
+    "scikit-image>=0.22,<1",
+    "networkx>=3,<4",
+]
+
+[project.optional-dependencies]
+meshing = [
+    "gmsh>=4.11,<5",
+]
+# DWG additionally needs the external dwg2dxf converter (GNU LibreDWG).
+cad = [
+    "ezdxf>=1.0,<2",
+]
+recipes = [
+    "pyyaml>=6,<7",
+]
+# Image/biomedical ingest (V18/V38/V39): DICOM + NIfTI readers. Lazy-imported
+# — .npy volumes work without this extra; .dcm/.nii then degrade to a loud
+# install hint.
+image = [
+    "pydicom>=3,<4",
+    "nibabel>=5,<6",
+]
+# V35 local web app (roadmap v7). Pure-Python/wheel deps -> pip is fine (the
+# conda-forge rule is only for compiled GUI/web binaries). Lazy-imported so
+# the CLI/GUI don't pay for them. The trame/vtk.js viewport (increment 3)
+# installs separately from conda-forge.
+web = [
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.29,<1",
+    "python-multipart>=0.0.9,<0.1",
+    "httpx>=0.27,<1",
+]
+# V35 increment 3: the interactive 3-D viewport. trame-vtk bundles vtk.js/web
+# assets (compiled GUI/web binaries) -> install from **conda-forge**, NOT pip
+# (same macOS rule as the `desktop` extra). Lazy-imported: the base web JSON
+# layer runs without it; the viewport then degrades to an "install this extra"
+# note.
+#   conda install -n meshforge -c conda-forge trame-vtk trame-vuetify
+viewport = [
+    "trame-vtk>=2.8,<3",
+    "trame-vuetify>=3,<4",
+]
+# V35b desktop shell (the ONLY desktop UI since the Qt knob panels were retired,
+# D55): a native QtWebEngine window over the local web UI. On macOS install
+# PySide6 from conda-forge, NOT pip (a pip PySide6 bundles a second Qt beside
+# conda's qt6-main and hard-crashes, exit 134). The QtWebEngine **native** libs
+# are a separate conda-forge package (qt6-webengine, NOT a pip dist) — install it
+# to match qt6-main exactly. Needs the `web` (+ `viewport`) extras too, since the
+# shell serves that UI.
+#   conda install -n meshforge -c conda-forge qt6-webengine
+desktop = [
+    "PySide6>=6.6,<7",
+]
+dev = [
+    "pytest>=8,<10",
+]
+
+[project.scripts]
+meshforge = "meshforge.cli:main"
+meshforge-web = "meshforge.web.server:main"
+meshforge-desktop = "meshforge.gui.shell:main"
+
+[project.gui-scripts]
+# Back-compat alias: the Qt knob panels were retired (D55); meshforge-gui now
+# opens the desktop shell (the web Workbench in a native QtWebEngine window).
+meshforge-gui = "meshforge.gui.shell:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ship the static Workbench (index.html/app.js/viewport.js/styles.css) as package
+# data — otherwise a real (non-editable) install has an empty web/static/ and the
+# web/desktop UI serves a blank page. Editable installs read it from src/ and hid
+# this gap until V37 packaging.
+[tool.setuptools.package-data]
+"meshforge.web" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # vtk<=9.6 numpy_support assigns ndarray.shape on every vtk<->numpy
+    # conversion (deprecated in NumPy 2.5) — ~72k copies per run drowned
+    # every real warning. Narrow: only this message, only from that module;
+    # our own code still warns. Drop when VTK ships a fixed numpy_support
+    # (the numpy<2.6 pin guards the eventual removal until then).
+    'ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:vtkmodules\.util\.numpy_support',
+]

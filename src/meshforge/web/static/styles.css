@@ -1,0 +1,182 @@
+/* meshforge Workbench (V35 increment 2). Plain CSS, no framework/build step.
+   3-pane layout faithful to the Qt app: steps | viewport | log+history. */
+
+/* The hidden attribute must always win: several class rules below set
+   display:* which otherwise overrides the UA's [hidden]{display:none}
+   (equal specificity, later in the cascade) — the colorbar/animation
+   strips were faintly visible while "hidden" (found session 34). */
+[hidden] { display: none !important; }
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #1c2126;
+  --muted: #6b7480;
+  --line: #d9dee4;
+  --accent: #2b6cb0;
+  --accent-ink: #ffffff;
+  --err: #b02a37;
+  --ok: #2f8a4e;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181d; --panel: #1c222a; --ink: #e6e9ed; --muted: #96a0ac;
+    --line: #2c343d; --accent: #4a90d9; --err: #e06c75; --ok: #6cc281;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--ink); background: var(--bg);
+  display: flex; flex-direction: column;
+}
+
+#topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 1.5rem;
+  padding: .5rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+#topbar h1 { font-size: 1.05rem; margin: 0; font-weight: 650; }
+#topbar h1 .sub { color: var(--muted); font-weight: 400; }
+.state-strip { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .82rem; }
+.state-input { color: var(--muted); }
+
+/* Static offline quick-start popover (no links / no fetch — 127.0.0.1-only app). */
+.help { margin-left: auto; position: relative; font-size: .82rem; }
+.help > summary {
+  cursor: pointer; list-style: none; padding: .1rem .6rem;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--muted); user-select: none;
+}
+.help > summary::-webkit-details-marker { display: none; }
+.help[open] > summary { color: var(--accent); border-color: var(--accent); }
+.help-body {
+  position: absolute; right: 0; top: 1.9rem; z-index: 20; width: 22rem;
+  padding: .6rem .85rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+.help-body ol { margin: .2rem 0 .5rem; padding-left: 1.1rem; }
+.help-body li { margin: .25rem 0; }
+.help-body p { margin: .35rem 0 0; color: var(--muted); }
+.help-body code { font-family: var(--mono); font-size: .95em; }
+.state-artifacts { display: flex; gap: .3rem; flex-wrap: wrap; }
+.chip {
+  padding: .05rem .4rem; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); font-family: var(--mono); font-size: .72rem;
+}
+.chip.on { color: var(--ok); border-color: var(--ok); }
+
+#workbench {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-template-columns: minmax(300px, 360px) 1fr minmax(320px, 420px);
+  gap: 0;
+}
+.pane { min-height: 0; overflow-y: auto; padding: .75rem; border-right: 1px solid var(--line); }
+#pane-right { border-right: none; }
+#pane-center { background: var(--bg); }
+
+.step-box {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  margin: 0 0 .6rem 0; padding: .5rem .6rem;
+}
+.step-box legend { font-weight: 600; padding: 0 .3rem; }
+.step-box hr { border: none; border-top: 1px solid var(--line); margin: .5rem 0; }
+.knob { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; gap: .4rem; margin: .25rem 0; }
+.knob-name { color: var(--muted); font-family: var(--mono); font-size: .8rem; }
+.knob input[type="text"], .knob input[type="number"], .knob select {
+  width: 100%; padding: .25rem .4rem; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--bg); color: var(--ink); font: inherit;
+}
+.knob input[type="checkbox"] { justify-self: start; width: 1rem; height: 1rem; }
+.knob-help { grid-column: 2; color: var(--muted); font-size: .74rem; margin: 0 0 .15rem 0; }
+button.run, button.reset {
+  margin-top: .4rem; padding: .3rem .7rem; border: 1px solid var(--accent);
+  border-radius: 6px; background: var(--accent); color: var(--accent-ink);
+  font: inherit; cursor: pointer;
+}
+button.reset { border-color: var(--err); background: transparent; color: var(--err); }
+button.run:disabled { opacity: .5; cursor: not-allowed; }
+button.run:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Native "Browse…" (desktop shell only); sits under its path field. */
+button.browse {
+  grid-column: 2; justify-self: start; margin: .1rem .3rem 0 0;
+  padding: .18rem .55rem; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--panel); color: var(--fg);
+  font: inherit; font-size: .74rem; cursor: pointer;
+}
+button.browse:hover { filter: brightness(1.12); }
+
+.viewport-slot {
+  height: 100%; display: flex; flex-direction: column; gap: .5rem;
+  align-items: stretch; justify-content: flex-start; padding: .5rem;
+}
+.viewport-note {
+  border: 1px dashed var(--line); border-radius: 8px; padding: 1rem;
+  color: var(--muted); text-align: center; margin: 0;
+}
+/* toolbar: color-by field + colorbar */
+.vp-toolbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  min-height: 1.6rem;
+}
+.vp-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted); }
+.vp-ctl select {
+  padding: .2rem .4rem; border: 1px solid var(--line); border-radius: 5px;
+  background: var(--bg); color: var(--ink); font: inherit;
+}
+.vp-colorbar { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; color: var(--muted); }
+.vp-cb-gradient {
+  display: inline-block; width: 8rem; height: .7rem; border-radius: 3px;
+  border: 1px solid var(--line);
+  background: linear-gradient(to right, #3b4cc0 0%, #dcdcdc 50%, #b40426 100%);
+}
+.vp-cb-lim { font-family: var(--mono); }
+.vp-cb-name { color: var(--ink); font-weight: 600; }
+/* the WebGL canvas host: the dominant area */
+.vtk-canvas {
+  flex: 1 1 auto; min-height: 12rem; position: relative;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: #17171c;
+}
+.vtk-canvas .viewport-note { position: absolute; inset: 50% 0 auto 0; transform: translateY(-50%); border: none; }
+.vtk-canvas canvas { display: block; }
+/* CFD animation strip */
+.vp-anim { flex: 0 0 auto; display: flex; align-items: center; gap: .5rem; }
+.vp-anim input[type="range"] { flex: 1 1 auto; }
+.vp-anim .run { margin-top: 0; padding: .2rem .55rem; min-width: 2.2rem; }
+.vp-time { font-family: var(--mono); font-size: .74rem; color: var(--muted); white-space: nowrap; }
+.vp-fallback {
+  flex: 0 0 auto; border: 1px dashed var(--line); border-radius: 8px; padding: .6rem;
+  color: var(--muted); font-size: .8rem; margin: 0;
+}
+.summary-view {
+  flex: 0 0 auto; max-height: 8rem; overflow: auto; margin: 0; padding: .5rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--mono); font-size: .76rem; white-space: pre-wrap;
+}
+
+.actions { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .6rem; }
+.action-row { display: flex; align-items: center; gap: .4rem; }
+.action-row input[type="text"] {
+  flex: 1 1 auto; padding: .25rem .4rem; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--bg); color: var(--ink); font: inherit;
+}
+.action-row button { margin-top: 0; }
+label.inline { display: inline-flex; align-items: center; gap: .25rem; color: var(--muted); font-size: .8rem; }
+
+#pane-right h2 { font-size: .9rem; margin: .6rem 0 .3rem; }
+.muted { color: var(--muted); font-weight: 400; font-size: .78rem; }
+.log {
+  height: 14rem; overflow: auto; margin: 0; padding: .5rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--mono); font-size: .78rem; white-space: pre-wrap;
+}
+.log .err { color: var(--err); }
+.history { width: 100%; border-collapse: collapse; font-size: .76rem; }
+.history th, .history td {
+  border: 1px solid var(--line); padding: .2rem .35rem; text-align: left;
+  vertical-align: top; word-break: break-word;
+}
+.history th { background: var(--panel); position: sticky; top: 0; }
+.history td.mono { font-family: var(--mono); }

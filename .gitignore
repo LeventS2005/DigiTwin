@@ -1,0 +1,40 @@
+# All generated files live here (hard rule 2)
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+
+# V37 packaging — generated build inputs (the recipe is tracked; these are not)
+packaging/_build_src/
+packaging/local-channel/
+
+# OS
+.DS_Store
+
+# session-managed worktrees + user input (read-only, never committed)
+.claude/
+Cottage_Pane_Window.dwg
+
+# User-supplied clinical CSO inputs (rule 1: read-only, NEVER commit - patient data)
+Example CSO Files/
+
+# De-identified-repo local pointers (real clinical paths + filename<->hash map).
+# These stay on the developer's machine and are NEVER committed.
+INPUTS.local.md
+tests/.local_family_dir
+tests/.local_dicom_dir
+
+# Session-state machinery — local working files, not part of the public repo
+HANDOFF.md
+CHECKPOINT.md
+NEXT_SESSION_PROMPT.md
+summary.md
+masterplan.md
+master.md
+GITHUB_STATUS.md

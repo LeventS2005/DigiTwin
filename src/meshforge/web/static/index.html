@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>meshforge web — Workbench</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <h1>meshforge <span class="sub">Workbench</span></h1>
+      <div id="state-strip" class="state-strip" aria-label="session state">
+        <span id="state-input" class="state-input">no source</span>
+        <span id="state-artifacts" class="state-artifacts"></span>
+      </div>
+      <!-- Static, offline quick-start. No links, no fetch, no external
+           navigation (the app is 127.0.0.1-only and self-contained). -->
+      <details id="help" class="help">
+        <summary>Quick start</summary>
+        <div class="help-body">
+          <ol>
+            <li><b>source</b> — pick a shape → <b>Generate synth</b>, or type a
+              <b>surface path</b> → <b>Load surface</b>.</li>
+            <li><b>Run centerline</b> → <b>Run wall</b> → <b>Run volmesh</b>
+              (check <code>inverted 0</code>).</li>
+            <li>Analyze in the <b>solve</b> (FEA) or <b>cfd</b> panel.</li>
+            <li><b>Save work file</b> (<code>.mfwork</code>) → <b>Load</b> with
+              <i>replay</i> ticked to reproduce.</li>
+          </ol>
+          <p>Run step panels top-to-bottom; a step run before its input errors
+            loudly in the log (harmless — run the missing one). Full guide:
+            <code>docs/TUTORIAL.md</code> and <code>docs/APP_GUIDE.md</code>.</p>
+        </div>
+      </details>
+    </header>
+
+    <main id="workbench">
+      <!-- LEFT: scrollable source + per-step parameter panels (from /schema) -->
+      <section id="pane-left" class="pane" aria-label="steps">
+        <fieldset id="source-box" class="step-box">
+          <legend>source</legend>
+          <label class="knob">
+            <span class="knob-name">shape</span>
+            <select id="synth-shape"></select>
+          </label>
+          <button type="button" id="btn-synth" class="run">Generate synth</button>
+          <hr />
+          <label class="knob">
+            <span class="knob-name">surface path</span>
+            <input type="text" id="load-path" placeholder="path to a surface mesh" />
+          </label>
+          <button type="button" id="btn-load" class="run">Load surface</button>
+        </fieldset>
+        <div id="step-panels"><!-- generated from GET /schema --></div>
+      </section>
+
+      <!-- CENTER: interactive 3-D viewport (pure client-side vtk.js) -->
+      <section id="pane-center" class="pane" aria-label="viewport">
+        <div id="viewport-slot" class="viewport-slot">
+          <div id="vp-toolbar" class="vp-toolbar">
+            <label class="vp-ctl" id="vp-field-ctl" hidden>
+              <span>color by</span>
+              <select id="vp-field"></select>
+            </label>
+            <label class="vp-ctl" id="vp-overlay-ctl" hidden title="draw the raw source contours over the surface">
+              <input type="checkbox" id="vp-overlay" checked />
+              <span id="vp-overlay-name">contours</span>
+            </label>
+            <div id="vp-colorbar" class="vp-colorbar" hidden>
+              <span id="vp-cb-min" class="vp-cb-lim">0</span>
+              <span class="vp-cb-gradient" aria-hidden="true"></span>
+              <span id="vp-cb-max" class="vp-cb-lim">1</span>
+              <span id="vp-cb-name" class="vp-cb-name"></span>
+            </div>
+          </div>
+          <div id="vtk-canvas" class="vtk-canvas">
+            <p id="vp-empty" class="viewport-note">run a step to render its mesh</p>
+          </div>
+          <div id="vp-anim" class="vp-anim" hidden>
+            <button type="button" id="vp-play" class="run" title="play / pause">▶</button>
+            <input type="range" id="vp-frame" min="0" max="0" value="0" step="1" aria-label="CFD time frame" />
+            <span id="vp-time" class="vp-time"></span>
+          </div>
+          <p id="vp-fallback" class="vp-fallback" hidden>
+            3-D viewport unavailable — install the viewport extra
+            (<code>trame-vtk</code>, conda-forge) to render meshes in the browser.
+          </p>
+          <pre id="summary-view" class="summary-view">run a step to see its summary</pre>
+        </div>
+      </section>
+
+      <!-- RIGHT: log + history + work-file actions -->
+      <section id="pane-right" class="pane" aria-label="log and history">
+        <div class="actions">
+          <div class="action-row">
+            <input type="text" id="save-path" placeholder="work file path (.mfwork)" />
+            <button type="button" id="btn-save" class="run" disabled>Save work file</button>
+          </div>
+          <div class="action-row">
+            <input type="text" id="wload-path" placeholder="work file to load" />
+            <label class="inline"><input type="checkbox" id="wload-replay" checked /> replay</label>
+            <button type="button" id="btn-wload" class="run">Load work file</button>
+          </div>
+          <div class="action-row">
+            <button type="button" id="btn-reset" class="reset">Reset session</button>
+          </div>
+        </div>
+
+        <h2>log</h2>
+        <pre id="log" class="log" aria-live="polite"></pre>
+
+        <h2>history <span class="muted">(journal — what a .mfwork replays)</span></h2>
+        <table id="history" class="history">
+          <thead><tr><th>step</th><th>params</th><th>summary</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <!-- Viewport vendor JS (vtk.js/vue_vtk + Vue), served locally from /vendor;
+         classic scripts so they run before the app.js module. If trame-vtk is
+         absent these 404 and the viewport degrades to a note (app.js handles it). -->
+    <script src="/vendor/vue.global.js"></script>
+    <script src="/vendor/trame-vtk.js"></script>
+    <script src="viewport.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
