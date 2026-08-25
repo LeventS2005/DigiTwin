@@ -27,9 +27,21 @@ def serve(port: int | None = None, *, host: str = _LOOPBACK) -> None:
             f"meshforge web binds {_LOOPBACK} only (local single-user tool); "
             f"refusing host {host!r}"
         )
-    import uvicorn
+    # The web extra is lazy (the CLI must never pay for FastAPI/uvicorn), and
+    # `conda env create -f environment.yml` installs the BASE deps only — so a
+    # fresh clone reaches this line without them. Fail with the fix, not a bare
+    # ModuleNotFoundError (same idiom as the DICOM/NIfTI loaders).
+    try:
+        import uvicorn
 
-    from meshforge.web.app import create_app
+        from meshforge.web.app import create_app
+    except ImportError as exc:
+        raise RuntimeError(
+            "the meshforge web app needs the [web] extra (FastAPI/uvicorn) — "
+            "install with: pip install -e '.[web]'\n"
+            "For the 3-D viewport add, from conda-forge only: "
+            "conda install -c conda-forge trame-vtk trame-vuetify"
+        ) from exc
 
     port = int(port) if port else find_free_port()
     app = create_app()

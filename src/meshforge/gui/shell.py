@@ -108,19 +108,35 @@ def run(
     """
     import json
 
-    from PySide6.QtCore import (
-        QFile,
-        QIODevice,
-        QObject,
-        Qt,
-        QTimer,
-        QUrl,
-        Slot,
-    )
-    from PySide6.QtWebChannel import QWebChannel
-    from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWidgets import QApplication, QFileDialog
+    # Lazy by design (see the module docstring), which means a fresh clone gets
+    # here with no Qt at all: `conda env create -f environment.yml` installs the
+    # BASE deps only. Name the conda-forge packages, and say NOT pip — a pip
+    # PySide6 bundles a second Qt beside conda's qt6-main and hard-crashes with
+    # exit 134 on macOS. QtWebEngine's native libs are a separate package.
+    try:
+        from PySide6.QtCore import (
+            QFile,
+            QIODevice,
+            QObject,
+            Qt,
+            QTimer,
+            QUrl,
+            Slot,
+        )
+        from PySide6.QtWebChannel import QWebChannel
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtWidgets import QApplication, QFileDialog
+    except ImportError as exc:
+        raise RuntimeError(
+            "the desktop shell needs PySide6 + QtWebEngine — install from "
+            "conda-forge, NOT pip:\n"
+            "  conda install -c conda-forge pyside6 qt6-webengine\n"
+            "It also serves the web UI, so the [web] extra is required too: "
+            "pip install -e '.[web]'\n"
+            "No Qt available? The same Workbench runs in a browser: "
+            "meshforge-web"
+        ) from exc
 
     # Native file-open bridge (Task 2). The desktop window loads sources by
     # SERVER-SIDE PATH; a browser <input type=file> would hand over the file

@@ -49,17 +49,45 @@ volume meshes and complete solver input decks (CalculiX-verified Abaqus
 | Lumen (blood-volume) fill | fills the INSIDE of a tubular surface for cardiac FEA/CFD: swept O-grid (butterfly) hexahedra along the validated centreline with a pinned per-station block topology + a do-no-harm guarded smoothing pass (sj_min can never regress), automatic gmsh tet fallback with a loud fold-number note (F = r·κ — a planar-section sweep MUST fold where F ≥ 1) when a section defeats the O-grid; the mesh takes the session volmesh slot with `wall`/`inlet`/`outlet` groups so deck/solve/CFD work unchanged; all 20 real cardiac arches (both UCSF families) reach inverted 0 — 19 structured hex, 1 honest tet | `meshing/lumen.py`, `lumen`, session "lumen" step (V47) |
 
 ## Install
+
 ```bash
 conda env create -f environment.yml --solver=libmamba
 conda activate meshforge
 ```
-(pip fallback: `pip install -r requirements.txt -e .`; extras: `[meshing]`
-gmsh, `[cad]` ezdxf, `[recipes]` pyyaml, `[image]` pydicom/nibabel (DICOM +
-NIfTI ingest), `[web]` FastAPI/uvicorn, `[viewport]` + `[desktop]` conda-forge
-only on macOS (the web viewport + the native shell).
-DWG import needs `dwg2dxf` from GNU LibreDWG, e.g. `brew install libredwg`.
+
+**This gives you the CLI.** `environment.yml` installs the base dependencies
+only, and the `-e .` inside it pulls no extras — everything optional is
+lazy-imported so the CLI never pays for a dependency it does not use. Check it
+with `meshforge --help`.
+
+> Already have a conda env called `meshforge`? `environment.yml` names it, so
+> the command above targets *that* env and its editable install will be
+> repointed at this clone. Use `-n <other-name>` to keep them apart.
+
+**For the Workbench** (the web/desktop GUI) add the web extra, then the
+viewport and Qt from conda-forge:
+
+```bash
+pip install -e ".[web]"
+conda install -c conda-forge trame-vtk trame-vuetify pyside6 qt6-webengine
+```
+
+Then `meshforge-desktop` for a native window, or `meshforge-web` for the same
+UI in a browser on `127.0.0.1`. Running either without these installed tells
+you exactly what is missing — it does not fail with a bare import error.
+
+**macOS: PySide6, qt6-webengine, trame-vtk and trame-vuetify must come from
+conda-forge, never pip.** A pip PySide6 bundles a second Qt beside conda's
+`qt6-main` and hard-crashes the shell (exit 134).
+
+Other extras, all optional: `[meshing]` gmsh (tet backend), `[cad]` ezdxf
+(DXF/DWG), `[recipes]` pyyaml (parameter sweeps), `[image]` pydicom/nibabel
+(DICOM + NIfTI ingest). DWG import also needs `dwg2dxf` from GNU LibreDWG
+(`brew install libredwg`). pip-only fallback:
+`pip install -r requirements.txt -e .`.
+
 CI runs the ungated suite on every push/PR — solver-gated tests need local
-CalculiX/OpenFOAM/MYSTRAN installs.)
+CalculiX/OpenFOAM/MYSTRAN installs.
 
 ### Or: build a self-contained installer — no conda needed (macOS arm64 / Linux / Windows)
 

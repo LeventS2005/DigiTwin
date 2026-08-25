@@ -25,6 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A fresh clone that ran `meshforge-web` or `meshforge-desktop` got a bare
+  `ModuleNotFoundError`. `environment.yml` installs the base dependencies only
+  and `-e .` pulls no extras, so those entry points are the first thing a new
+  user hits with nothing installed. Both now raise with the exact install
+  command, name conda-forge for the Qt and vtk.js packages, and offer
+  `meshforge-web` as the no-Qt fallback. The README says plainly that the base
+  environment is CLI-only.
 - Workbench history panel: the `step` column collapsed to one character per line
   ("ce nt er li ne"). The JSON columns' `overflow-wrap` made every column's
   min-content one character, and auto table layout then squeezed the narrow

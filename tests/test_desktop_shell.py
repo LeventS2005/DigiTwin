@@ -141,3 +141,33 @@ def test_shell_live_loads_app_with_webgl() -> None:
     assert "Workbench" in str(captured.get("title", "")), captured
     assert captured.get("webgl2") is True, captured
     assert captured.get("canvas_present") is True, captured
+
+
+# ---- session 39: a fresh clone must be told what to install ---------------
+
+
+def test_run_without_qt_names_the_conda_forge_fix(monkeypatch) -> None:
+    """Qt is imported lazily inside run(), so on a machine with only the base
+    deps this is where a fresh clone lands. The message must name conda-forge
+    (a pip PySide6 bundles a second Qt beside conda's qt6-main -> exit 134),
+    name qt6-webengine separately, and offer the browser fallback."""
+    import builtins
+
+    from meshforge.gui.shell import run
+
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if name == "PySide6" or name.startswith("PySide6."):
+            raise ImportError(f"no module named {name}")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+
+    with pytest.raises(RuntimeError) as exc:
+        run()
+    msg = str(exc.value)
+    assert "conda-forge" in msg and "NOT pip" in msg
+    assert "qt6-webengine" in msg
+    assert "meshforge-web" in msg  # the no-Qt fallback
+    assert isinstance(exc.value.__cause__, ImportError)
