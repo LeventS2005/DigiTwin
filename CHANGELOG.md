@@ -42,11 +42,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`;`, `{`, `}`, `#`, `$`, `//`) and an exact length-ceiling check, plus a
   writer-level test for the one patch name that is not a `BoundaryGroup`.
 
-## [1.0.0] — 2026-08-25
+## [1.0.0] — 2026-07-24
 
-Initial public release. Version numbering starts here; development before this
-point was tracked internally as milestones V1–V47 and is visible in the git
-history.
+Initial public release — commit `25a23f2`, "meshforge v1.0 — initial public
+release". Version numbering starts here; development before this point was
+tracked internally as milestones V1–V47.
+
+The published package metadata lagged this release at `0.1.0` until the
+2026-08-25 cleanup brought every source of the version into agreement; the
+release itself is this commit.
 
 ### Added
 

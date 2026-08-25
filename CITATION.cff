@@ -10,7 +10,7 @@ authors:
   - family-names: "Sirtas"
     given-names: "Levent"
 version: "1.0.0"
-date-released: "2026-08-25"
+date-released: "2026-07-24"
 license: Apache-2.0
 repository-code: "https://github.com/LeventS2005/meshforge"
 url: "https://github.com/LeventS2005/meshforge"
