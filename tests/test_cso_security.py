@@ -1,5 +1,5 @@
 """Adversarial security fixtures for the CSO / biomedical ingest path
-(session 24 security pass — findings in ``security_cso_biomedical_findings.md``).
+(session 24 security pass — findings in ``docs/security/security-cso-biomedical-findings.md``).
 
 Every fixture is a TINY synthetic crafted input (never the real UCSF family,
 rule 1): a malicious ``.cso`` / ``.dcm`` / ``.vtp`` a user opens must fail LOUD

@@ -4,7 +4,7 @@
 · **Baseline:** `python -m pytest -q` → 544 passed, 3 skipped.
 
 Scope: every untrusted-binary parser added *after* the last security review
-(session 11, D49 — `security analysis findings.md`), which explicitly deferred
+(session 11, D49 — `security-analysis-findings.md`), which explicitly deferred
 finding **F5** to "when a 2nd input type or a web upload endpoint lands." Four
 have since landed:
 
@@ -27,16 +27,22 @@ Every finding below was reproduced with a **synthetic, tiny** crafted input (the
 existing `tests/test_io_cso.py` / `tests/test_image.py` writers) — the real UCSF
 family is never used for adversarial fixtures (rule 1).
 
-| # | Sev | File | Class | Status |
-|---|-----|------|-------|--------|
-| F-CSO-1 | HIGH | `io/cso.py` `_read_ring` | fail-open (NaN/inf coords) | FIX |
-| F-CSO-2 | HIGH | `geometry/centerline.py` `centerline_from_surface` | fail-open (`.vtp` deserialization) | FIX |
-| F-CSO-3 | MEDIUM | `io/cso.py` `_order_contours` | DoS (unbounded count → O(n²)) | FIX |
-| F-CSO-4 | MEDIUM | `io/cso.py` `_loft_surface` (+ replay/CLI) | DoS (unbounded `n_ring` alloc) | FIX |
-| F-IMG-5 | LOW | `io/image.py` `_read_dicom_multiframe` | fail-open (non-finite/≤0 spacing) | FIX |
-| F-IMG-6 | INFO→LOW | `io/image.py` `_load_dicom_series` | broad `except`, no series ceiling | FIXED (D62) |
-| F-IMG-7 | INFO | `io/image.py` `_load_nifti` | `get_fdata()` before MAX_VOXELS | FIXED (D62) |
-| F-INFO-8 | INFO | `pipeline.py` `compute_import_cso` | double-read (TOCTOU) | FIXED (D62) |
+> **Status column re-verified 2026-08-25 (session 39).** The `FIX` entries below
+> were the *proposed* action when this review was written; every one of them
+> landed in session 24 (D61) — see **Resolution** further down — and the column
+> now records that outcome with the `file:line` that closes it in the current
+> tree. Coverage: `tests/test_cso_security.py`, `tests/test_image.py`.
+
+| # | Sev | File | Class | Status | Closed by |
+|---|-----|------|-------|--------|-----------|
+| F-CSO-1 | HIGH | `io/cso.py` `_read_ring` | fail-open (NaN/inf coords) | **FIXED** | `src/meshforge/io/cso.py:440` |
+| F-CSO-2 | HIGH | `geometry/centerline.py` `centerline_from_surface` | fail-open (`.vtp` deserialization) | **FIXED** | `src/meshforge/geometry/centerline.py:81,84` (read-back) + `:57` (`embed_centerline`) |
+| F-CSO-3 | MEDIUM | `io/cso.py` `_order_contours` | DoS (unbounded count → O(n²)) | **FIXED** | `src/meshforge/io/cso.py:62` (`MAX_RECORDS`), enforced at `:276` |
+| F-CSO-4 | MEDIUM | `io/cso.py` `_loft_surface` (+ replay/CLI) | DoS (unbounded `n_ring` alloc) | **FIXED** | `src/meshforge/io/cso.py:65` (`MAX_N_RING`), enforced at `:747` |
+| F-IMG-5 | LOW | `io/image.py` `_read_dicom_multiframe` | fail-open (non-finite/≤0 spacing) | **FIXED** | `src/meshforge/io/image.py:220-226` |
+| F-IMG-6 | INFO→LOW | `io/image.py` `_load_dicom_series` | broad `except`, no series ceiling | **FIXED** (D62) | `src/meshforge/io/image.py:307` (narrowed to `InvalidDicomError`), `:322-329` (`MAX_VOXELS`) |
+| F-IMG-7 | INFO | `io/image.py` `_load_nifti` | `get_fdata()` before MAX_VOXELS | **FIXED** (D62) | `src/meshforge/io/image.py:265-270` (shape checked before `get_fdata()`) |
+| F-INFO-8 | INFO | `pipeline.py` `compute_import_cso` | double-read (TOCTOU) | **FIXED** (D62) | `src/meshforge/pipeline.py:1089` |
 
 ---
 
