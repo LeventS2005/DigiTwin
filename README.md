@@ -61,14 +61,23 @@ DWG import needs `dwg2dxf` from GNU LibreDWG, e.g. `brew install libredwg`.
 CI runs the ungated suite on every push/PR — solver-gated tests need local
 CalculiX/OpenFOAM/MYSTRAN installs.)
 
-### Or: a self-contained installer — no conda needed (macOS arm64 / Linux / Windows)
-Double-click **`meshforge-<ver>-MacOSX-arm64.pkg`** → the wizard lays down a
-self-contained environment and a **meshforge** app; launch it to open the
-Workbench (a native window over the local 127.0.0.1 web UI). Build the installer
-with `bash packaging/build.sh` (see [`packaging/README.md`](packaging/README.md)).
+### Or: build a self-contained installer — no conda needed (macOS arm64 / Linux / Windows)
+
+> **There are no published GitHub releases yet, so there is no installer to
+> download** — you build it from this repo. Everything below describes that
+> build, not a download link.
+
+```bash
+bash packaging/build.sh      # macOS arm64 -> dist/meshforge-1.0.0-MacOSX-arm64.pkg (+ .sh)
+```
+
+Double-click the resulting **`.pkg`** → the wizard lays down a self-contained
+environment and a **meshforge** app; launch it to open the Workbench (a native
+window over the local 127.0.0.1 web UI). See
+[`packaging/README.md`](packaging/README.md) for the full recipe.
 The FEA/CFD **solvers stay external and optional** (CalculiX/OpenFOAM/MYSTRAN,
 auto-discovered at runtime — not bundled); meshing, export, and the 3-D viewport
-work without them. The MVP `.pkg` is unsigned — right-click → *Open* past
+work without them. The installer is unsigned — right-click → *Open* past
 Gatekeeper. **Linux** (`.sh`) and **Windows** (`.exe`) installers build from
 the same recipe via the manual-dispatch **"Linux installer"** / **"Windows
 installer"** GitHub Actions workflows (constructor can't cross-build; the
@@ -116,9 +125,20 @@ Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). You may
 use, modify, and redistribute it, including commercially, provided you keep the
 copyright and license notices and state your changes.
 
+## Security
+
+Local, single-user, offline tool: the trust boundary is the **files you open**
+and the **output of external solvers**, both treated as untrusted and required
+to fail loudly rather than silently produce a plausible mesh. Threat model,
+private reporting route, and the two written audits (with the `file:line`
+closing every finding) are in [`SECURITY.md`](SECURITY.md) and
+[`docs/security/`](docs/security/).
+
 ## Project docs
 - **`docs/TUTORIAL.md`** — first-run tutorial (install → mesh → solve → replay) · **`docs/APP_GUIDE.md`** — complete usage reference
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, tests, architecture rules · [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`SECURITY.md`](SECURITY.md) — threat model + reporting · [`docs/security/`](docs/security/) — audit reports
 - `AGENT_GROUNDUP_PROMPT.md` — v1 build spec · `docs/specs/V2_ROADMAP.md` — TrueGrid-parity roadmap
 - `CLAUDE.md` — operational contract (hard rules, session protocol)
 - `DECISIONS.md` — decision log (per-milestone details in `docs/decisions/`)
-- `BACKLOG.md` · `TEST_PLAN.md` · `docs/specs/` — per-milestone specs
+- `BACKLOG.md` · `TEST_PLAN.md` · `docs/specs/` — per-milestone specs · [`CITATION.cff`](CITATION.cff) — how to cite
