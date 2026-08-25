@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshforge"
-version = "0.1.0"
+version = "1.0.0"
 description = "Research-grade meshing toolkit: tubular/closed surfaces to solver-ready wall volume meshes"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Levent Sirtas" }]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering",
@@ -85,6 +85,11 @@ desktop = [
 dev = [
     "pytest>=8,<10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/LeventS2005/meshforge"
+Repository = "https://github.com/LeventS2005/meshforge"
+Issues = "https://github.com/LeventS2005/meshforge/issues"
 
 [project.scripts]
 meshforge = "meshforge.cli:main"

@@ -17,8 +17,8 @@ reproducing the exact packages that already work. See `docs/specs/V37_SPEC.md`
 ## Build
 ```bash
 bash packaging/build.sh
-# -> dist/meshforge-0.1.0-MacOSX-arm64.pkg   (double-click installer)
-# -> dist/meshforge-0.1.0-MacOSX-arm64.sh    (CLI / CI installer)
+# -> dist/meshforge-1.0.0-MacOSX-arm64.pkg   (double-click installer)
+# -> dist/meshforge-1.0.0-MacOSX-arm64.sh    (CLI / CI installer)
 ```
 Prerequisites on the **build** machine (base conda env): `constructor` and
 `conda-build`
@@ -38,7 +38,7 @@ git-ignored — no built binaries are committed.
 ## Linux installer (session 30)
 ```bash
 bash packaging/build_linux.sh        # on a linux-64 machine
-# -> dist/meshforge-0.1.0-Linux-x86_64.sh
+# -> dist/meshforge-1.0.0-Linux-x86_64.sh
 ```
 Or trigger the **"Linux installer"** GitHub Actions workflow
 (`.github/workflows/installer-linux.yml`, manual `workflow_dispatch`) — it
@@ -53,7 +53,7 @@ matched `qt6-main`/`qt6-webengine` 6.11.1 pair (D54 rule holds).
 ## Windows installer (session 31)
 ```bash
 bash packaging/build_windows.sh      # on a win-64 machine (Git-Bash)
-# -> dist/meshforge-0.1.0-Windows-x86_64.exe
+# -> dist/meshforge-1.0.0-Windows-x86_64.exe
 ```
 Or trigger the **"Windows installer"** GitHub Actions workflow
 (`.github/workflows/installer-windows.yml`, manual `workflow_dispatch`) —
@@ -78,7 +78,7 @@ certificate (EV cert removes the warning immediately; OV builds reputation
 over time) is a user decision, exactly like Apple notarization.
 
 ## Install & launch (end user)
-- Double-click `meshforge-0.1.0-MacOSX-arm64.pkg` → follow the wizard.
+- Double-click `meshforge-1.0.0-MacOSX-arm64.pkg` → follow the wizard.
 - Launch the **meshforge** app (created in Applications) → the Workbench opens.
 - **Unsigned MVP:** Gatekeeper will warn. Right-click the `.pkg` → *Open*, or
   `xattr -dr com.apple.quarantine <file>`. Developer-ID signing + notarization

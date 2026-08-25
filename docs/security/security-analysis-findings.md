@@ -30,7 +30,37 @@ items below are integrity / robustness / defense-in-depth gaps.
 
 ---
 
+---
+
+## Status — re-verified 2026-08-25 (session 39)
+
+Every finding below was re-checked against the current `src/`. F1–F4 are
+**FIXED** and covered by ungated tests in
+[`tests/test_security_fixes.py`](../../tests/test_security_fixes.py); F5 was
+always informational and is **ACCEPTED** as-is (its two observations still hold
+and remain the documented, intended behaviour).
+
+| # | Severity | Finding | Status | Closed by |
+|---|---|---|---|---|
+| F1 | Medium | Group/patch-name injection into decks & foam dicts | **FIXED** | `src/meshforge/meshing/base.py:26` (`valid_group_name`), enforced at `base.py:54` (constructor backstop), `base.py:121` (`split_boundary_group`), `src/meshforge/solve/foam_case.py:96`, `src/meshforge/export/foam.py:129`, `src/meshforge/pipeline.py:192,206`, `src/meshforge/cli.py:1860,1866,1932,1938` |
+| F2 | Low | Terminal-escape injection via raw tool output in exceptions | **FIXED** | `src/meshforge/textguard.py:18` (`scrub`), applied at `solve/runner.py:177,182,187`, `solve/mystran.py:155,159`, `solve/foam_runner.py:111,163`, `solve/frd.py:132`, `solve/dat.py:70,112`, `io/cad.py:376` |
+| F3 | Low | `dwg2dxf` has no timeout (hang on hostile DWG) | **FIXED** | `src/meshforge/io/cad.py:366` (`timeout=120`) + the `TimeoutExpired` branch at `io/cad.py:370` |
+| F4 | Low | Image ingest lacks a `MAX_VOXELS` ceiling | **FIXED** | `src/meshforge/io/image.py:47` (and the ROI/grid ceilings at `io/cso.py:908,927`) |
+| F5 | Info | `guard_output_path` is exact-match-only; case-dir writers bypass it | **OPEN — accepted** | `src/meshforge/export/neutral.py:17`; `solve/foam_case.py` / `solve/foam_runner.py` still write case dirs unguarded, which is the intended behaviour (a case dir is a working directory, not a declared input) |
+
+---
+
 ## F1 — MEDIUM — Boundary/patch-group names are written into solver decks and OpenFOAM dictionaries with no content validation (card/dict injection)
+
+**STATUS: FIXED.** `valid_group_name` (`src/meshforge/meshing/base.py:26`) is
+the single content check, called at every mint site — the `BoundaryGroup`
+constructor backstop (`base.py:54`), `split_boundary_group` (`base.py:121`),
+the CFD BC spec (`solve/foam_case.py:96`), the foam default patch
+(`export/foam.py:129`), the session BC/patch parses (`pipeline.py:192,206`)
+and the CLI patch-name parses (`cli.py:1860,1866,1932,1938`). Covered by
+`tests/test_security_fixes.py` including the `.mfwork` `split_patch` replay
+path, `*CARD` newline payloads, OpenFOAM dict metacharacters (`;{}`) and an
+over-length name.
 
 **Where (sinks):**
 - `src/meshforge/export/deck.py:715` — `f"*ELSET, ELSET={name.upper()}_ELS"`
@@ -120,6 +150,12 @@ in the core (rule-4-safe: it's meshing/export logic, not GUI).
 
 ## F2 — LOW — Raw external-tool output / raw file bytes are embedded in exception messages (terminal escape-sequence injection)
 
+**STATUS: FIXED.** `scrub` (`src/meshforge/textguard.py:18`) neutralises every
+non-printable control character (keeping `\n`/`\t`) and is applied at all the
+sinks listed below: `solve/runner.py:177,182,187`, `solve/mystran.py:155,159`,
+`solve/foam_runner.py:111,163`, `solve/frd.py:132`, `solve/dat.py:70,112`,
+`io/cad.py:376`.
+
 **Where:**
 - `src/meshforge/solve/runner.py:164, 169, 174` — `…\n{output[-2000:]}` (ccx stdout+stderr)
 - `src/meshforge/solve/mystran.py:153, 157` — `{(f06_text or output)[-2000:]}`
@@ -157,6 +193,10 @@ the four subprocess modules and the two solver-output parsers.
 
 ## F3 — LOW — `dwg2dxf` is the only subprocess without a timeout (hang / DoS on a malformed DWG)
 
+**STATUS: FIXED.** `src/meshforge/io/cad.py:366` passes `timeout=120`; the
+`TimeoutExpired` branch at `io/cad.py:370` raises a `RuntimeError` naming the
+file. Covered by `test_dwg2dxf_timeout_is_loud`.
+
 **Where:** `src/meshforge/io/cad.py:358`
 
 ```python
@@ -183,6 +223,11 @@ loud `RuntimeError` naming the file.
 ---
 
 ## F4 — LOW — Image ingest has no `MAX_VOXELS` ceiling (memory exhaustion), unlike the geometry paths
+
+**STATUS: FIXED.** `src/meshforge/io/image.py:47` enforces the shared
+`MAX_VOXELS` before any full-array scan; the DICOM/NIfTI readers add their own
+ceilings at `io/image.py:242,270` and the CSO ROI/voxel grids at
+`io/cso.py:908,927`. Covered by `test_image_ingest_refuses_oversized_volume`.
 
 **Where:** `src/meshforge/io/image.py` — `volume_to_surface` (line 20) and
 `load_volume` (line 100) validate `ndim`, finiteness, spacing, and level range,
@@ -213,6 +258,15 @@ if int(np.prod(array.shape)) > MAX_VOXELS:
 ---
 
 ## F5 — INFORMATIONAL — `guard_output_path` is exact-resolved-path only; several case-dir writers don't call it
+
+**STATUS: OPEN — accepted, no action.** Re-verified 2026-08-25: both
+observations still hold exactly as written. `guard_output_path`
+(`src/meshforge/export/neutral.py:17`) is still exact-resolved-path only, and
+`solve/foam_case.py` / `solve/foam_runner.py` still write case directories
+without calling it. This is the intended behaviour under the documented threat
+model (a case dir is a working directory chosen by the trusted user, not a
+declared read-only input). Revisit if a second input type can ever share a
+directory and name with a generated artifact.
 
 **Where:** `src/meshforge/export/neutral.py:17`
 
@@ -297,16 +351,16 @@ These were checked and hold up — they are the reason nothing rises above Mediu
 
 ## Remediation priority
 
-| # | Severity | Finding | Effort | Fix |
-|---|---|---|---|---|
-| F1 | **Medium** | Group/patch-name injection into decks & foam dicts | Small | `valid_group_name()` at name-mint sites + writers; test |
-| F2 | Low | Terminal escape injection via raw tool output in exceptions | Small | `_scrub()` control chars before embedding |
-| F3 | Low | `dwg2dxf` has no timeout (hang on hostile DWG) | Trivial | add `timeout=120` + `TimeoutExpired` handling |
-| F4 | Low | Image ingest lacks `MAX_VOXELS` guard | Trivial | reuse the existing constant in `volume_to_surface` |
-| F5 | Info | `guard_output_path` exact-match-only; case writers unguarded | — | pass `input_paths` consistently; optional output-root assert |
+| # | Severity | Finding | Effort | Fix | Status |
+|---|---|---|---|---|---|
+| F1 | **Medium** | Group/patch-name injection into decks & foam dicts | Small | `valid_group_name()` at name-mint sites + writers; test | **FIXED** |
+| F2 | Low | Terminal escape injection via raw tool output in exceptions | Small | `_scrub()` control chars before embedding | **FIXED** |
+| F3 | Low | `dwg2dxf` has no timeout (hang on hostile DWG) | Trivial | add `timeout=120` + `TimeoutExpired` handling | **FIXED** |
+| F4 | Low | Image ingest lacks `MAX_VOXELS` guard | Trivial | reuse the existing constant in `volume_to_surface` | **FIXED** |
+| F5 | Info | `guard_output_path` exact-match-only; case writers unguarded | — | pass `input_paths` consistently; optional output-root assert | OPEN — accepted |
 
 **Recommended action:** fix F1 first (integrity + a real crafted-input path),
 then bundle F2/F3/F4 (all tiny, all robustness). F5 is a note, not a task, until
 a second input type appears. All fixes stay in the core/service layer
 (rule-4-safe) and should be landed with tests + a `pytest` re-run against the
-476-passed/2-skipped baseline. **This audit made no code changes.**
+476-passed/2-skipped baseline. **This audit made no code changes.** The fixes were landed in session 12 (F1–F4) and re-verified against the current tree on 2026-08-25 — see the **Status** table at the top of this file for the closing `file:line` of each.

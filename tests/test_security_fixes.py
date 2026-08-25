@@ -1,5 +1,5 @@
 """Session-12 security fixes (from the session-11 audit,
-``security analysis findings.md``). One block per finding; all ungated.
+``docs/security/security-analysis-findings.md``). One block per finding; all ungated.
 
 Threat model: the trust boundary is crafted INPUT FILES (``.mfwork``,
 DWG, image volumes, solver outputs) + the ``MESHFORGE_*``/PATH
@@ -54,6 +54,51 @@ def test_valid_group_name_refuses_dangerous_names():
                 "com,ma", 42, None):
         with pytest.raises(ValueError, match="invalid boundary-group name"):
             valid_group_name(bad)  # type: ignore[arg-type]
+
+
+# The OpenFOAM sink is a *dictionary*, not a card deck: its grammar is
+# ``key { … }`` with ``;``-terminated entries, ``//``/``#`` directives and
+# ``$`` variable expansion. A patch name carrying any of those closes the
+# enclosing block early and opens an attacker-chosen one — the dict analogue
+# of the ``*CLOAD`` card forgery EVIL_NAME performs on a CalculiX deck.
+FOAM_DICT_PAYLOADS = (
+    "lid} inlet { type fixedValue; value uniform (9 9 9); }",
+    "lid;type zeroGradient;",
+    "lid{type",
+    "lid}",
+    "lid#include",
+    "lid$internalField",
+    "lid//comment",
+    "lid/*block*/",
+)
+
+
+def test_valid_group_name_refuses_openfoam_dict_metacharacters():
+    for bad in FOAM_DICT_PAYLOADS:
+        with pytest.raises(ValueError, match="invalid boundary-group name"):
+            valid_group_name(bad)
+
+
+def test_valid_group_name_length_ceiling_is_exact():
+    # 64 is the documented ceiling: the last accepted length, and the first
+    # refused one — an off-by-one here would let a name overrun a fixed-width
+    # solver set-name field.
+    assert valid_group_name("g" * 64) == "g" * 64
+    with pytest.raises(ValueError, match="invalid boundary-group name"):
+        valid_group_name("g" * 65)
+
+
+def test_foam_default_patch_refuses_dict_injection():
+    """The one patch name that is NOT a BoundaryGroup (so the constructor
+    backstop never sees it): ``default_patch`` is minted at write time and
+    lands directly in the polyMesh/FLUENT zone list. It is validated at the
+    writer (``export/foam.py`` ``_patch_face_map``)."""
+    from meshforge.export.foam import _patch_face_map
+
+    wall = _cavity_wall()
+    for bad in (EVIL_NAME,) + FOAM_DICT_PAYLOADS:
+        with pytest.raises(ValueError, match="invalid boundary-group name"):
+            _patch_face_map(wall, {}, bad)
 
 
 def test_split_boundary_group_refuses_newline_name():

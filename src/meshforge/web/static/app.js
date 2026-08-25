@@ -234,15 +234,16 @@ async function refreshHistory() {
   tbody.innerHTML = "";
   for (const rec of journal) {
     const tr = document.createElement("tr");
-    tr.appendChild(cell(rec.step));
+    tr.appendChild(cell(rec.step, false, "step"));
     tr.appendChild(cell(JSON.stringify(rec.params || {}), true));
     tr.appendChild(cell(JSON.stringify(rec.summary || {}), true));
     tbody.appendChild(tr);
   }
 }
-function cell(text, mono) {
+function cell(text, mono, cls) {
   const td = document.createElement("td");
-  if (mono) td.className = "mono";
+  const name = cls || (mono ? "mono" : "");
+  if (name) td.className = name;
   td.textContent = text;
   return td;
 }

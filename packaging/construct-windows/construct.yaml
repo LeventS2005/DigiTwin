@@ -15,7 +15,7 @@
 # TRAP (D57): constructor resolves relative channel paths against the CWD —
 # run it from THIS directory (build_windows.sh does).
 name: meshforge
-version: 0.1.0
+version: 1.0.0
 
 channels:
   - ../local-channel
@@ -23,7 +23,7 @@ channels:
 
 specs:
   - python 3.12.*
-  - meshforge 0.1.0
+  - meshforge 1.0.0
 
 installer_type:
   - exe

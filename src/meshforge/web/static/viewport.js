@@ -47,7 +47,7 @@
         };
       },
       template:
-        '<vtk-view ref="view" :background="[0.09,0.09,0.11]" style="width:100%;height:100%">' +
+        '<vtk-view ref="view" :background="[0.063,0.063,0.071]" style="width:100%;height:100%">' +
         '  <vtk-geometry-representation v-if="mesh" :color-map-preset="preset" :color-data-range="range">' +
         '    <vtk-mesh :state="mesh"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
@@ -65,6 +65,39 @@
     return true;
   }
 
+  // A view direction no principal axis lies along: 50.7 degrees off x and y,
+  // 63.6 off z. Straight tubes run along z, blocks and plates along x/y, so any
+  // axis-aligned direction renders SOME common artifact as a flat outline.
+  var THREE_QUARTER = [0.634, -0.634, 0.444]; // unit (1, -1, 0.7)
+
+  // Point the camera three-quarters at the scene, without moving it closer or
+  // further: the offset keeps its current length, so this is a direction-only
+  // change and the resetCamera that follows sets the distance that frames the
+  // mesh. vue_vtk's camera is a PLAIN OBJECT read with getCamera() and written
+  // back with setCamera() — it has no vtk.js setter methods on it. Every step
+  // is guarded: without those two accessors the camera keeps the direction it
+  // had, resetCamera still frames the mesh, and nothing errors.
+  function aimThreeQuarter(view) {
+    try {
+      if (!view.getCamera || !view.setCamera) return;
+      var cam = view.getCamera();
+      var fp = cam && cam.focalPoint;
+      var pos = cam && cam.position;
+      if (!fp || !pos) return;
+      var dx = pos[0] - fp[0], dy = pos[1] - fp[1], dz = pos[2] - fp[2];
+      var dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      cam.position = [
+        fp[0] + THREE_QUARTER[0] * dist,
+        fp[1] + THREE_QUARTER[1] * dist,
+        fp[2] + THREE_QUARTER[2] * dist,
+      ];
+      cam.viewUp = [0, 0, 1];
+      view.setCamera(cam);
+    } catch (err) {
+      console.warn("[viewport] camera aim unavailable", err);
+    }
+  }
+
   // Show a serialized mesh. `resetCamera` frames it (used on a new artifact,
   // NOT on a field/frame swap so the view stays put during animation).
   function load(payload, resetCamera) {
@@ -77,7 +110,13 @@
       // Let Vue flush the new mesh into the scene, then frame + repaint it.
       setTimeout(function () {
         var v = S.viewRef && S.viewRef.value;
-        if (v && v.resetCamera) v.resetCamera();
+        if (!v || !v.resetCamera) return;
+        // resetCamera re-frames along the camera's CURRENT direction, and the
+        // default direction is straight down +z — so a straight tube opened as
+        // a flat annulus. Aim three-quarters first; resetCamera then recentres
+        // on the mesh bounds and keeps that direction.
+        aimThreeQuarter(v);
+        v.resetCamera();
       }, 60);
     }
   }

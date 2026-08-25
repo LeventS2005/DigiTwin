@@ -49,26 +49,63 @@ volume meshes and complete solver input decks (CalculiX-verified Abaqus
 | Lumen (blood-volume) fill | fills the INSIDE of a tubular surface for cardiac FEA/CFD: swept O-grid (butterfly) hexahedra along the validated centreline with a pinned per-station block topology + a do-no-harm guarded smoothing pass (sj_min can never regress), automatic gmsh tet fallback with a loud fold-number note (F = r·κ — a planar-section sweep MUST fold where F ≥ 1) when a section defeats the O-grid; the mesh takes the session volmesh slot with `wall`/`inlet`/`outlet` groups so deck/solve/CFD work unchanged; all 20 real cardiac arches (both UCSF families) reach inverted 0 — 19 structured hex, 1 honest tet | `meshing/lumen.py`, `lumen`, session "lumen" step (V47) |
 
 ## Install
+
 ```bash
 conda env create -f environment.yml --solver=libmamba
 conda activate meshforge
 ```
-(pip fallback: `pip install -r requirements.txt -e .`; extras: `[meshing]`
-gmsh, `[cad]` ezdxf, `[recipes]` pyyaml, `[image]` pydicom/nibabel (DICOM +
-NIfTI ingest), `[web]` FastAPI/uvicorn, `[viewport]` + `[desktop]` conda-forge
-only on macOS (the web viewport + the native shell).
-DWG import needs `dwg2dxf` from GNU LibreDWG, e.g. `brew install libredwg`.
-CI runs the ungated suite on every push/PR — solver-gated tests need local
-CalculiX/OpenFOAM/MYSTRAN installs.)
 
-### Or: a self-contained installer — no conda needed (macOS arm64 / Linux / Windows)
-Double-click **`meshforge-<ver>-MacOSX-arm64.pkg`** → the wizard lays down a
-self-contained environment and a **meshforge** app; launch it to open the
-Workbench (a native window over the local 127.0.0.1 web UI). Build the installer
-with `bash packaging/build.sh` (see [`packaging/README.md`](packaging/README.md)).
+**This gives you the CLI.** `environment.yml` installs the base dependencies
+only, and the `-e .` inside it pulls no extras — everything optional is
+lazy-imported so the CLI never pays for a dependency it does not use. Check it
+with `meshforge --help`.
+
+> Already have a conda env called `meshforge`? `environment.yml` names it, so
+> the command above targets *that* env and its editable install will be
+> repointed at this clone. Use `-n <other-name>` to keep them apart.
+
+**For the Workbench** (the web/desktop GUI) add the web extra, then the
+viewport and Qt from conda-forge:
+
+```bash
+pip install -e ".[web]"
+conda install -c conda-forge trame-vtk trame-vuetify pyside6 qt6-webengine
+```
+
+Then `meshforge-desktop` for a native window, or `meshforge-web` for the same
+UI in a browser on `127.0.0.1`. Running either without these installed tells
+you exactly what is missing — it does not fail with a bare import error.
+
+**macOS: PySide6, qt6-webengine, trame-vtk and trame-vuetify must come from
+conda-forge, never pip.** A pip PySide6 bundles a second Qt beside conda's
+`qt6-main` and hard-crashes the shell (exit 134).
+
+Other extras, all optional: `[meshing]` gmsh (tet backend), `[cad]` ezdxf
+(DXF/DWG), `[recipes]` pyyaml (parameter sweeps), `[image]` pydicom/nibabel
+(DICOM + NIfTI ingest). DWG import also needs `dwg2dxf` from GNU LibreDWG
+(`brew install libredwg`). pip-only fallback:
+`pip install -r requirements.txt -e .`.
+
+CI runs the ungated suite on every push/PR — solver-gated tests need local
+CalculiX/OpenFOAM/MYSTRAN installs.
+
+### Or: build a self-contained installer — no conda needed (macOS arm64 / Linux / Windows)
+
+> **There are no published GitHub releases yet, so there is no installer to
+> download** — you build it from this repo. Everything below describes that
+> build, not a download link.
+
+```bash
+bash packaging/build.sh      # macOS arm64 -> dist/meshforge-1.0.0-MacOSX-arm64.pkg (+ .sh)
+```
+
+Double-click the resulting **`.pkg`** → the wizard lays down a self-contained
+environment and a **meshforge** app; launch it to open the Workbench (a native
+window over the local 127.0.0.1 web UI). See
+[`packaging/README.md`](packaging/README.md) for the full recipe.
 The FEA/CFD **solvers stay external and optional** (CalculiX/OpenFOAM/MYSTRAN,
 auto-discovered at runtime — not bundled); meshing, export, and the 3-D viewport
-work without them. The MVP `.pkg` is unsigned — right-click → *Open* past
+work without them. The installer is unsigned — right-click → *Open* past
 Gatekeeper. **Linux** (`.sh`) and **Windows** (`.exe`) installers build from
 the same recipe via the manual-dispatch **"Linux installer"** / **"Windows
 installer"** GitHub Actions workflows (constructor can't cross-build; the
@@ -116,9 +153,20 @@ Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). You may
 use, modify, and redistribute it, including commercially, provided you keep the
 copyright and license notices and state your changes.
 
+## Security
+
+Local, single-user, offline tool: the trust boundary is the **files you open**
+and the **output of external solvers**, both treated as untrusted and required
+to fail loudly rather than silently produce a plausible mesh. Threat model,
+private reporting route, and the two written audits (with the `file:line`
+closing every finding) are in [`SECURITY.md`](SECURITY.md) and
+[`docs/security/`](docs/security/).
+
 ## Project docs
 - **`docs/TUTORIAL.md`** — first-run tutorial (install → mesh → solve → replay) · **`docs/APP_GUIDE.md`** — complete usage reference
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, tests, architecture rules · [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`SECURITY.md`](SECURITY.md) — threat model + reporting · [`docs/security/`](docs/security/) — audit reports
 - `AGENT_GROUNDUP_PROMPT.md` — v1 build spec · `docs/specs/V2_ROADMAP.md` — TrueGrid-parity roadmap
 - `CLAUDE.md` — operational contract (hard rules, session protocol)
 - `DECISIONS.md` — decision log (per-milestone details in `docs/decisions/`)
-- `BACKLOG.md` · `TEST_PLAN.md` · `docs/specs/` — per-milestone specs
+- `BACKLOG.md` · `TEST_PLAN.md` · `docs/specs/` — per-milestone specs · [`CITATION.cff`](CITATION.cff) — how to cite

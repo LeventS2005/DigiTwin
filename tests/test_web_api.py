@@ -440,3 +440,43 @@ def test_frontend_autorefresh_and_overlay_wiring() -> None:
     for js in (app_js, vp_js):
         for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
             assert forbidden not in js
+
+
+# ---- session 39: a fresh clone must be told what to install ---------------
+
+
+def _block_imports(monkeypatch, *prefixes):
+    """Make `import <prefix>[...]` raise ImportError, as it does on a machine
+    where only the BASE deps are installed."""
+    import builtins
+
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if any(name == p or name.startswith(p + ".") for p in prefixes):
+            raise ImportError(f"no module named {name}")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+
+
+def test_serve_without_the_web_extra_names_the_fix(monkeypatch) -> None:
+    """`conda env create -f environment.yml` installs the base deps only, and
+    `-e .` pulls no extras — so a fresh clone reaches serve() with no FastAPI.
+    That must name the install, not raise a bare ModuleNotFoundError."""
+    import sys
+
+    from meshforge.web import server
+
+    for mod in [m for m in sys.modules if m.startswith(("uvicorn", "fastapi"))]:
+        monkeypatch.delitem(sys.modules, mod, raising=False)
+    monkeypatch.delitem(sys.modules, "meshforge.web.app", raising=False)
+    _block_imports(monkeypatch, "uvicorn", "fastapi")
+
+    with pytest.raises(RuntimeError) as exc:
+        server.serve(port=1)
+    msg = str(exc.value)
+    assert "[web] extra" in msg
+    assert "pip install -e '.[web]'" in msg
+    assert "trame-vtk" in msg  # the viewport is a separate, conda-forge install
+    assert isinstance(exc.value.__cause__, ImportError)  # chained, not swallowed
