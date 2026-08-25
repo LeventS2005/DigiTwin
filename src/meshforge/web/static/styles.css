@@ -176,7 +176,12 @@ label.inline { display: inline-flex; align-items: center; gap: .25rem; color: va
 .history { width: 100%; border-collapse: collapse; font-size: .76rem; }
 .history th, .history td {
   border: 1px solid var(--line); padding: .2rem .35rem; text-align: left;
-  vertical-align: top; word-break: break-word;
+  vertical-align: top;
 }
+/* The step column names one step ("centerline") and must never wrap. It used
+   to share `word-break: break-word` with the JSON columns, which makes EVERY
+   column's min-content one character; auto table layout then squeezed this
+   narrow column to "ce nt er li ne". Only the JSON cells may break anywhere. */
+.history td.step { white-space: nowrap; width: 1%; }
 .history th { background: var(--panel); position: sticky; top: 0; }
-.history td.mono { font-family: var(--mono); }
+.history td.mono { font-family: var(--mono); overflow-wrap: anywhere; }
