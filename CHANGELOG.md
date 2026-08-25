@@ -20,6 +20,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the `file:line` that closes it.
 - README no longer implies a downloadable installer. There are no published
   releases yet, so the packaging section describes building one.
+- Both Workbench screenshots in the tutorial regenerated on the new chrome,
+  against a live session driven through the tutorial's own happy path.
 
 ### Fixed
 
