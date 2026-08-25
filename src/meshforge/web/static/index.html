@@ -9,10 +9,6 @@
   <body>
     <header id="topbar">
       <h1>meshforge <span class="sub">Workbench</span></h1>
-      <div id="state-strip" class="state-strip" aria-label="session state">
-        <span id="state-input" class="state-input">no source</span>
-        <span id="state-artifacts" class="state-artifacts"></span>
-      </div>
       <!-- Static, offline quick-start. No links, no fetch, no external
            navigation (the app is 127.0.0.1-only and self-contained). -->
       <details id="help" class="help">
@@ -89,33 +85,49 @@
         </div>
       </section>
 
-      <!-- RIGHT: log + history + work-file actions -->
+      <!-- RIGHT: docked session / log / history panels -->
       <section id="pane-right" class="pane" aria-label="log and history">
-        <div class="actions">
-          <div class="action-row">
-            <input type="text" id="save-path" placeholder="work file path (.mfwork)" />
-            <button type="button" id="btn-save" class="run" disabled>Save work file</button>
+        <section class="dock-panel">
+          <h2 class="panel-title">session</h2>
+          <div class="actions">
+            <div class="action-row">
+              <input type="text" id="save-path" placeholder="work file path (.mfwork)" />
+              <button type="button" id="btn-save" class="run" disabled>Save work file</button>
+            </div>
+            <div class="action-row">
+              <input type="text" id="wload-path" placeholder="work file to load" />
+              <label class="inline"><input type="checkbox" id="wload-replay" checked /> replay</label>
+              <button type="button" id="btn-wload" class="run">Load work file</button>
+            </div>
+            <div class="action-row">
+              <button type="button" id="btn-reset" class="reset">Reset session</button>
+            </div>
           </div>
-          <div class="action-row">
-            <input type="text" id="wload-path" placeholder="work file to load" />
-            <label class="inline"><input type="checkbox" id="wload-replay" checked /> replay</label>
-            <button type="button" id="btn-wload" class="run">Load work file</button>
-          </div>
-          <div class="action-row">
-            <button type="button" id="btn-reset" class="reset">Reset session</button>
-          </div>
-        </div>
+        </section>
 
-        <h2>log</h2>
-        <pre id="log" class="log" aria-live="polite"></pre>
+        <section class="dock-panel flush">
+          <h2 class="panel-title">log</h2>
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </section>
 
-        <h2>history <span class="muted">(journal — what a .mfwork replays)</span></h2>
-        <table id="history" class="history">
-          <thead><tr><th>step</th><th>params</th><th>summary</th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <section class="dock-panel flush">
+          <h2 class="panel-title">history <span class="muted">journal — what a .mfwork replays</span></h2>
+          <table id="history" class="history">
+            <thead><tr><th>step</th><th>params</th><th>summary</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
       </section>
     </main>
+
+    <!-- Status bar: the session's live state (source + artifact chips). -->
+    <footer id="statusbar">
+      <div id="state-strip" class="state-strip" aria-label="session state">
+        <span id="state-input" class="state-input">no source</span>
+        <span id="state-artifacts" class="state-artifacts"></span>
+      </div>
+      <span class="status-hint">local session — <code>127.0.0.1</code></span>
+    </footer>
 
     <!-- Viewport vendor JS (vtk.js/vue_vtk + Vue), served locally from /vendor;
          classic scripts so they run before the app.js module. If trame-vtk is

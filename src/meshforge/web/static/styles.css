@@ -1,5 +1,17 @@
-/* meshforge Workbench (V35 increment 2). Plain CSS, no framework/build step.
-   3-pane layout faithful to the Qt app: steps | viewport | log+history. */
+/* meshforge Workbench — desktop-tool chrome.
+   Plain CSS, no framework/build step, no external font/asset (the page stays
+   127.0.0.1-only and self-contained; test_help_affordance_is_static_and_local
+   asserts no http/https anywhere in the served page).
+
+   Design intent (session 39): this is a meshing/FEA workstation, not a web
+   form. The vocabulary is the one every DCC/CAD tool uses — a dark neutral
+   chrome, hairline-separated docked panels with small-caps title bars, 22px
+   controls, inset fields, flat raised buttons, and a status bar. Saturated
+   fills are spent only on focus and state; nothing is rounded past 3px.
+
+   THEME: dark, always — the app ships its own theme rather than following the
+   OS, the way Photoshop/Blender/Fusion do (D77). One palette means one set of
+   contrast ratios to tune. */
 
 /* The hidden attribute must always win: several class rules below set
    display:* which otherwise overrides the UA's [hidden]{display:none}
@@ -8,180 +20,377 @@
 [hidden] { display: none !important; }
 
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --ink: #1c2126;
-  --muted: #6b7480;
-  --line: #d9dee4;
-  --accent: #2b6cb0;
+  /* surfaces, darkest -> lightest */
+  --void:       #101012;  /* the viewport well: darker than any panel */
+  --app:        #1b1c1e;  /* window background / gutters */
+  --panel:      #232528;  /* docked panel body */
+  --head:       #2b2e32;  /* panel title bar, toolbars, raised buttons */
+  --head-hi:    #35383d;  /* button hover / active tab */
+  --field:      #17181a;  /* inset input well */
+
+  /* edges: a hard dark line plus a 1px highlight is what reads as "bevel" */
+  --edge:       #0d0e10;
+  --bevel:      #383b40;
+  --rule:       #2f3237;
+
+  /* ink */
+  --ink:        #c9ccd1;
+  --ink-dim:    #8b9098;
+  --ink-head:   #9aa0a8;  /* small-caps panel titles */
+
+  --accent:     #2b7fd4;  /* focus, selection, active state — used sparingly */
   --accent-ink: #ffffff;
-  --err: #b02a37;
-  --ok: #2f8a4e;
+  --err:        #e06c75;
+  --ok:         #7bc98a;
+  --warn:       #d9a441;
+
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --row: 22px;   /* the one control height everything aligns to */
+  --pad: 7px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14181d; --panel: #1c222a; --ink: #e6e9ed; --muted: #96a0ac;
-    --line: #2c343d; --accent: #4a90d9; --err: #e06c75; --ok: #6cc281;
-  }
-}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
-  font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color: var(--ink); background: var(--bg);
+  font: 12px/1.4 var(--ui);
+  color: var(--ink);
+  background: var(--app);
   display: flex; flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;           /* the panes scroll, never the window */
 }
 
-#topbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 1.5rem;
-  padding: .5rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel);
+/* Native-feeling scrollbars: a light web scrollbar over dark chrome is the
+   single loudest "this is a web page" tell. */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--app); }
+::-webkit-scrollbar-thumb {
+  background: #3b3e43; border: 2px solid var(--app); border-radius: 6px;
 }
-#topbar h1 { font-size: 1.05rem; margin: 0; font-weight: 650; }
-#topbar h1 .sub { color: var(--muted); font-weight: 400; }
-.state-strip { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .82rem; }
-.state-input { color: var(--muted); }
+::-webkit-scrollbar-thumb:hover { background: #4a4e54; }
+::-webkit-scrollbar-corner { background: var(--app); }
+
+::selection { background: var(--accent); color: var(--accent-ink); }
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* ---- top chrome: title + tool identity ------------------------------- */
+#topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  height: 30px; padding: 0 10px;
+  background: linear-gradient(var(--head), #26292d);
+  border-bottom: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 #3c4046;
+  user-select: none;
+}
+#topbar h1 {
+  font-size: 12px; margin: 0; font-weight: 700; letter-spacing: .04em;
+  display: flex; align-items: baseline; gap: 6px;
+}
+#topbar h1 .sub {
+  color: var(--ink-dim); font-weight: 400; font-size: 11px; letter-spacing: .09em;
+  text-transform: uppercase;
+}
+#topbar h1::before {           /* a small tool mark, drawn not fetched */
+  content: ""; width: 9px; height: 9px; align-self: center;
+  border: 1.5px solid var(--accent); transform: rotate(45deg);
+}
 
 /* Static offline quick-start popover (no links / no fetch — 127.0.0.1-only app). */
-.help { margin-left: auto; position: relative; font-size: .82rem; }
+.help { margin-left: auto; position: relative; font-size: 11px; }
 .help > summary {
-  cursor: pointer; list-style: none; padding: .1rem .6rem;
-  border: 1px solid var(--line); border-radius: 999px; color: var(--muted); user-select: none;
+  cursor: pointer; list-style: none; height: 20px; padding: 0 9px;
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--bevel); border-radius: 3px;
+  background: linear-gradient(#33363b, #2a2d31);
+  color: var(--ink-dim); user-select: none;
 }
+.help > summary:hover { background: linear-gradient(#3b3f45, #31343a); color: var(--ink); }
 .help > summary::-webkit-details-marker { display: none; }
-.help[open] > summary { color: var(--accent); border-color: var(--accent); }
+.help[open] > summary { color: var(--ink); border-color: var(--accent); background: var(--head-hi); }
 .help-body {
-  position: absolute; right: 0; top: 1.9rem; z-index: 20; width: 22rem;
-  padding: .6rem .85rem; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--panel); box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  position: absolute; right: 0; top: 25px; z-index: 20; width: 23rem;
+  padding: 10px 12px; border: 1px solid var(--edge); border-radius: 3px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .55), inset 0 1px 0 var(--bevel);
 }
-.help-body ol { margin: .2rem 0 .5rem; padding-left: 1.1rem; }
-.help-body li { margin: .25rem 0; }
-.help-body p { margin: .35rem 0 0; color: var(--muted); }
-.help-body code { font-family: var(--mono); font-size: .95em; }
-.state-artifacts { display: flex; gap: .3rem; flex-wrap: wrap; }
-.chip {
-  padding: .05rem .4rem; border: 1px solid var(--line); border-radius: 999px;
-  color: var(--muted); font-family: var(--mono); font-size: .72rem;
-}
-.chip.on { color: var(--ok); border-color: var(--ok); }
+.help-body ol { margin: 2px 0 6px; padding-left: 16px; }
+.help-body li { margin: 4px 0; }
+.help-body p { margin: 6px 0 0; color: var(--ink-dim); }
+.help-body code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+.help-body b { color: #e3e6ea; }
 
+/* ---- workbench: three docked columns --------------------------------- */
 #workbench {
   flex: 1 1 auto; min-height: 0;
-  display: grid; grid-template-columns: minmax(300px, 360px) 1fr minmax(320px, 420px);
-  gap: 0;
+  display: grid;
+  grid-template-columns: minmax(268px, 296px) 1fr minmax(300px, 392px);
+  background: var(--edge);   /* shows through as the 1px gutters */
+  gap: 1px;
 }
-.pane { min-height: 0; overflow-y: auto; padding: .75rem; border-right: 1px solid var(--line); }
-#pane-right { border-right: none; }
-#pane-center { background: var(--bg); }
+.pane { min-height: 0; overflow-y: auto; background: var(--app); padding: 0; }
+#pane-center { background: var(--app); }
+/* the 1px gutter reads as a splitter once it has a highlight on one side */
+#pane-center, #pane-right { box-shadow: inset 1px 0 0 var(--bevel); }
 
-.step-box {
-  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
-  margin: 0 0 .6rem 0; padding: .5rem .6rem;
+/* ---- docked panel: one look for every panel in every pane ------------ */
+.step-box,
+.dock-panel {
+  border: 0; border-bottom: 1px solid var(--edge);
+  background: var(--panel);
+  margin: 0; padding: 0 0 var(--pad);
+  box-shadow: inset 0 -1px 0 #1a1c1f;
 }
-.step-box legend { font-weight: 600; padding: 0 .3rem; }
-.step-box hr { border: none; border-top: 1px solid var(--line); margin: .5rem 0; }
-.knob { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; gap: .4rem; margin: .25rem 0; }
-.knob-name { color: var(--muted); font-family: var(--mono); font-size: .8rem; }
-.knob input[type="text"], .knob input[type="number"], .knob select {
-  width: 100%; padding: .25rem .4rem; border: 1px solid var(--line);
-  border-radius: 5px; background: var(--bg); color: var(--ink); font: inherit;
+/* float+width:100% pulls <legend> out of the fieldset's border notch so it
+   can be a full-bleed title bar like every other panel header. */
+.step-box > legend,
+.panel-title {
+  float: left; width: 100%; margin: 0;
+  height: 23px; padding: 0 var(--pad);
+  display: flex; align-items: center; gap: 6px;
+  background: linear-gradient(var(--head), #272a2e);
+  border-bottom: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 #3a3e43;
+  font: 600 10.5px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-head); user-select: none;
 }
-.knob input[type="checkbox"] { justify-self: start; width: 1rem; height: 1rem; }
-.knob-help { grid-column: 2; color: var(--muted); font-size: .74rem; margin: 0 0 .15rem 0; }
-button.run, button.reset {
-  margin-top: .4rem; padding: .3rem .7rem; border: 1px solid var(--accent);
-  border-radius: 6px; background: var(--accent); color: var(--accent-ink);
-  font: inherit; cursor: pointer;
+.panel-title { float: none; font-size: 10.5px; }
+.dock-panel.flush { padding-bottom: 0; }
+.step-box > *:not(legend) { clear: both; }
+.step-box > .knob:first-of-type { margin-top: var(--pad); }
+.step-box hr {
+  border: 0; border-top: 1px solid var(--rule);
+  margin: var(--pad) var(--pad) calc(var(--pad) - 2px);
 }
-button.reset { border-color: var(--err); background: transparent; color: var(--err); }
-button.run:disabled { opacity: .5; cursor: not-allowed; }
-button.run:hover:not(:disabled) { filter: brightness(1.08); }
+.panel-title .muted {
+  margin-left: auto; text-transform: none; letter-spacing: 0;
+  font-weight: 400; font-size: 10.5px; color: #6f757d;
+}
+
+/* ---- knob row: right-aligned label, inset field ---------------------- */
+.knob {
+  display: grid; grid-template-columns: 92px 1fr;
+  align-items: center; gap: 8px;
+  margin: 2px 0; padding: 0 var(--pad);
+}
+.knob-name {
+  color: var(--ink-dim); font-size: 11px; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.knob input[type="text"], .knob input[type="number"], .knob select,
+.action-row input[type="text"] {
+  height: var(--row); width: 100%; padding: 0 6px;
+  border: 1px solid var(--edge); border-radius: 2px;
+  background: var(--field); color: var(--ink);
+  font: 11px/1 var(--mono);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45);
+}
+.knob input::placeholder, .action-row input::placeholder {
+  color: #5d636b; font-family: var(--ui);
+}
+.knob input:hover, .knob select:hover, .action-row input:hover { border-color: #2a2d31; }
+.knob input:focus, .knob select:focus, .action-row input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), 0 0 0 1px rgba(43, 127, 212, .45);
+}
+.knob select {
+  appearance: none; padding-right: 20px; cursor: pointer;
+  font-family: var(--ui); font-size: 11px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-dim) 50%) calc(100% - 11px) 9px / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--ink-dim) 50%, transparent 50%) calc(100% - 6px) 9px / 5px 5px no-repeat,
+    var(--field);
+}
+.knob input[type="checkbox"] { justify-self: start; width: 13px; height: 13px; accent-color: var(--accent); }
+.knob-help {
+  grid-column: 2; margin: 0 var(--pad) 3px calc(92px + 8px + var(--pad));
+  color: #6f757d; font-size: 10.5px; line-height: 1.35;
+}
+
+/* ---- buttons: flat raised chrome, never a saturated web pill --------- */
+button.run, button.reset, button.browse {
+  height: var(--row); padding: 0 11px; margin: 0;
+  border: 1px solid var(--bevel); border-radius: 3px;
+  background: linear-gradient(#34373c, #2a2d31);
+  color: var(--ink); font: 11px/1 var(--ui); cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+button.run:hover:not(:disabled),
+button.reset:hover:not(:disabled),
+button.browse:hover { background: linear-gradient(#3d4148, #33363b); border-color: #4a4e55; }
+button.run:active:not(:disabled), button.reset:active:not(:disabled) {
+  background: #212428; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5);
+}
+button.run:disabled { opacity: .4; cursor: default; }
+/* a step panel's own action sits on its trailing edge, dialog-style */
+.step-box > button.run {
+  float: right; margin: var(--pad) var(--pad) 0 0;
+  border-color: #3f6d99; background: linear-gradient(#2f5f8c, #27506f);
+}
+.step-box > button.run:hover:not(:disabled) {
+  background: linear-gradient(#356b9d, #2b587c); border-color: #4a80b3;
+}
+.step-box::after { content: ""; display: block; clear: both; }
+button.reset { border-color: #6b3a3e; color: #e59aa1; background: linear-gradient(#40292c, #352225); }
+button.reset:hover { border-color: #8d4a50; color: #f0b3b8; background: linear-gradient(#4d3134, #402729); }
 
 /* Native "Browse…" (desktop shell only); sits under its path field. */
 button.browse {
-  grid-column: 2; justify-self: start; margin: .1rem .3rem 0 0;
-  padding: .18rem .55rem; border: 1px solid var(--border);
-  border-radius: 5px; background: var(--panel); color: var(--fg);
-  font: inherit; font-size: .74rem; cursor: pointer;
+  grid-column: 2; justify-self: start; height: 19px;
+  margin: 1px 4px 2px 0; padding: 0 8px; font-size: 10.5px;
 }
-button.browse:hover { filter: brightness(1.12); }
 
+/* ---- centre: viewport well ------------------------------------------ */
 .viewport-slot {
-  height: 100%; display: flex; flex-direction: column; gap: .5rem;
-  align-items: stretch; justify-content: flex-start; padding: .5rem;
+  height: 100%; display: flex; flex-direction: column;
+  align-items: stretch; justify-content: flex-start;
 }
 .viewport-note {
-  border: 1px dashed var(--line); border-radius: 8px; padding: 1rem;
-  color: var(--muted); text-align: center; margin: 0;
+  border: 1px dashed var(--rule); border-radius: 2px; padding: 14px;
+  color: #6f757d; text-align: center; margin: 0; font-size: 11px;
 }
-/* toolbar: color-by field + colorbar */
+/* options bar: the tool strip over the canvas */
 .vp-toolbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-  min-height: 1.6rem;
+  flex: 0 0 auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  min-height: 26px; padding: 0 9px;
+  background: linear-gradient(var(--head), #272a2e);
+  border-bottom: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 #3a3e43;
 }
-.vp-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted); }
+.vp-ctl {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--ink-dim);
+}
 .vp-ctl select {
-  padding: .2rem .4rem; border: 1px solid var(--line); border-radius: 5px;
-  background: var(--bg); color: var(--ink); font: inherit;
+  height: 19px; padding: 0 20px 0 6px; appearance: none; cursor: pointer;
+  border: 1px solid var(--edge); border-radius: 2px; color: var(--ink);
+  font: 11px/1 var(--ui);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--ink-dim) 50%) calc(100% - 11px) 8px / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--ink-dim) 50%, transparent 50%) calc(100% - 6px) 8px / 5px 5px no-repeat,
+    var(--field);
 }
-.vp-colorbar { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; color: var(--muted); }
+.vp-ctl input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
+.vp-colorbar { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ink-dim); }
 .vp-cb-gradient {
-  display: inline-block; width: 8rem; height: .7rem; border-radius: 3px;
-  border: 1px solid var(--line);
+  display: inline-block; width: 128px; height: 10px; border-radius: 1px;
+  border: 1px solid var(--edge);
   background: linear-gradient(to right, #3b4cc0 0%, #dcdcdc 50%, #b40426 100%);
 }
 .vp-cb-lim { font-family: var(--mono); }
-.vp-cb-name { color: var(--ink); font-weight: 600; }
-/* the WebGL canvas host: the dominant area */
+.vp-cb-name { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+/* the WebGL canvas host: the dominant area, and the darkest surface */
 .vtk-canvas {
   flex: 1 1 auto; min-height: 12rem; position: relative;
-  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
-  background: #17171c;
+  overflow: hidden; margin: 0;
+  background:
+    radial-gradient(120% 100% at 50% 0%, #1a1b1e 0%, var(--void) 70%);
+  /* A VISIBLE inner frame, not just a shadow: the vendor Vue app mounts over
+     #vtk-canvas and destroys the "run a step" note inside it, so with nothing
+     loaded this region is a flat dark field. The frame is what tells the eye
+     it is the (empty) viewport rather than dead space. */
+  box-shadow:
+    inset 0 0 0 1px #2b2f34,
+    inset 0 0 0 2px var(--edge),
+    inset 0 2px 16px rgba(0, 0, 0, .65);
 }
 .vtk-canvas .viewport-note { position: absolute; inset: 50% 0 auto 0; transform: translateY(-50%); border: none; }
 .vtk-canvas canvas { display: block; }
-/* CFD animation strip */
-.vp-anim { flex: 0 0 auto; display: flex; align-items: center; gap: .5rem; }
-.vp-anim input[type="range"] { flex: 1 1 auto; }
-.vp-anim .run { margin-top: 0; padding: .2rem .55rem; min-width: 2.2rem; }
-.vp-time { font-family: var(--mono); font-size: .74rem; color: var(--muted); white-space: nowrap; }
+/* transport strip for CFD time series */
+.vp-anim {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+  height: 26px; padding: 0 9px;
+  background: var(--head); border-top: 1px solid var(--edge);
+}
+.vp-anim input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); height: 3px; }
+.vp-anim .run { width: 24px; padding: 0; height: 19px; font-size: 10px; }
+.vp-time { font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); white-space: nowrap; }
 .vp-fallback {
-  flex: 0 0 auto; border: 1px dashed var(--line); border-radius: 8px; padding: .6rem;
-  color: var(--muted); font-size: .8rem; margin: 0;
+  flex: 0 0 auto; margin: 0; padding: 8px 10px;
+  border-top: 1px solid var(--edge); background: #2a2419;
+  color: var(--warn); font-size: 11px;
 }
+.vp-fallback code { font-family: var(--mono); color: #f0c674; }
 .summary-view {
-  flex: 0 0 auto; max-height: 8rem; overflow: auto; margin: 0; padding: .5rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  font-family: var(--mono); font-size: .76rem; white-space: pre-wrap;
+  flex: 0 0 auto; max-height: 9rem; overflow: auto; margin: 0;
+  padding: 7px 9px;
+  background: var(--panel); border-top: 1px solid var(--edge);
+  font-family: var(--mono); font-size: 11px; line-height: 1.45;
+  color: var(--ink); white-space: pre-wrap;
 }
 
-.actions { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .6rem; }
-.action-row { display: flex; align-items: center; gap: .4rem; }
-.action-row input[type="text"] {
-  flex: 1 1 auto; padding: .25rem .4rem; border: 1px solid var(--line);
-  border-radius: 5px; background: var(--bg); color: var(--ink); font: inherit;
+/* ---- right dock: actions / log / history ----------------------------- */
+.actions { display: flex; flex-direction: column; gap: 5px; padding: var(--pad); }
+.action-row { display: flex; align-items: center; gap: 5px; }
+.action-row input[type="text"] { flex: 1 1 auto; }
+.action-row button { flex: 0 0 auto; }
+label.inline {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--ink-dim); font-size: 11px; white-space: nowrap;
 }
-.action-row button { margin-top: 0; }
-label.inline { display: inline-flex; align-items: center; gap: .25rem; color: var(--muted); font-size: .8rem; }
+label.inline input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
 
-#pane-right h2 { font-size: .9rem; margin: .6rem 0 .3rem; }
-.muted { color: var(--muted); font-weight: 400; font-size: .78rem; }
 .log {
-  height: 14rem; overflow: auto; margin: 0; padding: .5rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  font-family: var(--mono); font-size: .78rem; white-space: pre-wrap;
+  height: 15rem; overflow: auto; margin: 0; padding: 7px 9px;
+  background: var(--void);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, .5);
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  color: #a8b0b8; white-space: pre-wrap;
 }
 .log .err { color: var(--err); }
-.history { width: 100%; border-collapse: collapse; font-size: .76rem; }
+
+.history { width: 100%; border-collapse: collapse; font-size: 11px; }
 .history th, .history td {
-  border: 1px solid var(--line); padding: .2rem .35rem; text-align: left;
-  vertical-align: top;
+  border-bottom: 1px solid var(--rule); padding: 3px 7px;
+  text-align: left; vertical-align: top;
 }
-/* The step column names one step ("centerline") and must never wrap. It used
-   to share `word-break: break-word` with the JSON columns, which makes EVERY
-   column's min-content one character; auto table layout then squeezed this
-   narrow column to "ce nt er li ne". Only the JSON cells may break anywhere. */
-.history td.step { white-space: nowrap; width: 1%; }
-.history th { background: var(--panel); position: sticky; top: 0; }
-.history td.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+.history th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--head); border-bottom: 1px solid var(--edge);
+  color: var(--ink-head); font: 600 10px/1.6 var(--ui);
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.history tbody tr:nth-child(even) { background: rgba(255, 255, 255, .022); }
+.history tbody tr:hover { background: rgba(43, 127, 212, .12); }
+/* The step column names one step ("centerline") and must never wrap: the JSON
+   columns' overflow-wrap makes every column's min-content one character, and
+   auto table layout then squeezes this narrow column to "ce nt er li ne"
+   (visible in the README hero shot before session 39). width:1% + nowrap
+   pins it to its natural width; only the JSON cells may break anywhere. */
+.history td.step {
+  white-space: nowrap; width: 1%;
+  font-weight: 600; color: var(--ink); letter-spacing: .01em;
+}
+.history td.mono { font-family: var(--mono); color: var(--ink-dim); overflow-wrap: anywhere; }
+/* auto layout hands the params column almost nothing next to the much longer
+   summary JSON; a floor keeps it readable without pinning either column. */
+.history th:nth-child(2), .history td:nth-child(2) { min-width: 7rem; }
+
+/* ---- status bar ------------------------------------------------------ */
+#statusbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  height: 22px; padding: 0 9px;
+  background: var(--head); border-top: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 #3a3e43;
+  font-size: 10.5px; color: var(--ink-dim); user-select: none;
+}
+.state-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.state-input {
+  color: var(--ink); font-family: var(--mono); font-size: 10.5px;
+  max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.state-input::before { content: "source: "; color: #6f757d; font-family: var(--ui); }
+.state-artifacts { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip {
+  padding: 1px 6px; border: 1px solid #34373c; border-radius: 2px;
+  background: #202225; color: #767c84;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .02em;
+}
+.chip.on { color: var(--ok); border-color: #2f5c3b; background: #1c2a20; }
+.status-hint { margin-left: auto; color: #626870; white-space: nowrap; }
+.status-hint code { font-family: var(--mono); color: #7d848d; }

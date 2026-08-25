@@ -198,7 +198,37 @@ screenshot (volmesh, centerline) -> outputs/session.png
   `torus`, or primitives like `box`/`solid_cylinder`), or load your own surface.
 - Drive a real CAD drawing: [APP_GUIDE §5](APP_GUIDE.md#5-the-dwg-path-cottage_pane_windowdwg).
 
-> **How the images here were made** (reproducible): the mesh figure is the
-> `screenshot` step; the Workbench shots are captured from `meshforge web` running
-> on `127.0.0.1`. Doc images live in `docs/images/` (git-tracked); generated
-> artifacts always go to git-ignored `outputs/`.
+> **How the images here were made** (reproducible). The mesh figure is the
+> `screenshot` step. The Workbench shots are 1440×880 captures of `meshforge web`
+> running on `127.0.0.1`. Doc images live in `docs/images/` (git-tracked);
+> generated artifacts always go to git-ignored `outputs/`.
+>
+> To retake them, start the server on a fixed port and drive the session to the
+> state you want to photograph:
+>
+> ```bash
+> meshforge-web --port 8731 &
+> B=http://127.0.0.1:8731
+> # workbench_overview.png — the empty Workbench
+> curl -sX POST $B/session/reset -H 'Content-Type: application/json' -d '{}'
+> # workbench_meshed.png — the §4 happy path, exactly as quoted above
+> curl -sX POST $B/source/synth   -H 'Content-Type: application/json' -d '{"shape":"straight_tube"}'
+> curl -sX POST $B/step/centerline -H 'Content-Type: application/json' -d '{}'
+> curl -sX POST $B/step/sections   -H 'Content-Type: application/json' -d '{}'
+> curl -sX POST $B/step/wall       -H 'Content-Type: application/json' -d '{"thickness":0.5}'
+> curl -sX POST $B/step/volmesh    -H 'Content-Type: application/json' \
+>      -d '{"n_theta":24,"n_axial":12,"n_layers":3}'
+> ```
+>
+> Then open `http://127.0.0.1:8731/app/` in a **real browser window** sized to
+> 1440×880 and capture it (macOS: `Cmd-Shift-4`, then Space, then click the
+> window). Headless capture works for the *empty* Workbench —
+>
+> ```bash
+> chrome --headless=new --window-size=1440,880 --hide-scrollbars \
+>        --force-device-scale-factor=1 --virtual-time-budget=8000 \
+>        --screenshot=docs/images/workbench_overview.png http://127.0.0.1:8731/app/
+> ```
+>
+> — but **not** for any shot containing the 3-D viewport: headless Chrome does
+> not composite the vtk.js WebGL canvas, so the viewport comes out empty.
