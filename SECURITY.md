@@ -25,8 +25,14 @@ Please report privately rather than opening a public issue: use
 [GitHub's private vulnerability reporting](https://github.com/LeventS2005/meshforge/security/advisories/new)
 on this repository. Include the crafted input (a *synthetic* one — never a
 clinical file), the command or Workbench step that triggers it, and what went
-wrong. This is a research project maintained by one person; expect a first
-response within about two weeks, and no formal SLA beyond that.
+wrong.
+
+If that link is unavailable to you, open a public issue titled
+`security contact request` containing **no details of the issue** — just ask for
+a private channel — and you will be sent one.
+
+This is a research project maintained by one person; expect a first response
+within about two weeks, and no formal SLA beyond that.
 
 Please do **not** send clinical or patient-derived data in a report under any
 circumstances. Every finding to date has been reproduced with a tiny synthetic
