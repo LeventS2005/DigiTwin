@@ -20,7 +20,7 @@ channels:
 
 specs:
   - python 3.12.*
-  - meshforge 0.1.0
+  - meshforge 1.0.0
 
 installer_type:
   - sh
