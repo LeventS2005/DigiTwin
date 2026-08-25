@@ -65,17 +65,34 @@
     return true;
   }
 
-  // Best-effort three-quarter framing. The vtk-view camera accessor is not part
-  // of any contract we control, so every step is guarded: if it is unavailable
-  // the camera keeps whatever direction it had and resetCamera still frames the
-  // mesh — the old behaviour, never an error.
+  // A view direction no principal axis lies along: 50.7 degrees off x and y,
+  // 63.6 off z. Straight tubes run along z, blocks and plates along x/y, so any
+  // axis-aligned direction renders SOME common artifact as a flat outline.
+  var THREE_QUARTER = [0.634, -0.634, 0.444]; // unit (1, -1, 0.7)
+
+  // Point the camera three-quarters at the scene, without moving it closer or
+  // further: the offset keeps its current length, so this is a direction-only
+  // change and the resetCamera that follows sets the distance that frames the
+  // mesh. vue_vtk's camera is a PLAIN OBJECT read with getCamera() and written
+  // back with setCamera() — it has no vtk.js setter methods on it. Every step
+  // is guarded: without those two accessors the camera keeps the direction it
+  // had, resetCamera still frames the mesh, and nothing errors.
   function aimThreeQuarter(view) {
     try {
-      var cam = view.getCamera && view.getCamera();
-      if (!cam || !cam.setPosition || !cam.setFocalPoint || !cam.setViewUp) return;
-      cam.setFocalPoint(0, 0, 0);
-      cam.setPosition(1, -1, 0.55);
-      cam.setViewUp(0, 0, 1);
+      if (!view.getCamera || !view.setCamera) return;
+      var cam = view.getCamera();
+      var fp = cam && cam.focalPoint;
+      var pos = cam && cam.position;
+      if (!fp || !pos) return;
+      var dx = pos[0] - fp[0], dy = pos[1] - fp[1], dz = pos[2] - fp[2];
+      var dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      cam.position = [
+        fp[0] + THREE_QUARTER[0] * dist,
+        fp[1] + THREE_QUARTER[1] * dist,
+        fp[2] + THREE_QUARTER[2] * dist,
+      ];
+      cam.viewUp = [0, 0, 1];
+      view.setCamera(cam);
     } catch (err) {
       console.warn("[viewport] camera aim unavailable", err);
     }
@@ -94,10 +111,10 @@
       setTimeout(function () {
         var v = S.viewRef && S.viewRef.value;
         if (!v || !v.resetCamera) return;
-        // resetCamera re-frames along the camera's CURRENT direction, so a
-        // fresh view looks straight down an axis — a tube then reads as a flat
-        // annulus. Set a three-quarter DIRECTION first; resetCamera then
-        // recentres on the mesh bounds and keeps that direction.
+        // resetCamera re-frames along the camera's CURRENT direction, and the
+        // default direction is straight down +z — so a straight tube opened as
+        // a flat annulus. Aim three-quarters first; resetCamera then recentres
+        // on the mesh bounds and keeps that direction.
         aimThreeQuarter(v);
         v.resetCamera();
       }, 60);
