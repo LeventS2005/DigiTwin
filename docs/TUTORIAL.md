@@ -220,15 +220,27 @@ screenshot (volmesh, centerline) -> outputs/session.png
 >      -d '{"n_theta":24,"n_axial":12,"n_layers":3}'
 > ```
 >
-> Then open `http://127.0.0.1:8731/app/` in a **real browser window** sized to
-> 1440×880 and capture it (macOS: `Cmd-Shift-4`, then Space, then click the
-> window). Headless capture works for the *empty* Workbench —
+> Then capture the page at 1440×880. **Headless Chrome will not work for any
+> shot containing the 3-D viewport** — it does not composite the vtk.js WebGL
+> canvas, so the viewport comes out empty. Grab it through QtWebEngine instead
+> (the same engine the desktop shell uses, so it renders on the real GPU):
 >
-> ```bash
-> chrome --headless=new --window-size=1440,880 --hide-scrollbars \
->        --force-device-scale-factor=1 --virtual-time-budget=8000 \
->        --screenshot=docs/images/workbench_overview.png http://127.0.0.1:8731/app/
+> ```python
+> # needs the [desktop] extra: conda install -c conda-forge pyside6 qt6-webengine
+> import sys
+> from PySide6.QtCore import QTimer, QUrl
+> from PySide6.QtWidgets import QApplication
+> from PySide6.QtWebEngineWidgets import QWebEngineView
+>
+> app = QApplication(sys.argv)
+> view = QWebEngineView()
+> view.setFixedSize(1440, 880)
+> view.load(QUrl("http://127.0.0.1:8731/app/"))
+> view.show()
+> QTimer.singleShot(9000, lambda: (view.grab().save("shot.png"), app.quit()))
+> sys.exit(app.exec())
 > ```
 >
-> — but **not** for any shot containing the 3-D viewport: headless Chrome does
-> not composite the vtk.js WebGL canvas, so the viewport comes out empty.
+> On a retina display that grabs at 2×; downscale to 1440×880 with LANCZOS.
+> A screen capture of a real browser window (macOS: `Cmd-Shift-4`, Space, click)
+> works too.
