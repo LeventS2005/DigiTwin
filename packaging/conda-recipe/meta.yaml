@@ -1,4 +1,4 @@
-{% set version = "0.1.0" %}
+{% set version = "1.0.0" %}
 
 # meshforge as a **noarch** conda package (it is pure-Python; the heavy native
 # deps below come from conda-forge). This package is the single spec constructor
@@ -64,6 +64,6 @@ test:
     - meshforge.web.server
 
 about:
-  home: https://github.com/LeventS2005/OpenGrid
+  home: https://github.com/LeventS2005/meshforge
   summary: Research-grade meshing toolkit — tubular/closed surfaces to solver-ready wall volume meshes
-  license: MIT
+  license: Apache-2.0

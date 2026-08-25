@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from meshforge import __version__
 from meshforge.pipeline import STEP_KNOBS, MeshingSession
 from meshforge.web.schema import build_request_models, drop_unset, schema_json
 
@@ -124,7 +125,7 @@ def _vendor_assets() -> dict[str, Path]:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="meshforge web",
-        version="0.1.0",
+        version=__version__,
         description="Local JSON layer over MeshingSession (127.0.0.1 only).",
     )
     holder = _SessionHolder()
