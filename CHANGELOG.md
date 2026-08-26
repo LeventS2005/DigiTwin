@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Public tree slimmed to what someone *using* meshforge needs. The agent and
+  session machinery (`CLAUDE.md`, `AGENT_GROUNDUP_PROMPT.md`, `DECISIONS.md`,
+  `BACKLOG.md`, `INPUTS.md`) and the 72 per-milestone design documents under
+  `docs/specs/` and `docs/decisions/` are no longer published; they remain the
+  project's local working record. 246 tracked files -> 174.
+- Repository root reorganised: `CONTRIBUTING.md` and `SECURITY.md` moved to
+  `.github/` (GitHub still surfaces them there) and `TEST_PLAN.md` to `docs/`.
+  Root is now README, LICENSE, NOTICE, CHANGELOG, CITATION, the three
+  dependency manifests, and the source/test/docs/packaging directories.
 - Workbench UI reworked into desktop-tool chrome: a single dark theme owned by
   the app, hairline-separated docked panels with small-caps title bars, 22px
   controls with inset fields, flat raised buttons, and a status bar carrying the

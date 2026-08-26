@@ -22,7 +22,7 @@ from meshforge.io.cad import (
     load_profile,
 )
 
-# Registered in INPUTS.md — the user DWG is READ-ONLY (CLAUDE.md rule 1).
+# Registered in the input registry — the user DWG is READ-ONLY.
 COTTAGE_SHA256 = "a4cb1d4085881dde3a7821b4bc4768cf7e991c160d5ec7a6d53b46753e7d9068"
 
 

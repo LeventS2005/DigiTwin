@@ -38,3 +38,14 @@ summary.md
 masterplan.md
 master.md
 GITHUB_STATUS.md
+
+# Agent/session machinery + per-milestone design record — local working files,
+# deliberately not part of the public tree (they are noise to anyone using the
+# tool). Session protocol still reads and writes them locally.
+CLAUDE.md
+AGENT_GROUNDUP_PROMPT.md
+DECISIONS.md
+BACKLOG.md
+INPUTS.md
+docs/specs/
+docs/decisions/

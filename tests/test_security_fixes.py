@@ -103,7 +103,7 @@ def test_foam_default_patch_refuses_dict_injection():
 
 def test_split_boundary_group_refuses_newline_name():
     # (a) The direct mint site: a newline-bearing name is refused LOUDLY
-    # before any group is created (fail-loud, CLAUDE.md rule 6).
+    # before any group is created (fail-loud).
     wall = _cavity_wall()
     with pytest.raises(ValueError, match="invalid boundary-group name"):
         split_boundary_group(

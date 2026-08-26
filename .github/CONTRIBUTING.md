@@ -36,7 +36,7 @@ python -m pytest tests/test_solve.py -v  # one area
 Tests that need an external solver (CalculiX, OpenFOAM, MYSTRAN), an optional
 dependency, or a local clinical data directory **skip cleanly** when it is
 absent — that is deliberate, and CI runs the ungated set. See
-[`TEST_PLAN.md`](TEST_PLAN.md) for what is gated on what.
+[`docs/TEST_PLAN.md`](../docs/TEST_PLAN.md) for what is gated on what.
 
 What a change needs before it lands:
 

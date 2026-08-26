@@ -1,5 +1,5 @@
 """V46 transient thermal stress: a transient heat history's snapshot becomes
-the *TEMPERATURE load of a static solve (spec docs/specs/V46_SPEC.md, D70).
+the *TEMPERATURE load of a static solve (V46, D70).
 
 Ungated: snapshot selection over a crafted FrdModel history (right block,
 time=None = last = V45, unknown time refuses LISTING the frd's own times, no

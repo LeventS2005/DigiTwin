@@ -137,7 +137,7 @@ python -m pytest                                  # test suite
 **No patient data lives in this repository, and none ever has.** The cardiac
 `.cso` / DICOM inputs the pipeline was validated against are read-only files
 kept *outside* the repo tree; they are checksummed on sight and never copied in
-or committed (`CLAUDE.md` rule 1). Cases are referred to only by pseudonymous
+or committed. Cases are referred to only by pseudonymous
 study code (`VAM1`, `VAM997`, …) — never by a filename, because segmentation
 filenames carry patient initials and scan dates. The gated family tests locate
 that folder via `MESHFORGE_CSO_FAMILY_DIR` (or a git-ignored
@@ -159,14 +159,13 @@ Local, single-user, offline tool: the trust boundary is the **files you open**
 and the **output of external solvers**, both treated as untrusted and required
 to fail loudly rather than silently produce a plausible mesh. Threat model,
 private reporting route, and the two written audits (with the `file:line`
-closing every finding) are in [`SECURITY.md`](SECURITY.md) and
+closing every finding) are in [`SECURITY.md`](.github/SECURITY.md) and
 [`docs/security/`](docs/security/).
 
 ## Project docs
-- **`docs/TUTORIAL.md`** — first-run tutorial (install → mesh → solve → replay) · **`docs/APP_GUIDE.md`** — complete usage reference
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, tests, architecture rules · [`CHANGELOG.md`](CHANGELOG.md) — release history
-- [`SECURITY.md`](SECURITY.md) — threat model + reporting · [`docs/security/`](docs/security/) — audit reports
-- `AGENT_GROUNDUP_PROMPT.md` — v1 build spec · `docs/specs/V2_ROADMAP.md` — TrueGrid-parity roadmap
-- `CLAUDE.md` — operational contract (hard rules, session protocol)
-- `DECISIONS.md` — decision log (per-milestone details in `docs/decisions/`)
-- `BACKLOG.md` · `TEST_PLAN.md` · `docs/specs/` — per-milestone specs · [`CITATION.cff`](CITATION.cff) — how to cite
+- [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — first-run tutorial (install → mesh → solve → replay) · [`docs/APP_GUIDE.md`](docs/APP_GUIDE.md) — complete usage reference
+- [`CONTRIBUTING.md`](.github/CONTRIBUTING.md) — environment, tests, architecture rules · [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`SECURITY.md`](.github/SECURITY.md) — threat model + reporting · [`docs/security/`](docs/security/) — audit reports
+- [`docs/CSO_GUIDE.md`](docs/CSO_GUIDE.md) — cardiac `.cso` segmentation ingest, end to end
+- [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) — what the suite covers and what each backend gates
+- [`packaging/README.md`](packaging/README.md) — installer build recipe · [`CITATION.cff`](CITATION.cff) — how to cite

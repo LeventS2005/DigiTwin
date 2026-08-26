@@ -1,6 +1,6 @@
 """meshforge desktop shell (V35b) — a native window over the local web UI.
 
-This is the QtWebEngine desktop shell decided in ``docs/specs/V35B_SPEC.md``
+This is the QtWebEngine desktop shell decided in the V35b design notes
 (D54). It wraps the *completed* 127.0.0.1 web Workbench in a native window:
 
   1. start the existing web server (``web/server.py``) as a **child process**

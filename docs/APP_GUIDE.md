@@ -261,8 +261,8 @@ meshforge blocks outputs/Cottage_Pane_Window_profile.json \
 ```
 
 In the Workbench, use the **import_cad** step panel (type the path) then
-**Run blocks**. Needs `dwg2dxf` (brew, installed) and ezdxf. The DWG is
-READ-ONLY and checksummed (INPUTS.md).
+**Run blocks**. Needs `dwg2dxf` (brew, installed) and ezdxf. The DWG is opened
+READ-ONLY and checksummed on every load.
 
 ---
 

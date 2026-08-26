@@ -13,7 +13,7 @@ from meshforge.quality.volume import VolumeQuality
 # ``.upper()``-cased) into solver decks (``*ELSET``/``*NSET``/``*SURFACE``,
 # NASTRAN/LS-DYNA set names) and OpenFOAM ``boundary``/``boundaryField``
 # dictionaries. A name carrying a newline would inject arbitrary solver
-# cards / dict entries — a silent fail-open (violates CLAUDE.md rule 6).
+# cards / dict entries — a silent fail-open (violates the fail-loudly rule).
 # ``valid_group_name`` is the single content check; it is called at every
 # site where a group/patch name is MINTED (split_boundary_group, the
 # BoundaryGroup constructor as a backstop, the CFD BC spec, and the CLI

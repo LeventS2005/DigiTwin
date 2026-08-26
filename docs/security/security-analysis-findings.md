@@ -4,9 +4,9 @@
 (Claude Opus 4.8). Scope: every attack surface added since the D6 baseline,
 per the "SECURITY SESSION BRIEFING" in `HANDOFF.md` (parts 1–5). This is a
 **read-and-report** pass — no source was modified. Session-start protocol was
-run: `CHECKPOINT.md`/`HANDOFF.md` read, `git status` clean (`main` ==
-`origin/main`), and the read-only input checksum verified unchanged
-(`Cottage_Pane_Window.dwg` sha256 `a4cb1d40…d9068`, matches `INPUTS.md`).
+run: `git status` clean (`main` == `origin/main`) and the read-only input
+checksum verified unchanged (`Cottage_Pane_Window.dwg` sha256
+`a4cb1d40…d9068`, matching its registered value).
 
 ## Threat model (what "problematic" means here)
 
@@ -112,7 +112,7 @@ in `src/`** (confirmed by grep for `isidentifier`/`fullmatch`/etc.).
 (`*BOUNDARY`, `*CLOAD`, `*STEP`, `*DLOAD` for CalculiX; extra `boundaryField`
 entries / dict keys for OpenFOAM). The result is a silently corrupted or
 maliciously altered solver deck — a "fail-open" outcome that contradicts the
-project's **fail-loudly** hard rule (CLAUDE.md rule 6). In the worst case a
+project's **fail-loudly** hard rule. In the worst case a
 shared `.mfwork` becomes a way to make another user's run compute the wrong
 physics without any visible error.
 

@@ -11,8 +11,7 @@ The app rests on a tightly-matched **conda-forge / osx-arm64** native stack
 (`qt6-main` + `qt6-webengine` 6.11, `pyside6`, `vtk`, `trame`). Pip freezers
 (PyInstaller/py2app/briefcase) fight those native libs (the exit-134 "two Qts"
 trap, VTK dylib hunting). **conda `constructor`** sidesteps all of it by
-reproducing the exact packages that already work. See `docs/specs/V37_SPEC.md`
-(D57) for the probe evidence.
+reproducing the exact packages that already work. The probe evidence behind that choice is in the project's design record.
 
 ## Build
 ```bash

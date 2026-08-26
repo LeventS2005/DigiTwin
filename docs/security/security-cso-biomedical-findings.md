@@ -283,8 +283,8 @@ Each fix lands in the core (`src/meshforge/`, rule 4) and fails LOUD (rule 6):
 
 **Verdict:** the CSO/DICOM/`.vtp` ingest path is hardened against the audited
 malicious inputs; two fail-open (rule-6) holes and three DoS vectors closed; no
-RCE/priv-esc found (consistent with D49). Residual INFO items risk-accepted above
-and logged to BACKLOG.md.
+RCE/priv-esc found (consistent with D49). Residual INFO items are risk-accepted
+above and tracked in the project backlog.
 
 ---
 

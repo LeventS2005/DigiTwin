@@ -1,8 +1,7 @@
 """CalculiX runner: stage a deck copy in a temp dir, run ccx, persist results.
 
 The deck is COPIED into a fresh temporary directory and ccx runs there, so
-solver scratch files never land next to the input deck or inside the repo
-(CLAUDE.md rule 2). Only the artifacts we keep (.dat, .frd) are written to
+solver scratch files never land next to the input deck or inside the repo. Only the artifacts we keep (.dat, .frd) are written to
 ``out_dir`` afterwards. Every failure mode is loud: missing solver, nonzero
 exit, ``*ERROR`` in the solver output, missing .frd, timeout.
 """

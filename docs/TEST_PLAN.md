@@ -1,6 +1,6 @@
 # Test plan
 
-60 test modules under [`tests/`](tests/). CI runs the ungated set on every
+60 test modules under [`tests/`](../tests/). CI runs the ungated set on every
 push/PR; the rest gate on an optional dependency, an external solver, or a
 local clinical data directory, and skip cleanly when it is absent.
 
@@ -27,7 +27,7 @@ local clinical data directory, and skip cleanly when it is absent.
 - **Adversarial inputs are first-class.** Crafted `.cso`/`.vtp`/`.mfwork`/DICOM
   fixtures — always tiny and synthetic, never a clinical file — assert that a
   malicious input fails loudly rather than producing a plausible mesh. See
-  [`SECURITY.md`](SECURITY.md).
+  [`SECURITY.md`](../.github/SECURITY.md).
 - **Backend-gated tests skip cleanly** when an optional dep or solver is missing
   (trap #16), and are never allowed to silently become no-ops.
 - **UI tests inject a stub viewport** and run steps synchronously; no real
@@ -73,5 +73,5 @@ python -m pytest tests/test_solve.py -v  # one area
 
 Plus the per-milestone end-to-end CLI run on a generated surface, pasted into
 `CHECKPOINT.md` each session, and
-[`scripts/e2e_all_features.sh`](scripts/e2e_all_features.sh) for the full
+[`scripts/e2e_all_features.sh`](../scripts/e2e_all_features.sh) for the full
 feature sweep.

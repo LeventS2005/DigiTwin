@@ -1,5 +1,5 @@
 """V47: structured lumen (blood-volume) fill — swept O-grid + guarded
-smoothing, tet fallback (spec docs/specs/V47_SPEC.md, decision D75)."""
+smoothing, tet fallback (V47, decision D75)."""
 from __future__ import annotations
 
 import math

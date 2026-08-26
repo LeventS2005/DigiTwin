@@ -5,7 +5,7 @@ BoundaryCondition, Load, Step, DeckSpec with ``target="ansys"``);
 ``write_deck`` validates and dispatches here. Layout choices (all pinned
 from primary evidence in the V44 probe — the ANSYS-maintained
 ansys-mapdl-reader writer/reader plus real ANSYS/Workbench archives; see
-docs/specs/V44_SPEC.md):
+the V44 design notes):
 
 - CDWRITE,DB-style archive: ``/PREP7`` .. ``FINISH`` wrapping ``ET``/
   ``KEYOPT``, ``NBLOCK``/``EBLOCK`` fixed-format blocks, ``CMBLOCK``
