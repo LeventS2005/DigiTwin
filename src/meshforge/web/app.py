@@ -18,7 +18,12 @@ from pydantic import BaseModel
 
 from meshforge import __version__
 from meshforge.pipeline import STEP_KNOBS, MeshingSession
-from meshforge.web.schema import build_request_models, drop_unset, schema_json
+from meshforge.web.schema import (
+    build_request_models,
+    drop_unset,
+    schema_json,
+    step_order,
+)
 
 # Compute-layer errors we translate into a loud HTTP 400. Anything else is a
 # genuine bug and is allowed to become a 500 (also loud).
@@ -88,6 +93,18 @@ def _run(work):
         raise
     except _DOMAIN_ERRORS as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _clean_path(raw: str) -> str:
+    """Same path normalisation the session applies (core helper, rule 4).
+
+    The guard below must see the EXACT path the session will write, so a
+    ``~``/quoted/escaped work-file or screenshot path is cleaned here too
+    rather than being guarded in one form and written in another.
+    """
+    from meshforge.io.paths import normalize_path_str
+
+    return normalize_path_str(raw)
 
 
 def _guard_write(session: MeshingSession, path: str | Path) -> None:
@@ -167,7 +184,12 @@ def create_app() -> FastAPI:
         # Synth shape names for the frontend's source dropdown. The web layer
         # never imports the synth package (rule 4) -> it asks the session,
         # which owns the catalog (MeshingSession.available_shapes()).
-        return {"shapes": holder.session.available_shapes()}
+        # ``step_order`` is the explicit panel order the Workbench lays out
+        # (pipeline.STEP_ORDER) — imports first, then the processing steps.
+        return {
+            "shapes": holder.session.available_shapes(),
+            "step_order": step_order(),
+        }
 
     @app.get("/journal")
     def get_journal():
@@ -202,7 +224,7 @@ def create_app() -> FastAPI:
 
         def work():
             # Guard the ACTUAL output path (save_workfile forces .mfwork).
-            out = Path(body.path)
+            out = Path(_clean_path(body.path))
             if out.suffix != ".mfwork":
                 out = out.with_suffix(".mfwork")
             _guard_write(session, out)
@@ -346,7 +368,7 @@ def _make_step_endpoint(holder: _SessionHolder, step: str, model: type):
             params = drop_unset(body.model_dump())
             # screenshot writes a client-supplied path -> reuse the guard.
             if step == "screenshot" and params.get("path"):
-                _guard_write(session, params["path"])
+                _guard_write(session, _clean_path(params["path"]))
             method = getattr(session, f"compute_{step}")
             return _capture(holder, method(**params))
 

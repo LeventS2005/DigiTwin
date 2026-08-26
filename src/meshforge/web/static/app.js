@@ -247,6 +247,8 @@ function cell(text, mono, cls) {
   td.textContent = text;
   return td;
 }
+let lastJournalLen = 0; // last-seen journal length — #btn-save's disabled rule
+
 async function refreshState() {
   const st = await apiGet("/state");
   lastRev = st.rev; // this client is now current with the session
@@ -260,7 +262,8 @@ async function refreshState() {
     box.appendChild(chip);
   }
   // "Save work file" is enabled only on a non-empty journal (GUI parity).
-  $("#btn-save").disabled = !(st.journal_len > 0);
+  lastJournalLen = st.journal_len;
+  $("#btn-save").disabled = !(lastJournalLen > 0);
 }
 function shortPath(p) {
   const parts = String(p).split("/");
@@ -298,14 +301,93 @@ function startAutoRefresh() {
   }, 2000);
 }
 
+// ---- busy state + inline panel errors (FIX 5 / FIX 7) -------------------
+// A long step (wall/volmesh/solve can run minutes) must disable its own
+// button and show a running state so a second click can't fire a concurrent
+// duplicate request; re-enabling always happens in a `finally` so an error
+// can never strand the button disabled (rule 6: fail loudly, not fail-shut).
+async function withBusy(btn, label, fn, restoreDisabled) {
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add("busy");
+  btn.textContent = label;
+  try {
+    return await fn();
+  } finally {
+    btn.textContent = prevText;
+    btn.classList.remove("busy");
+    // Restore the STATE-DERIVED disabled value (e.g. #btn-save tracks
+    // journal_len via refreshState) — never a blind `false`, which would
+    // fight whatever the last state refresh already decided.
+    btn.disabled = typeof restoreDisabled === "function" ? restoreDisabled() : !!restoreDisabled;
+  }
+}
+
+// Errors surface next to the button that caused them, not only in the
+// far-right #log (~1000px away). Cleared on that panel's next successful run.
+function panelErrorFor(box) {
+  let el = box.querySelector(":scope > .panel-error");
+  if (!el) {
+    el = document.createElement("p");
+    el.className = "panel-error";
+    el.hidden = true;
+    box.appendChild(el);
+  }
+  return el;
+}
+function setError(el, err) {
+  el.textContent = String(err && err.message ? err.message : err);
+  el.hidden = false;
+}
+function clearErrorEl(el) {
+  el.hidden = true;
+}
+
+// ---- per-panel collapse state (FIX 7) ------------------------------------
+// Collapsed by default (except source + import_*); persisted per step so a
+// user's layout survives a reload. localStorage throws in private-mode
+// browsers, so every read/write is guarded.
+function loadPanelOpenPref(step, defaultOpen) {
+  try {
+    const v = localStorage.getItem(`meshforge.panel.${step}`);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch (err) {
+    // private mode / storage disabled — fall through to the default
+  }
+  return defaultOpen;
+}
+function savePanelOpenPref(step, open) {
+  try {
+    localStorage.setItem(`meshforge.panel.${step}`, open ? "1" : "0");
+  } catch (err) {
+    // private mode / storage disabled — the open/closed state just won't persist
+  }
+}
+
 // ---- build the step panels from GET /schema ----------------------------
+// Native "Browse…" for STEP_KNOBS fields beyond the structural import_*.path
+// rule below. "<step>.<knob>" -> dialog kind, so a new file-ish knob is a
+// one-line addition here (FIX 6).
+const BROWSE_KNOBS = {
+  "wall.outer_surface": "file",
+  "recipe.path": "file",
+  "screenshot.path": "save",
+  "solve.ccx": "file",
+  "cfd.case": "dir",
+};
+
 function buildStepPanel(step, knobs) {
-  const box = document.createElement("fieldset");
+  const box = document.createElement("details");
   box.className = "step-box";
   box.dataset.step = step;
-  const legend = document.createElement("legend");
-  legend.textContent = step;
-  box.appendChild(legend);
+  // Collapsed by default; source + import_* start open (a first run needs
+  // them immediately). Persisted per step across reloads.
+  box.open = loadPanelOpenPref(step, step.startsWith("import_"));
+  box.addEventListener("toggle", () => savePanelOpenPref(step, box.open));
+  const summary = document.createElement("summary");
+  summary.textContent = step;
+  box.appendChild(summary);
 
   for (const [knob, spec] of Object.entries(knobs)) {
     const label = document.createElement("label");
@@ -316,10 +398,15 @@ function buildStepPanel(step, knobs) {
     label.appendChild(name);
     const input = makeInput(step, knob, spec);
     label.appendChild(input);
-    // Native "Browse…" for import_* path fields (desktop shell only).
+    // Native "Browse…" (desktop shell only): import_* path fields are
+    // structural (every import step has one); everything else comes from
+    // the explicit BROWSE_KNOBS table above.
     if (step.startsWith("import_") && knob === "path") {
       addBrowseButton(label, input, "file");
       if (step === "import_image") addBrowseButton(label, input, "dir");
+    } else {
+      const kind = BROWSE_KNOBS[`${step}.${knob}`];
+      if (kind) addBrowseButton(label, input, kind);
     }
     box.appendChild(label);
     if (spec.help) {
@@ -334,7 +421,17 @@ function buildStepPanel(step, knobs) {
   btn.type = "button";
   btn.className = "run";
   btn.textContent = "Run " + step;
-  btn.addEventListener("click", () => runStep(step, box).catch(onError));
+  btn.addEventListener("click", () => {
+    withBusy(btn, "Running…", async () => {
+      try {
+        await runStep(step, box);
+        clearErrorEl(panelErrorFor(box));
+      } catch (err) {
+        onError(err);
+        setError(panelErrorFor(box), err);
+      }
+    }).catch(onError);
+  });
   box.appendChild(btn);
   return box;
 }
@@ -391,7 +488,7 @@ function addBrowseButton(container, input, kind) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "browse";
-  btn.textContent = kind === "dir" ? "Dir…" : "Browse…";
+  btn.textContent = kind === "dir" ? "Dir…" : kind === "save" ? "Save…" : "Browse…";
   btn.hidden = !bridgeAvailable();
   btn.addEventListener("click", () => browseInto(input, kind));
   container.appendChild(btn);
@@ -399,13 +496,37 @@ function addBrowseButton(container, input, kind) {
 function browseInto(input, kind) {
   const bridge = window.meshforgeBridge;
   if (!bridge) return log("native file dialog unavailable (browser mode)", true);
-  const slot = kind === "dir" ? bridge.open_directory : bridge.open_file;
+  let slot = bridge.open_file;
+  if (kind === "dir") {
+    slot = bridge.open_directory;
+  } else if (kind === "save") {
+    slot = bridge.save_file;
+    if (!slot) {
+      // Older shell build with no save_file slot — degrade, don't throw.
+      log("this desktop shell has no save dialog (older build) — using the open dialog instead", true);
+      slot = bridge.open_file;
+    }
+  }
   slot.call(bridge, (path) => {
     if (path) {
       input.value = path;
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
   });
+}
+// A plain browser tab can't offer a native file dialog — the server reads
+// files from THIS machine by path, and a browser has no such API — so every
+// Browse… button above just hides itself. Explain that once (not 12 times).
+function addBrowserModeNote() {
+  if (bridgeAvailable()) return;
+  const note = document.createElement("p");
+  note.className = "browse-note";
+  note.textContent =
+    "No native file picker here — this is a plain browser tab, and the " +
+    "server reads files from this machine by path, so it can't offer one. " +
+    "Type paths by hand, or run meshforge-desktop for native Browse… dialogs.";
+  const summary = $("#source-box").querySelector(":scope > summary");
+  summary.after(note);
 }
 
 // ---- sources + work-file actions --------------------------------------
@@ -415,18 +536,18 @@ async function generateSynth() {
 }
 async function loadSurface() {
   const path = $("#load-path").value.trim();
-  if (!path) return log("load surface: enter a path first", true);
+  if (!path) throw new Error("load surface: enter a path first");
   await afterStep(await apiPost("/source/load", { path }));
 }
 async function saveWorkfile() {
   const path = $("#save-path").value.trim();
-  if (!path) return log("save work file: enter a path first", true);
+  if (!path) throw new Error("save work file: enter a path first");
   const { path: written } = await apiPost("/workfile/save", { path });
   log(`work file saved -> ${written}`);
 }
 async function loadWorkfile() {
   const path = $("#wload-path").value.trim();
-  if (!path) return log("load work file: enter a path first", true);
+  if (!path) throw new Error("load work file: enter a path first");
   const replay = $("#wload-replay").checked;
   const res = await apiPost("/workfile/load", { path, replay });
   for (const r of res.results || []) log(r.text || `${r.step}: ok`);
@@ -448,11 +569,14 @@ async function resetSession() {
 
 // ---- init --------------------------------------------------------------
 async function init() {
-  // Source dropdown from the synth catalog (rule-4-safe: served by the API).
+  // Source dropdown + panel order from /catalog (rule-4-safe: served by the
+  // API, not hardcoded here). One fetch so the panel builder below can use
+  // catalog.step_order without a second round trip.
+  let catalog = null;
   try {
-    const { shapes } = await apiGet("/catalog");
+    catalog = await apiGet("/catalog");
     const sel = $("#synth-shape");
-    for (const shape of shapes) {
+    for (const shape of catalog.shapes || []) {
       const opt = document.createElement("option");
       opt.value = shape;
       opt.textContent = shape;
@@ -462,24 +586,95 @@ async function init() {
     onError(err);
   }
 
-  // Step panels from the STEP_KNOBS schema (insertion order = pipeline order).
+  // Step panels from the STEP_KNOBS schema, laid out in the server's
+  // explicit STEP_ORDER (/catalog.step_order -> pipeline.STEP_ORDER) so
+  // import_* panels always lead. Falls back to the schema's own key order
+  // (also STEP_ORDER-sorted server-side) if the catalog fetch failed or came
+  // back empty. A step present in /schema but absent from step_order is
+  // still appended — never silently dropped (rule 6) — with a loud log.
   try {
     const schema = await apiGet("/schema");
     const host = $("#step-panels");
-    for (const [step, knobs] of Object.entries(schema)) {
-      host.appendChild(buildStepPanel(step, knobs));
+    const order =
+      catalog && Array.isArray(catalog.step_order) && catalog.step_order.length
+        ? catalog.step_order
+        : Object.keys(schema);
+    const placed = new Set();
+    for (const step of order) {
+      if (!(step in schema)) continue; // step_order named a step /schema doesn't have
+      host.appendChild(buildStepPanel(step, schema[step]));
+      placed.add(step);
+    }
+    for (const step of Object.keys(schema)) {
+      if (placed.has(step)) continue;
+      log(`WARNING: step "${step}" is missing from /catalog step_order — appended at the end of the panel list`, true);
+      host.appendChild(buildStepPanel(step, schema[step]));
     }
   } catch (err) {
     onError(err);
   }
 
-  // Native "Browse…" next to the source surface-path field (desktop shell).
+  // Native "Browse…" for the source/session path fields (desktop shell);
+  // and the one-line explanation when there's no bridge to drive them.
   addBrowseButton($("#load-path").parentElement, $("#load-path"), "file");
+  addBrowseButton($("#save-path").parentElement, $("#save-path"), "save");
+  addBrowseButton($("#wload-path").parentElement, $("#wload-path"), "file");
+  addBrowserModeNote();
 
-  $("#btn-synth").addEventListener("click", () => generateSynth().catch(onError));
-  $("#btn-load").addEventListener("click", () => loadSurface().catch(onError));
-  $("#btn-save").addEventListener("click", () => saveWorkfile().catch(onError));
-  $("#btn-wload").addEventListener("click", () => loadWorkfile().catch(onError));
+  // source panel: collapse persistence (starts open — see index.html).
+  const sourceBox = $("#source-box");
+  sourceBox.open = loadPanelOpenPref("source", true);
+  sourceBox.addEventListener("toggle", () => savePanelOpenPref("source", sourceBox.open));
+
+  $("#btn-synth").addEventListener("click", () => {
+    withBusy($("#btn-synth"), "Generating…", async () => {
+      try {
+        await generateSynth();
+        clearErrorEl(panelErrorFor(sourceBox));
+      } catch (err) {
+        onError(err);
+        setError(panelErrorFor(sourceBox), err);
+      }
+    }).catch(onError);
+  });
+  $("#btn-load").addEventListener("click", () => {
+    withBusy($("#btn-load"), "Loading…", async () => {
+      try {
+        await loadSurface();
+        clearErrorEl(panelErrorFor(sourceBox));
+      } catch (err) {
+        onError(err);
+        setError(panelErrorFor(sourceBox), err);
+      }
+    }).catch(onError);
+  });
+  $("#btn-save").addEventListener("click", () => {
+    withBusy(
+      $("#btn-save"),
+      "Saving…",
+      async () => {
+        try {
+          await saveWorkfile();
+          clearErrorEl($("#save-error"));
+        } catch (err) {
+          onError(err);
+          setError($("#save-error"), err);
+        }
+      },
+      () => !(lastJournalLen > 0) // state-derived — see refreshState()
+    ).catch(onError);
+  });
+  $("#btn-wload").addEventListener("click", () => {
+    withBusy($("#btn-wload"), "Loading…", async () => {
+      try {
+        await loadWorkfile();
+        clearErrorEl($("#wload-error"));
+      } catch (err) {
+        onError(err);
+        setError($("#wload-error"), err);
+      }
+    }).catch(onError);
+  });
   $("#btn-reset").addEventListener("click", () => resetSession().catch(onError));
 
   initViewport();

@@ -16,13 +16,26 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from meshforge.pipeline import STEP_KNOBS
+from meshforge.pipeline import STEP_KNOBS, STEP_ORDER
 
 _TYPE_NAMES = {int: "int", float: "float", str: "str", bool: "bool"}
 
 
+def step_order() -> list[str]:
+    """The steps in front-end display order (``pipeline.STEP_ORDER``).
+
+    Served alongside the schema so the Workbench lays its panels out from an
+    explicit list rather than from dict insertion order.
+    """
+    return list(STEP_ORDER)
+
+
 def schema_json() -> dict[str, dict[str, dict[str, Any]]]:
-    """STEP_KNOBS as JSON: ``{step: {knob: {type, default, help}}}``."""
+    """STEP_KNOBS as JSON: ``{step: {knob: {type, default, help}}}``.
+
+    Emitted in :data:`~meshforge.pipeline.STEP_ORDER` order so a client that
+    ignores the explicit order list still gets the intended panel order.
+    """
     return {
         step: {
             knob: {
@@ -30,9 +43,9 @@ def schema_json() -> dict[str, dict[str, dict[str, Any]]]:
                 "default": default,
                 "help": help_text,
             }
-            for knob, (typ, default, help_text) in knobs.items()
+            for knob, (typ, default, help_text) in STEP_KNOBS[step].items()
         }
-        for step, knobs in STEP_KNOBS.items()
+        for step in STEP_ORDER
     }
 
 

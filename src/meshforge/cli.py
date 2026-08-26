@@ -5,6 +5,21 @@ import sys
 from pathlib import Path
 
 
+def _path_arg(raw: str) -> Path:
+    r"""argparse ``type=`` for every path argument.
+
+    Normalises the shell habits a user carries in — ``~``, surrounding quotes,
+    ``\ `` drag-into-terminal escapes, stray whitespace — BEFORE anything
+    opens or checksums the file, so a mistyped path reports the loader's own
+    message instead of a raw ``[Errno 2]``. Same core helper the Workbench and
+    the service layer use (``meshforge.io.paths``); lazy-imported so ``--help``
+    stays cheap.
+    """
+    from meshforge.io.paths import normalize_path
+
+    return normalize_path(raw)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="meshforge",
@@ -17,10 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Read-only inspection of a surface file (counts, bounds, area, "
         "watertightness, volume); writes a report to the outputs dir.",
     )
-    p_inspect.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_inspect.add_argument("surface", type=_path_arg, help="surface file (.stl/.ply/.vtp/...)")
     p_inspect.add_argument(
         "--outputs",
-        type=Path,
+        type=_path_arg,
         default=Path("outputs"),
         help="directory for generated reports (default: outputs/)",
     )
@@ -30,10 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Export a surface to a neutral format (VTU default, VTK/PLY/OBJ); "
         "never overwrites the input.",
     )
-    p_export.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_export.add_argument("surface", type=_path_arg, help="surface file (.stl/.ply/.vtp/...)")
     p_export.add_argument(
         "--out",
-        type=Path,
+        type=_path_arg,
         default=None,
         help="output path (default: outputs/<stem>.<format>)",
     )
@@ -43,15 +58,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="vtu (default) | vtk | ply | obj; inferred from --out suffix when omitted",
     )
-    p_export.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_export.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_check = sub.add_parser(
         "check",
         help="Surface readiness check: open edges, non-manifold edges, "
         "watertight, all-triangles, mesh_ready.",
     )
-    p_check.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
-    p_check.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_check.add_argument("surface", type=_path_arg, help="surface file (.stl/.ply/.vtp/...)")
+    p_check.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_synth = sub.add_parser(
         "synth",
@@ -80,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     p_synth.add_argument(
         "--degrade-dup-faces", type=int, default=0, help="degrade: duplicate N faces"
     )
-    p_synth.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_synth.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_repair = sub.add_parser(
         "repair",
@@ -88,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         "duplicate faces, fill small holes; non-manifold edges are reported, "
         "never auto-fixed.",
     )
-    p_repair.add_argument("surface", type=Path, help="surface file (.stl/.ply/.vtp/...)")
+    p_repair.add_argument("surface", type=_path_arg, help="surface file (.stl/.ply/.vtp/...)")
     p_repair.add_argument(
         "--merge-tol",
         type=float,
@@ -101,21 +116,21 @@ def main(argv: list[str] | None = None) -> int:
         default=16,
         help="fill holes up to this many boundary edges (default 16)",
     )
-    p_repair.add_argument("--out", type=Path, default=None, help="repaired surface path")
-    p_repair.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_repair.add_argument("--out", type=_path_arg, default=None, help="repaired surface path")
+    p_repair.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_vol = sub.add_parser(
         "volmesh",
         help="Volume-mesh the wall region of a tubular surface "
         "(backends: swept hexahedra, gmsh tetrahedra).",
     )
-    p_vol.add_argument("surface", type=Path)
+    p_vol.add_argument("surface", type=_path_arg)
     p_vol.add_argument(
         "--thickness", type=float, default=None, help="wall thickness (scalar)"
     )
     p_vol.add_argument(
         "--outer-surface",
-        type=Path,
+        type=_path_arg,
         default=None,
         help="measured outer surface file (mutually exclusive with --thickness)",
     )
@@ -135,16 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip gmsh mesh optimization (tet only; default: Netgen with fallback)",
     )
-    p_vol.add_argument("--out", type=Path, default=None, help="output .vtu path")
-    p_vol.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_vol.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
+    p_vol.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_lumen = sub.add_parser(
         "lumen",
         help="Fill the blood volume (lumen) of a tubular surface: swept "
         "O-grid hexahedra where the geometry permits, automatic gmsh tet "
-        "fallback with a loud fold-number note where it does not (V47).",
+        "fallback with a loud fold-number note where it does not.",
     )
-    p_lumen.add_argument("surface", type=Path)
+    p_lumen.add_argument("surface", type=_path_arg)
     p_lumen.add_argument(
         "--method",
         default="auto",
@@ -158,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         "--core-fraction",
         type=float,
         default=0.5,
-        help="O-grid core size fraction of centroid-to-rim (V26)",
+        help="O-grid core size fraction of centroid-to-rim",
     )
     p_lumen.add_argument(
         "--smooth",
@@ -172,8 +187,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="tet-fallback target size (default: 1.5x median ring edge)",
     )
-    p_lumen.add_argument("--out", type=Path, default=None, help="output .vtu path")
-    p_lumen.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_lumen.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
+    p_lumen.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_cad = sub.add_parser(
         "import-cad",
@@ -181,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         "profile: chains loose segments into closed loops, classifies "
         "outers/holes; writes profile JSON + report to the outputs dir.",
     )
-    p_cad.add_argument("file", type=Path, help="drawing file (.dxf/.dwg)")
+    p_cad.add_argument("file", type=_path_arg, help="drawing file (.dxf/.dwg)")
     p_cad.add_argument(
         "--block",
         default=None,
@@ -217,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         help="curve flattening tolerance, max sagitta "
         "(default: 1e-4 x bbox diagonal)",
     )
-    p_cad.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_cad.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_deck = sub.add_parser(
         "deck",
@@ -226,9 +241,9 @@ def main(argv: list[str] | None = None) -> int:
         "nastran .bdf, lsdyna .k, ansys .cdb — LS-DYNA and ANSYS are "
         "format-level only, no solver installed).",
     )
-    p_deck.add_argument("surface", type=Path, help="inner surface file")
+    p_deck.add_argument("surface", type=_path_arg, help="inner surface file")
     p_deck.add_argument("--thickness", type=float, default=None)
-    p_deck.add_argument("--outer-surface", type=Path, default=None)
+    p_deck.add_argument("--outer-surface", type=_path_arg, default=None)
     p_deck.add_argument("--backend", default="swept", help="swept (default) | tet")
     p_deck.add_argument("--n-theta", type=int, default=32)
     p_deck.add_argument("--n-axial", type=int, default=60)
@@ -258,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     p_deck.add_argument(
         "--preloaded",
         action="store_true",
-        help="preloaded modes (V32): *STATIC step with the loads, then "
+        help="preloaded modes: *STATIC step with the loads, then "
         "*FREQUENCY, PERTURBATION (frequency only)",
     )
     p_deck.add_argument(
@@ -324,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     p_deck.add_argument(
         "--transient",
         action="store_true",
-        help="transient *HEAT TRANSFER, DIRECT (V31; needs --dt --period --t0; "
+        help="transient *HEAT TRANSFER, DIRECT (needs --dt --period --t0; "
         "dt is the accuracy dial — ccx integrates backward Euler, first order)",
     )
     p_deck.add_argument(
@@ -391,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
     p_deck.add_argument(
         "--temperature-time", type=float, default=None, metavar="TIME",
         help="snapshot time to take from the --temperature-from frd's "
-        "transient history (V46; default = last increment; must match one "
+        "transient history (default = last increment; must match one "
         "of the frd's own recorded times exactly — no interpolation)",
     )
     p_deck.add_argument(
@@ -434,8 +449,8 @@ def main(argv: list[str] | None = None) -> int:
         "--riks-dl-max", type=float, default=None,
         help="RIKS maximum arc-length increment (default 0.5)",
     )
-    p_deck.add_argument("--out", type=Path, default=None, help="output .inp path")
-    p_deck.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_deck.add_argument("--out", type=_path_arg, default=None, help="output .inp path")
+    p_deck.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_blocks = sub.add_parser(
         "blocks",
@@ -444,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         "extrusion with named face groups.",
     )
     p_blocks.add_argument(
-        "profile", type=Path, help="profile JSON written by import-cad"
+        "profile", type=_path_arg, help="profile JSON written by import-cad"
     )
     p_blocks.add_argument(
         "--outer",
@@ -475,14 +490,14 @@ def main(argv: list[str] | None = None) -> int:
         "--project",
         action="store_true",
         help="allow curved/skewed loops: mesh their bounding-box proxies, "
-        "then project rim nodes onto the true curves (V6 projection method)",
+        "then project rim nodes onto the true curves (projection method)",
     )
     p_blocks.add_argument(
         "--ogrid",
         action="store_true",
         help="O-grid (butterfly) disk layout: central square block + 4 ring "
         "blocks with rims exactly on the curve — one star-shaped loop, no "
-        "holes (V26); lifts the projected-disk quality floor",
+        "holes; lifts the projected-disk quality floor",
     )
     p_blocks.add_argument(
         "--core-fraction",
@@ -508,15 +523,15 @@ def main(argv: list[str] | None = None) -> int:
                           help="max element edge length (default: bbox diag / 60)")
     p_blocks.add_argument("--thickness", type=float, default=1.0)
     p_blocks.add_argument("--n-layers", type=int, default=1)
-    p_blocks.add_argument("--out", type=Path, default=None, help="output .vtu path")
-    p_blocks.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_blocks.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
+    p_blocks.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_run = sub.add_parser(
         "run",
         help="Run a YAML recipe: pipeline steps + parameter sweeps; each "
         "variant lands in outputs/<recipe>/<slug>/ with a manifest.json.",
     )
-    p_run.add_argument("recipe", type=Path, help="recipe .yaml file")
+    p_run.add_argument("recipe", type=_path_arg, help="recipe .yaml file")
     p_run.add_argument(
         "--set",
         dest="overrides",
@@ -526,14 +541,14 @@ def main(argv: list[str] | None = None) -> int:
         help="override a step parameter in every variant (repeatable; "
         "applied after the sweep, so it wins)",
     )
-    p_run.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_run.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_replay = sub.add_parser(
         "replay",
         help="Re-run a saved .mfwork session work file, optionally overriding "
         "step parameters; only steps downstream of an override recompute.",
     )
-    p_replay.add_argument("workfile", type=Path, help=".mfwork file (see save-workfile)")
+    p_replay.add_argument("workfile", type=_path_arg, help=".mfwork file (see save-workfile)")
     p_replay.add_argument(
         "--set",
         dest="overrides",
@@ -544,34 +559,34 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_replay.add_argument(
         "--save-workfile",
-        type=Path,
+        type=_path_arg,
         default=None,
         help="write the updated journal back to this .mfwork path",
     )
 
     p_bl = sub.add_parser(
         "blayers",
-        help="External-flow boundary layers (V22): grow geometric wedge "
+        help="External-flow boundary layers: grow geometric wedge "
         "layers outward from a closed triangulated body surface "
         "(CFD pre-processing; exits 1 on inverted cells).",
     )
-    p_bl.add_argument("surface", type=Path, help="closed body surface")
+    p_bl.add_argument("surface", type=_path_arg, help="closed body surface")
     p_bl.add_argument(
         "--first", type=float, required=True, help="first layer thickness"
     )
     p_bl.add_argument("--n-layers", type=int, default=5)
     p_bl.add_argument("--growth", type=float, default=1.2)
     p_bl.add_argument("--normal-smoothing", type=int, default=10)
-    p_bl.add_argument("--out", type=Path, default=None, help="output .vtu path")
-    p_bl.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_bl.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
+    p_bl.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_img = sub.add_parser(
         "import-image",
-        help="Volume ingest (V18): .npy / .nii(.gz) / DICOM directory -> "
+        help="Volume ingest: .npy / .nii(.gz) / DICOM directory -> "
         "marching-cubes iso-surface (.vtp) + provenance JSON; exits 1 "
         "when the surface is not mesh_ready.",
     )
-    p_img.add_argument("volume", type=Path, help="volume file or DICOM dir")
+    p_img.add_argument("volume", type=_path_arg, help="volume file or DICOM dir")
     p_img.add_argument(
         "--level", type=float, required=True,
         help="iso level (segmentation threshold, e.g. 300 for CT bone HU)",
@@ -580,16 +595,16 @@ def main(argv: list[str] | None = None) -> int:
         "--spacing", default=None, metavar="X,Y,Z",
         help="voxel spacing override (for .npy inputs)",
     )
-    p_img.add_argument("--out", type=Path, default=None, help="output .vtp path")
-    p_img.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_img.add_argument("--out", type=_path_arg, default=None, help="output .vtp path")
+    p_img.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_cso = sub.add_parser(
         "import-cso",
-        help="MeVisLab Binary .cso contour ingest (V38): loft (or voxelise) the "
+        help="MeVisLab Binary .cso contour ingest: loft (or voxelise) the "
         "closed cross-section contours into a watertight tube surface (.vtp) + "
         "provenance JSON; exits 1 when the surface is not mesh_ready.",
     )
-    p_cso.add_argument("file", type=Path, help="MeVisLab Binary .cso file")
+    p_cso.add_argument("file", type=_path_arg, help="MeVisLab Binary .cso file")
     p_cso.add_argument(
         "--method", choices=("auto", "loft", "voxel"), default="auto",
         help="auto (default, V40: loft else voxel — whichever sweeps to a clean "
@@ -609,16 +624,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_cso.add_argument(
         "--on-open", choices=("skip", "close", "error"), default="skip",
-        help="open editor contour policy (V39): skip (default: drop it with a "
+        help="open editor contour policy: skip (default: drop it with a "
         "loud note) | close (only if near-closed) | error (refuse)",
     )
     p_cso.add_argument(
-        "--dicom", type=Path, default=None,
-        help="anchor to a DICOM series/.dcm (V39): voxelise the contours onto "
+        "--dicom", type=_path_arg, default=None,
+        help="anchor to a DICOM series/.dcm: voxelise the contours onto "
         "its image grid so the mask aligns with the scan (read-only, forces voxel)",
     )
-    p_cso.add_argument("--out", type=Path, default=None, help="output .vtp path")
-    p_cso.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_cso.add_argument("--out", type=_path_arg, default=None, help="output .vtp path")
+    p_cso.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_cad3d = sub.add_parser(
         "import-cad3d",
@@ -626,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         "and write the triangulated surface (.vtp) + provenance JSON; "
         "exits 1 when the result is not mesh_ready.",
     )
-    p_cad3d.add_argument("file", type=Path, help="STEP/IGES/BREP file")
+    p_cad3d.add_argument("file", type=_path_arg, help="STEP/IGES/BREP file")
     p_cad3d.add_argument("--mesh-size", type=float, default=None)
     p_cad3d.add_argument(
         "--mesh-size-factor",
@@ -635,17 +650,17 @@ def main(argv: list[str] | None = None) -> int:
         help="scale the default size (bbox diagonal / 50); "
         "mutually exclusive with --mesh-size",
     )
-    p_cad3d.add_argument("--out", type=Path, default=None, help="output .vtp path")
-    p_cad3d.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_cad3d.add_argument("--out", type=_path_arg, default=None, help="output .vtp path")
+    p_cad3d.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_foam = sub.add_parser(
         "foam",
         help="OpenFOAM polyMesh export: mesh a wall from a surface (like "
         "volmesh) and write constant/polyMesh with named boundary patches.",
     )
-    p_foam.add_argument("surface", type=Path, help="inner surface file")
+    p_foam.add_argument("surface", type=_path_arg, help="inner surface file")
     p_foam.add_argument("--thickness", type=float, default=None)
-    p_foam.add_argument("--outer-surface", type=Path, default=None)
+    p_foam.add_argument("--outer-surface", type=_path_arg, default=None)
     p_foam.add_argument("--backend", default="swept", help="swept (default) | tet")
     p_foam.add_argument("--n-theta", type=int, default=32)
     p_foam.add_argument("--n-axial", type=int, default=60)
@@ -667,18 +682,18 @@ def main(argv: list[str] | None = None) -> int:
         help="collect boundary faces not covered by any group into this patch "
         "(without it, uncovered faces are a hard error)",
     )
-    p_foam.add_argument("--case", type=Path, default=None, help="case directory")
-    p_foam.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_foam.add_argument("--case", type=_path_arg, default=None, help="case directory")
+    p_foam.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_fluent = sub.add_parser(
         "fluent",
         help="ANSYS FLUENT .msh export: mesh a wall from a surface (like "
         "volmesh) and write a face-based ASCII mesh with named boundary "
-        "zones (V28).",
+        "zones.",
     )
-    p_fluent.add_argument("surface", type=Path, help="inner surface file")
+    p_fluent.add_argument("surface", type=_path_arg, help="inner surface file")
     p_fluent.add_argument("--thickness", type=float, default=None)
-    p_fluent.add_argument("--outer-surface", type=Path, default=None)
+    p_fluent.add_argument("--outer-surface", type=_path_arg, default=None)
     p_fluent.add_argument("--backend", default="swept", help="swept (default) | tet")
     p_fluent.add_argument("--n-theta", type=int, default=32)
     p_fluent.add_argument("--n-axial", type=int, default=60)
@@ -702,8 +717,8 @@ def main(argv: list[str] | None = None) -> int:
         help="collect boundary faces not covered by any group into this zone "
         "(without it, uncovered faces are a hard error)",
     )
-    p_fluent.add_argument("--out", type=Path, default=None, help="output .msh path")
-    p_fluent.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_fluent.add_argument("--out", type=_path_arg, default=None, help="output .msh path")
+    p_fluent.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_solve = sub.add_parser(
         "solve",
@@ -714,7 +729,7 @@ def main(argv: list[str] | None = None) -> int:
         "no LS-DYNA/ANSYS solver is wired.",
     )
     p_solve.add_argument(
-        "deck", type=Path, help="runnable .inp or .bdf (see the deck command)"
+        "deck", type=_path_arg, help="runnable .inp or .bdf (see the deck command)"
     )
     p_solve.add_argument(
         "--ccx",
@@ -729,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
         "then PATH, then the mystran conda env)",
     )
     p_solve.add_argument("--timeout", type=float, default=600.0)
-    p_solve.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_solve.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_cfd = sub.add_parser(
         "cfd",
@@ -739,7 +754,7 @@ def main(argv: list[str] | None = None) -> int:
         "without them the case must already be complete. Persists a "
         "results .vtu + summary JSON under outputs/cfd/<case>/.",
     )
-    p_cfd.add_argument("case", type=Path, help="OpenFOAM case directory")
+    p_cfd.add_argument("case", type=_path_arg, help="OpenFOAM case directory")
     p_cfd.add_argument(
         "--solver", default="simpleFoam", help="simpleFoam (steady) | icoFoam (transient)"
     )
@@ -785,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
         "--moving-wall",
         default=None,
         metavar="NAME=VX,VY,VZ",
-        help="tangentially moving wall patch (V30 closed cavities), "
+        help="tangentially moving wall patch (closed cavities), "
         "e.g. --moving-wall lid=1,0,0",
     )
     p_cfd.add_argument(
@@ -793,13 +808,13 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="NAMES",
         help="comma-separated patches to treat as the OpenFOAM 2-D "
-        "'empty' direction, e.g. --empty front,back (V30)",
+        "'empty' direction, e.g. --empty front,back",
     )
     p_cfd.add_argument(
         "--closed-cavity",
         action="store_true",
         help="sealed domain: no pressure BC anywhere, pressure level "
-        "pinned by pRefCell/pRefValue (V30)",
+        "pinned by pRefCell/pRefValue",
     )
     p_cfd.add_argument(
         "--p-ref-cell", type=int, default=0,
@@ -818,14 +833,14 @@ def main(argv: list[str] | None = None) -> int:
         "--series",
         action="store_true",
         help="read ALL written time steps back and persist one .vtu per "
-        "frame (V29; combine with --write-interval below --end-time)",
+        "frame (combine with --write-interval below --end-time)",
     )
-    p_cfd.add_argument("--outputs", type=Path, default=Path("outputs"))
+    p_cfd.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_web = sub.add_parser(
         "web",
         help="Serve the local web app (FastAPI over MeshingSession) on "
-        "127.0.0.1:<free port> and print the URL (V35). Deps: the 'web' "
+        "127.0.0.1:<free port> and print the URL. Deps: the 'web' "
         "extra (pip install .[web]).",
     )
     p_web.add_argument(

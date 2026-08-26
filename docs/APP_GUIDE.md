@@ -31,7 +31,9 @@ The UI contains ZERO meshing logic (enforced by tests). Every button
 calls the same session step the CLI calls. Steps have PREREQUISITES:
 running one before its input exists fails loudly (that is the
 `ERROR: RuntimeError: no centerline available — run compute_centerline
-first` you see in the log pane — run the step panels top-to-bottom).
+first` you see next to the Run button *and* in the log pane — run the step
+panels top-to-bottom). Starting from a file means starting at the matching
+**import_\*** panel, which is why those sit directly under **source**.
 
 All generated files land under `outputs/` RELATIVE TO THE DIRECTORY
 YOU LAUNCHED FROM. Always start from the project folder.
@@ -76,8 +78,14 @@ MYSTRAN (conda env `mystran`). Overrides via env vars `MESHFORGE_CCX`,
 
 Layout — three panes:
 - **Left — steps:** the **source** box + one **step panel** per pipeline
-  step (built live from `/schema`), each with its knobs and a **Run …**
-  button. The column scrolls; run it top-to-bottom.
+  step (built live from `/schema`, ordered by the server's `step_order`:
+  the four **import_\*** panels first, then centerline -> wall -> volmesh
+  and the rest), each with its knobs and a **Run …** button. Panels are
+  collapsible and start collapsed except **source** and the imports; the
+  open/closed state is remembered. A step's error appears inline under its
+  own Run button as well as in the log. While a step runs its button reads
+  **Running…** and is disabled, so a second click cannot start a duplicate.
+  The column scrolls; run it top-to-bottom.
 - **Centre — viewport:** the interactive **3-D view** (orbit with the
   mouse), a **color by** field selector + colorbar, a CFD **play/slider**
   strip, and a **summary** line under the canvas. After an **import_cso**

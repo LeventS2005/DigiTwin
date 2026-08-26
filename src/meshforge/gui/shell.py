@@ -148,6 +148,10 @@ def run(
         "Meshes & scans (*.stl *.vtp *.ply *.obj *.vtk *.cso *.dwg *.dxf "
         "*.step *.stp *.iges *.igs *.brep *.npy *.nii *.nii.gz);;All files (*)"
     )
+    # A save target (work file, screenshot PNG) isn't one of the above
+    # formats and doesn't need to exist yet, so it gets its own small filter
+    # rather than reusing _OPEN_FILTER.
+    _SAVE_FILTER = "All files (*)"
 
     class _FileBridge(QObject):
         @Slot(result=str)
@@ -163,6 +167,16 @@ def run(
                 QFileDialog.getExistingDirectory(None, "Choose a directory", "")
                 or ""
             )
+
+        @Slot(result=str)
+        def save_file(self) -> str:
+            # Rule 4: this only returns a chosen path string — no IO, no
+            # validation, no meshing. The frontend drops it into a text field
+            # exactly like open_file/open_directory.
+            path, _ = QFileDialog.getSaveFileName(
+                None, "Choose a save location", "", _SAVE_FILTER
+            )
+            return path or ""
 
     server = ServerProcess(port).start()
     if not server.wait_until_ready():

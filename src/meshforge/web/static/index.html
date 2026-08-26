@@ -15,16 +15,17 @@
         <summary>Quick start</summary>
         <div class="help-body">
           <ol>
-            <li><b>source</b> — pick a shape → <b>Generate synth</b>, or type a
-              <b>surface path</b> → <b>Load surface</b>.</li>
-            <li><b>Run centerline</b> → <b>Run wall</b> → <b>Run volmesh</b>
-              (check <code>inverted 0</code>).</li>
+            <li><b>source</b> — pick a shape → <b>Generate synth</b>; or
+              starting from a file, open the matching <b>import_*</b> panel
+              (e.g. <b>import_cad</b> for DXF/DWG) and run it first.</li>
+            <li>Then <b>Run centerline</b> → <b>Run wall</b> → <b>Run
+              volmesh</b> (check <code>inverted 0</code>).</li>
             <li>Analyze in the <b>solve</b> (FEA) or <b>cfd</b> panel.</li>
             <li><b>Save work file</b> (<code>.mfwork</code>) → <b>Load</b> with
               <i>replay</i> ticked to reproduce.</li>
           </ol>
           <p>Run step panels top-to-bottom; a step run before its input errors
-            loudly in the log (harmless — run the missing one). Full guide:
+            loudly (log, and next to the button). Full guide:
             <code>docs/TUTORIAL.md</code> and <code>docs/APP_GUIDE.md</code>.</p>
         </div>
       </details>
@@ -33,8 +34,8 @@
     <main id="workbench">
       <!-- LEFT: scrollable source + per-step parameter panels (from /schema) -->
       <section id="pane-left" class="pane" aria-label="steps">
-        <fieldset id="source-box" class="step-box">
-          <legend>source</legend>
+        <details id="source-box" class="step-box" open>
+          <summary>source</summary>
           <label class="knob">
             <span class="knob-name">shape</span>
             <select id="synth-shape"></select>
@@ -46,7 +47,7 @@
             <input type="text" id="load-path" placeholder="path to a surface mesh" />
           </label>
           <button type="button" id="btn-load" class="run">Load surface</button>
-        </fieldset>
+        </details>
         <div id="step-panels"><!-- generated from GET /schema --></div>
       </section>
 
@@ -94,11 +95,13 @@
               <input type="text" id="save-path" placeholder="work file path (.mfwork)" />
               <button type="button" id="btn-save" class="run" disabled>Save work file</button>
             </div>
+            <p id="save-error" class="panel-error" hidden></p>
             <div class="action-row">
               <input type="text" id="wload-path" placeholder="work file to load" />
               <label class="inline"><input type="checkbox" id="wload-replay" checked /> replay</label>
               <button type="button" id="btn-wload" class="run">Load work file</button>
             </div>
+            <p id="wload-error" class="panel-error" hidden></p>
             <div class="action-row">
               <button type="button" id="btn-reset" class="reset">Reset session</button>
             </div>

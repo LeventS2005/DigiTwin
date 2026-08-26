@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A first run of the Workbench no longer dead-ends.** Eight front-door
+  defects found in a hands-on walkthrough with a real clinical `.cso`; the
+  meshing engine was not involved and is unchanged.
+  - "Load surface" handed a `.cso` (or DXF/STEP/NIfTI/DICOM) straight to
+    pyvista and leaked its reader error. Twelve suffixes are now routed by
+    name, before the file is opened, to the panel and CLI subcommand that owns
+    them — `.cso` says to use `import_cso` / `meshforge import-cso`.
+  - Path fields rejected `~`, quoted paths, drag-into-terminal `\ ` escapes
+    and trailing spaces. A new normaliser runs at every path entry point in
+    the CLI, the service layer and the web write guards.
+  - A mistyped path reported a bare `[Errno 2] No such file or directory`:
+    the friendly `surface file not found` guard was unreachable because the
+    checksum ran before the load. Both orderings fixed, and `file_sha256()`
+    now checks existence itself.
+  - The SDF voxel-budget refusal named `spacing` — a knob no panel has — and
+    leaked `np.int64(...)`. It now names **thickness**, prints plain integers,
+    and quotes a minimum computed for the actual bounding box and verified to
+    fit.
+  - The four `import_*` panels sat 7th-10th; they now sit directly under
+    `source`, from an explicit step order the server publishes.
+  - Run buttons had no busy state, so a second click fired a second concurrent
+    request. Every request button now disables and relabels for its call.
+  - `Browse…` reached only 5 of 12 file fields, and vanished without
+    explanation in a plain browser tab. All 12 have a picker in the desktop
+    app, and a browser tab gets one note saying why it cannot.
+  - The step pane was 7,924px tall in a 668px viewport and errors printed
+    ~1,000px from the button that caused them. Panels are now collapsible and
+    remember their state; errors appear inline in the panel that produced them.
+  - 29 internal `(Vnn)` milestone tags removed from user-facing help text.
+
 ### Changed
 
 - Public tree slimmed to what someone *using* meshforge needs. The agent and
