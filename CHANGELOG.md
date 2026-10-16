@@ -49,6 +49,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   former repository name. Both now match the Apache-2.0 `LICENSE` and this repo.
 - The web app's OpenAPI version was hard-coded and had drifted from the package
   version; it now reads `meshforge.__version__`.
+- Workbench assets are now served with `Cache-Control: no-cache`. Without it a
+  browser kept running a stale `app.js` against an upgraded server's routes.
 
 ### Added
 
@@ -57,6 +59,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Group-name validator tests covering OpenFOAM dictionary metacharacters
   (`;`, `{`, `}`, `#`, `$`, `//`) and an exact length-ceiling check, plus a
   writer-level test for the one patch name that is not a `BoundaryGroup`.
+- `cfd`: the `inlet` knob takes a scalar speed, `inlet=150`, as well as a
+  vector. The velocity is that speed along the patch's inward normal, measured
+  on the mesh, so a sign slip can no longer blow fluid out of the inlet. A patch
+  that is not a flat cap, or a speed <= 0, is refused with the reason. Every
+  session-built run now reports its inflow: area, equivalent diameter, flow rate
+  (also in L/min when the source's length unit is known) and Reynolds number.
+  It warns when a vector points out of the domain, and when Re > 2300 under
+  laminar flow. The CLI `cfd` command has only a case directory, so it refuses
+  the speed form and says why.
+- Workbench **flow ends** picker in the cfd panel: click the vessel near its
+  inflow end, **Swap**, a speed field, and cardiac presets (blood viscosity,
+  aortic mean and peak speed) converted to the source's length unit. Presets
+  are refused when the source declares no unit. A live flow-rate/Reynolds
+  preview shows before the run. The picker only writes the panel's own knobs,
+  so a work file replays the click exactly.
+- Workbench viewport: a CFD result is shown on a curved **flow section** along
+  the vessel centreline, face-on, instead of the uniform no-slip wall. It has
+  toggles for the section, a translucent wall and a robust colour range.
 
 ## [1.0.0] — 2026-07-24
 

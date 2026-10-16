@@ -394,3 +394,30 @@ label.inline input[type="checkbox"] { width: 13px; height: 13px; accent-color: v
 .chip.on { color: var(--ok); border-color: #2f5c3b; background: #1c2a20; }
 .status-hint { margin-left: auto; color: #626870; white-space: nowrap; }
 .status-hint code { font-family: var(--mono); color: #7d848d; }
+
+/* ---- cfd flow-ends picker (D80): writes the cfd knobs, nothing else --- */
+.flow-picker {
+  margin: var(--pad) var(--pad) 2px; padding: 0 0 var(--pad);
+  border: 1px solid var(--rule); border-radius: 3px;
+  background: #1f2124;
+}
+.flow-picker .fp-head {
+  padding: 5px var(--pad); color: var(--ink-head);
+  font: 600 10px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
+  border-bottom: 1px solid var(--rule);
+}
+.flow-picker .fp-row { display: flex; gap: 6px; padding: var(--pad) var(--pad) 2px; }
+.flow-picker .knob.fp-speed { grid-template-columns: 92px 1fr auto; }
+.flow-picker .fp-unit { color: var(--ink-dim); font: 11px/1 var(--mono); }
+.fp-status, .fp-note, .fp-preview {
+  margin: 3px var(--pad); color: var(--ink-dim);
+  font-size: 10.5px; line-height: 1.4;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fp-preview { font-family: var(--mono); color: var(--ink); }
+.fp-status.err, .fp-preview.err { color: var(--err); }
+.fp-note { color: var(--warn); }
+#fp-pick[data-armed="1"] {
+  border-color: var(--accent); color: var(--accent-ink);
+  background: linear-gradient(#2f5f8c, #27506f);
+}

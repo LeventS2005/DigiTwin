@@ -161,7 +161,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "case": (str, "", "existing complete case dir to run (empty: build one from the session volmesh)"),
         "solver": (str, "simpleFoam", "simpleFoam (steady) | icoFoam (transient)"),
         "nu": (float, 1e-3, "kinematic viscosity"),
-        "inlet": (str, "", "velocity inlet NAME=vx,vy,vz, e.g. front=0,0,1"),
+        "inlet": (str, "", "velocity inlet: NAME=SPEED flows in along the patch's inward normal (e.g. inlet=150), or NAME=vx,vy,vz"),
         "outlet": (str, "", "pressure outlet NAME=value, e.g. back=0"),
         "end_time": (float, 2000.0, "endTime (steady: max iterations)"),
         "delta_t": (float, 0.0, "time step (icoFoam only; 0 invalid there)"),
@@ -194,6 +194,30 @@ def _parse_inlet_spec(inlet: str):
         if "invalid boundary-group name" in str(exc):
             raise
         raise ValueError(f"inlet velocity {raw!r} is not three numbers") from exc
+
+
+def _parse_inlet_knob(inlet: str):
+    """The cfd ``inlet`` knob: ``NAME=SPEED`` -> (name, speed) or
+    ``NAME=vx,vy,vz`` -> (name, (vx, vy, vz)). The scalar is resolved
+    against the mesh later (``solve/inflow.py``); only its syntax and sign
+    are checked here, before any mesh is required."""
+    from meshforge.meshing import valid_group_name
+    from meshforge.solve.inflow import check_inlet_speed
+
+    name, sep, raw = inlet.partition("=")
+    parts = raw.split(",")
+    if not sep or not name.strip() or len(parts) not in (1, 3):
+        raise ValueError(
+            f"inlet expects NAME=SPEED or NAME=vx,vy,vz, got {inlet!r}"
+        )
+    if len(parts) == 3:
+        return _parse_inlet_spec(inlet)
+    name = valid_group_name(name.strip())
+    try:
+        speed = float(parts[0])
+    except ValueError as exc:
+        raise ValueError(f"inlet speed {raw!r} is not a number") from exc
+    return name, check_inlet_speed(speed, name)
 
 
 def _parse_outlet_spec(outlet: str):
@@ -705,6 +729,10 @@ class MeshingSession:
         self.solve = None  # SolveResult from compute_solve (V13)
         self.cfd = None  # CfdResult from compute_cfd (V23)
         self.profile = None  # Profile2D from compute_import_cad (V12)
+        # Length unit of the current source, or None when it declares none
+        # (STL/VTK/synthetic). Set by each source step; CSO and DICOM are
+        # millimetres by definition. Gates the cardiac CFD presets (D80).
+        self.length_unit: str | None = None
         # V10 journal: ordered records of every step call — step name,
         # JSON-safe params (incl. paths + input checksums), result summary.
         self.journal: list[dict[str, Any]] = []
@@ -727,6 +755,7 @@ class MeshingSession:
         self.input_path = path
         self.truth = None
         self._invalidate_downstream()
+        self.length_unit = None  # STL/VTK/... carry no unit
         report = inspect_surface(self.surface, path=str(path), sha256=self.input_sha256)
         result = StepResult(
             step="load",
@@ -746,6 +775,7 @@ class MeshingSession:
         self.input_path = None
         self.input_sha256 = None
         self._invalidate_downstream()
+        self.length_unit = None  # synthetic shapes are unitless
         text = (
             f"synth {shape}: {self.surface.n_points} pts, {self.surface.n_cells} tris, "
             f"length {self.truth.length:.6g}, closed {self.truth.closed}\n"
@@ -943,6 +973,9 @@ class MeshingSession:
         from meshforge.io.cad import load_profile
 
         self.profile = load_profile(path, block=block or None, mode=mode)
+        # Drawing units ($INSUNITS) are carried as text, never converted; a
+        # blocks mesh built from them must not inherit an earlier CSO's "mm".
+        self.length_unit = None
         p = self.profile
         text = p.to_text()
         import numpy as np
@@ -999,6 +1032,7 @@ class MeshingSession:
         self.input_path = Path(path)
         self.truth = None
         self._invalidate_downstream()
+        self.length_unit = None  # the gmsh import does not carry one
         report = inspect_surface(
             self.surface, path=str(path), sha256=self.input_sha256
         )
@@ -1060,6 +1094,10 @@ class MeshingSession:
         self.input_path = Path(path)
         self.truth = None
         self._invalidate_downstream()
+        # DICOM patient coordinates are millimetres by the standard; a
+        # .npy/.nii or a spacing override declares nothing we can trust.
+        dicom_input = Path(path).is_dir() or str(path).lower().endswith(".dcm")
+        self.length_unit = "mm" if dicom_input and not spacing else None
         report = inspect_surface(
             self.surface, path=str(path), sha256=self.input_sha256
         )
@@ -1169,6 +1207,7 @@ class MeshingSession:
         self.input_path = Path(path)
         self.truth = None
         self._invalidate_downstream()
+        self.length_unit = "mm"  # CSO world coordinates are millimetres
         # V40: reuse the validated centreline at the volmesh step (None => the
         # volmesh step computes the skeleton centreline itself, as before).
         self.centerline = chosen_centerline
@@ -1683,6 +1722,7 @@ class MeshingSession:
             "closed_cavity": closed_cavity, "p_ref_cell": p_ref_cell,
             "p_ref_value": p_ref_value,
         }
+        inflow = section = None  # session-built cases only (D80/D82)
         if case:
             if inlet or outlet or moving_wall or empty:
                 raise ValueError(
@@ -1706,12 +1746,21 @@ class MeshingSession:
         else:
             # Cheap validation first: knob syntax and spec consistency are
             # checked before any mesh is required.
+            import dataclasses
+
             from meshforge.solve import CfdBC, CfdSpec, write_case
 
             bcs = {}
+            inlet_name = inlet_speed = None
             if inlet:
-                name, velocity = _parse_inlet_spec(inlet)
-                bcs[name] = CfdBC("velocity", velocity)
+                inlet_name, velocity = _parse_inlet_knob(inlet)
+                if isinstance(velocity, float):
+                    # D80: a scalar speed along the patch's inward normal,
+                    # resolved once the mesh is in hand. A provisional vector
+                    # of the same magnitude lets the spec validate now (the
+                    # turbulence inlet scales use |U| only).
+                    inlet_speed, velocity = velocity, (velocity, 0.0, 0.0)
+                bcs[inlet_name] = CfdBC("velocity", velocity)
             if outlet:
                 name, p_value = _parse_outlet_spec(outlet)
                 bcs[name] = CfdBC("pressure", p_value)
@@ -1742,11 +1791,40 @@ class MeshingSession:
                     f"refusing to run CFD on a mesh with "
                     f"{vol.quality.n_inverted} inverted cell(s)"
                 )
+            inflow_notes_ = []
+            if inlet_name is not None:
+                from meshforge.solve.inflow import (
+                    inflow_notes,
+                    inflow_report,
+                    patch_geometry,
+                    resolve_inlet_speed,
+                )
+
+                geo = None
+                if inlet_speed is not None:
+                    velocity, geo = resolve_inlet_speed(vol, inlet_name, inlet_speed)
+                    spec = dataclasses.replace(
+                        spec,
+                        bcs={**spec.bcs, inlet_name: CfdBC("velocity", velocity)},
+                    )
+                else:
+                    velocity = spec.bcs[inlet_name].value
+                    try:  # the vector form needs no geometry - report if we can
+                        geo = patch_geometry(vol, inlet_name)
+                    except ValueError as exc:
+                        inflow_notes_.append(f"inflow report unavailable: {exc}")
+                if geo is not None:
+                    inflow = inflow_report(geo, velocity, nu, self.length_unit)
+                    inflow_notes_ += inflow_notes(
+                        inflow, laminar=turbulence == "laminar"
+                    )
             case_dir = Path("outputs") / "cfd" / "session"
             write_case(vol, case_dir, spec, input_path=self.input_path)
             self.cfd = solve_case(
                 case_dir, solver=solver, timeout=timeout, series=bool(series)
             )
+            self.cfd.notes.extend(inflow_notes_)
+            section = self._flow_section(vol, through_flow=inlet_name is not None)
 
         text = self.cfd.to_text()
         grid = self.cfd.grid
@@ -1755,9 +1833,17 @@ class MeshingSession:
             render_hints["frames"] = list(
                 zip(self.cfd.times, self.cfd.frames)
             )
+        if section is not None:
+            # D82: the viewport samples the flow onto this centreline section
+            # and looks at it face-on, so the inflow is visible, not the wall.
+            render_hints["section"] = section.surface
+            render_hints["view_dir"] = list(section.view_dir)
+        summary = self.cfd.summary()
+        if inflow is not None:
+            summary["inflow"] = inflow
         result = StepResult(
             step="cfd",
-            summary=self.cfd.summary(),
+            summary=summary,
             text=text,
             render_hints=render_hints,
         )
@@ -1842,6 +1928,60 @@ class MeshingSession:
             "save", {"what": what, "out_path": str(out_path), "fmt": fmt}, result
         )
         return result
+
+    # -- D80: inflow picker + presets (read-only; nothing is journaled) ----
+    # The Workbench turns these into the cfd knobs' plain scalar form
+    # (inlet=NAME=SPEED, outlet=NAME=0, nu=...), so a recipe or replay of the
+    # recorded step is identical to the click that produced it.
+    def flow_ends(self, point) -> dict[str, Any]:
+        """Which flat end cap of the session volume mesh is the inflow, given
+        a point picked near it; the other cap is the outflow."""
+        from meshforge.solve.inflow import flow_ends
+
+        vol = self._require(self.volmesh, "volmesh", "compute_lumen or compute_volmesh")
+        return flow_ends(vol, point)
+
+    def inflow_preview(self, patch: str, speed: float, nu: float) -> dict[str, Any]:
+        """Velocity, flow rate and Reynolds number a scalar inlet speed would
+        prescribe on *patch* - before anything runs."""
+        from meshforge.solve.inflow import inflow_notes, inflow_report, resolve_inlet_speed
+
+        vol = self._require(self.volmesh, "volmesh", "compute_lumen or compute_volmesh")
+        if not nu > 0.0:
+            raise ValueError(f"kinematic viscosity must be positive, got {nu}")
+        velocity, geo = resolve_inlet_speed(vol, patch, speed)
+        report = inflow_report(geo, velocity, nu, self.length_unit)
+        report["notes"] = inflow_notes(report)
+        return report
+
+    def cfd_presets(self) -> dict[str, Any]:
+        """Cardiac nu / inlet-speed presets in this source's length unit
+        (loud when the source declares no unit)."""
+        from meshforge.solve.inflow import cardiac_presets
+
+        return cardiac_presets(self.length_unit)
+
+    def _flow_section(self, vol, *, through_flow: bool):
+        """D82: the centreline section a CFD result is viewed on, or None.
+
+        A display aid, never a result: failures become a note on the CFD
+        text instead of failing a solve that succeeded."""
+        if self.centerline is None:
+            if through_flow:
+                self.cfd.notes.append(
+                    "flow section: no session centreline (run centerline) - "
+                    "the viewport shows the boundary only"
+                )
+            return None
+        from meshforge.geometry.ribbon import centerline_ribbon
+
+        try:
+            section = centerline_ribbon(self.centerline, vol.grid)
+        except ValueError as exc:
+            self.cfd.notes.append(f"flow section unavailable: {exc}")
+            return None
+        self.cfd.notes.extend(f"flow section: {n}" for n in section.notes)
+        return section
 
     # -- helpers -----------------------------------------------------------
     def _require_surface(self):

@@ -61,6 +61,16 @@ class WorkfileLoadBody(BaseModel):
     replay: bool = True
 
 
+class PickBody(BaseModel):
+    point: list[float]
+
+
+class InflowBody(BaseModel):
+    patch: str
+    speed: float
+    nu: float
+
+
 def _result_json(result) -> dict[str, Any]:
     """StepResult -> JSON. ``render_hints`` (the pyvista meshes) are **omitted**
     from the step body on purpose — the mesh travels to the viewport over the
@@ -196,6 +206,24 @@ def create_app() -> FastAPI:
             },
         }
 
+    # -- cfd inflow picker + presets (D80) --------------------------------
+    # Read-only queries: nothing is journaled and the revision is not bumped.
+    # The frontend writes their answers into the cfd knobs' scalar form, so
+    # the recorded step (and its replay) never depends on these routes.
+    @app.post("/cfd/pick")
+    def cfd_pick(body: PickBody):
+        return _run(lambda: holder.session.flow_ends(body.point))
+
+    @app.post("/cfd/inflow")
+    def cfd_inflow(body: InflowBody):
+        return _run(
+            lambda: holder.session.inflow_preview(body.patch, body.speed, body.nu)
+        )
+
+    @app.get("/cfd/presets")
+    def cfd_presets():
+        return _run(holder.session.cfd_presets)
+
     @app.post("/workfile/save")
     def workfile_save(body: PathBody):
         session = holder.session
@@ -262,8 +290,11 @@ def create_app() -> FastAPI:
             from meshforge.web import viewport
 
             payload = viewport.serialize(
-                hints["mesh"], hints.get("kind", "surface"), field
+                hints["mesh"], hints.get("kind", "surface"), field,
+                section=hints.get("section"),
             )
+            if hints.get("view_dir") is not None:
+                payload["view_dir"] = list(hints["view_dir"])
             frames = hints.get("frames")
             payload["label"] = hints.get("label")
             payload["n_frames"] = len(frames) if frames else 0
@@ -295,7 +326,11 @@ def create_app() -> FastAPI:
             from meshforge.web import viewport
 
             t, mesh = frames[index]
-            payload = viewport.serialize(mesh, hints.get("kind", "volume"), field)
+            # One section for every frame: same mesh, new field values.
+            payload = viewport.serialize(
+                mesh, hints.get("kind", "volume"), field,
+                section=hints.get("section"),
+            )
             payload["time"] = float(t)
             payload["index"] = index
             return payload
@@ -330,7 +365,15 @@ def create_app() -> FastAPI:
     static_dir.mkdir(parents=True, exist_ok=True)
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/app", StaticFiles(directory=static_dir, html=True), name="app")
+    class _RevalidatingStatic(StaticFiles):
+        # The Workbench assets change with every upgrade; without this header
+        # browsers heuristically keep running a stale app.js (seen live, s44).
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-cache"
+            return response
+
+    app.mount("/app", _RevalidatingStatic(directory=static_dir, html=True), name="app")
     return app
 
 

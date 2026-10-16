@@ -2,9 +2,10 @@
 //
 // Rule 4: NO meshing/geometry/solve logic here. This module only calls the
 // increment-1 JSON API and renders its responses. Endpoints used:
-//   GET  /schema  /catalog  /journal  /state
+//   GET  /schema  /catalog  /journal  /state  /cfd/presets
 //   POST /source/synth  /source/load  /step/<name>
 //   POST /workfile/save  /workfile/load  /session/reset
+//   POST /cfd/pick  /cfd/inflow   (D80 flow-ends picker, read-only)
 // Plain ES module, no build step.
 
 const $ = (sel) => document.querySelector(sel);
@@ -57,6 +58,10 @@ async function afterStep(result) {
   await refreshState();
   viewportField = null; // a new artifact -> let the server pick the default field
   await refreshViewport(true);
+  // Any new mesh or source invalidates a picked inflow end; a cfd run keeps it
+  // (so the next run only needs a new speed).
+  if (!result || result.step !== "cfd") resetFlowPicker();
+  await refreshPresets();
 }
 function onError(err) {
   log(String(err && err.message ? err.message : err), true);
@@ -92,6 +97,15 @@ function initViewport() {
   $("#vp-overlay").addEventListener("change", (e) => {
     window.MeshforgeViewport.setOverlay(e.target.checked ? vpOverlay : null);
   });
+  $("#vp-section").addEventListener("change", (e) => {
+    window.MeshforgeViewport.setSectionVisible(e.target.checked);
+    $("#vp-wall-ctl").hidden = !e.target.checked;
+    applyColourRange();
+  });
+  $("#vp-wall").addEventListener("change", (e) => {
+    window.MeshforgeViewport.setWallVisible(e.target.checked);
+  });
+  $("#vp-fit").addEventListener("change", () => applyColourRange());
 }
 
 // Fetch the current artifact's geometry and (re)paint the canvas. resetCamera
@@ -108,6 +122,21 @@ async function refreshViewport(resetCamera) {
   updateColorbar(payload);
   setupFrames(payload);
   setupOverlay(payload);
+  setupSection(payload);
+  vpPayload = payload;
+  applyColourRange();
+}
+
+// Colour range: the full field range, or (fit colours) the flow inside the
+// section — both computed by the server; the page only chooses which.
+let vpPayload = null;
+function applyColourRange() {
+  if (!vpPayload) return;
+  const fit = $("#vp-fit").checked && vpPayload.section_range && $("#vp-section").checked;
+  const range = fit ? vpPayload.section_range : vpPayload.data_range;
+  if (!range) return;
+  window.MeshforgeViewport.setRange(range);
+  updateColorbar({ field: vpPayload.field, data_range: range });
 }
 
 function clearViewport() {
@@ -116,8 +145,22 @@ function clearViewport() {
   $("#vp-colorbar").hidden = true;
   $("#vp-anim").hidden = true;
   $("#vp-overlay-ctl").hidden = true;
+  $("#vp-section-ctl").hidden = true;
+  $("#vp-wall-ctl").hidden = true;
+  $("#vp-fit-ctl").hidden = true;
+  vpPayload = null;
   vpOverlay = null;
   stopPlay();
+}
+
+// Flow section (D82): a CFD result carries a section along the vessel
+// centreline; the toggle shows it (wall translucent) or the plain wall.
+function setupSection(payload) {
+  $("#vp-section-ctl").hidden = !payload.section;
+  $("#vp-fit-ctl").hidden = !payload.section_range;
+  $("#vp-wall-ctl").hidden = !(payload.section && $("#vp-section").checked);
+  window.MeshforgeViewport.setWallVisible($("#vp-wall").checked);
+  window.MeshforgeViewport.setSectionVisible($("#vp-section").checked);
 }
 
 // QC overlay (e.g. raw CSO contours over the reconstructed surface): cache the
@@ -287,6 +330,8 @@ function startAutoRefresh() {
         await refreshState(); // also updates lastRev
         viewportField = null;
         await refreshViewport(true);
+        resetFlowPicker();
+        await refreshPresets();
       } else if (lastRev === null) {
         lastRev = st.rev;
       }
@@ -306,6 +351,7 @@ function buildStepPanel(step, knobs) {
   const legend = document.createElement("legend");
   legend.textContent = step;
   box.appendChild(legend);
+  if (step === "cfd") box.appendChild(buildFlowPicker(box));
 
   for (const [knob, spec] of Object.entries(knobs)) {
     const label = document.createElement("label");
@@ -379,6 +425,182 @@ async function runStep(step, box) {
   await afterStep(result);
 }
 
+// ---- cfd flow-ends picker (D80) ----------------------------------------
+// Click near an end of the vessel in the viewport -> the server says which
+// flat end cap that is (inflow) and which is the other (outflow). The picker
+// then only WRITES the cfd panel's own knobs in their plain scalar form —
+//   inlet = <inflow>=<speed>   outlet = <outflow>=0   nu = <preset>
+// so the recorded step, a recipe and a replay are identical to the click.
+// Q and Re come from the server (POST /cfd/inflow); nothing is computed here.
+let fpState = null; // {inflow, outflow} patch geometry from POST /cfd/pick
+let fpPresets = null; // GET /cfd/presets payload, or null (unit unknown)
+let fpPreviewTimer = null;
+
+function buildFlowPicker(box) {
+  const wrap = document.createElement("div");
+  wrap.className = "flow-picker";
+  wrap.innerHTML = `
+    <div class="fp-head">flow ends</div>
+    <div class="fp-row">
+      <button type="button" id="fp-pick" class="run">Pick inflow end</button>
+      <button type="button" id="fp-swap" class="run" disabled title="exchange inflow and outflow">Swap</button>
+    </div>
+    <p id="fp-status" class="fp-status">run lumen (or volmesh), then click Pick and click the vessel near its inflow end</p>
+    <label class="knob fp-speed"><span class="knob-name">speed</span>
+      <input type="number" id="fp-speed" step="any" min="0" placeholder="inflow speed" />
+      <span id="fp-speed-unit" class="fp-unit"></span></label>
+    <label class="knob"><span class="knob-name">speed preset</span>
+      <select id="fp-speed-preset"></select></label>
+    <label class="knob"><span class="knob-name">fluid</span>
+      <select id="fp-nu-preset"></select></label>
+    <p id="fp-presets-note" class="fp-note" hidden></p>
+    <p id="fp-preview" class="fp-preview"></p>`;
+  const knobInput = (name) => box.querySelector(`input[data-knob="${name}"]`);
+  wrap.querySelector("#fp-pick").addEventListener("click", () => togglePick(wrap));
+  wrap.querySelector("#fp-swap").addEventListener("click", () => {
+    if (!fpState) return;
+    fpState = { inflow: fpState.outflow, outflow: fpState.inflow };
+    applyFlowEnds(knobInput);
+  });
+  wrap.querySelector("#fp-speed").addEventListener("input", () => applyFlowEnds(knobInput));
+  wrap.querySelector("#fp-speed-preset").addEventListener("change", (e) => {
+    const p = fpPresets && fpPresets.speed.find((x) => x.id === e.target.value);
+    if (!p) return;
+    wrap.querySelector("#fp-speed").value = p.value;
+    applyFlowEnds(knobInput);
+  });
+  wrap.querySelector("#fp-nu-preset").addEventListener("change", (e) => {
+    const p = fpPresets && fpPresets.nu.find((x) => x.id === e.target.value);
+    if (!p) return;
+    knobInput("nu").value = p.value;
+    applyFlowEnds(knobInput);
+  });
+  return wrap;
+}
+
+function togglePick(wrap) {
+  const btn = wrap.querySelector("#fp-pick");
+  const status = wrap.querySelector("#fp-status");
+  if (btn.dataset.armed === "1") { // second click cancels
+    window.MeshforgeViewport.disarmPick();
+    btn.dataset.armed = "";
+    btn.textContent = "Pick inflow end";
+    status.textContent = "pick cancelled";
+    return;
+  }
+  if (!viewportUp) return log("pick: the 3-D viewport is unavailable", true);
+  const armed = window.MeshforgeViewport.armPick(
+    (point) => onFlowPicked(wrap, point).catch((err) => {
+      status.textContent = String(err.message || err);
+      status.classList.add("err");
+    }),
+    () => { status.textContent = "nothing under the cursor — click ON the vessel, near its inflow end"; },
+  );
+  if (!armed) return;
+  btn.dataset.armed = "1";
+  btn.textContent = "Cancel pick";
+  status.classList.remove("err");
+  status.textContent = "click the vessel near its INFLOW end (drag still rotates)";
+}
+
+async function onFlowPicked(wrap, point) {
+  const btn = wrap.querySelector("#fp-pick");
+  btn.dataset.armed = "";
+  btn.textContent = "Pick inflow end";
+  const ends = await apiPost("/cfd/pick", { point });
+  fpState = { inflow: ends.inflow, outflow: ends.outflow };
+  const box = wrap.closest(".step-box"); // by class: the panel's tag is not a contract
+  applyFlowEnds((name) => box.querySelector(`input[data-knob="${name}"]`));
+}
+
+// Write the cfd knobs from the picker state, then refresh the Q/Re preview.
+function applyFlowEnds(knobInput) {
+  const status = $("#fp-status");
+  $("#fp-swap").disabled = !fpState;
+  if (!fpState) return;
+  status.classList.remove("err");
+  const a = fpState.inflow;
+  status.textContent =
+    `inflow: '${a.name}' (area ${fmtNum(a.area)}, D_eq ${fmtNum(a.d_eq)})` +
+    `  →  outflow: '${fpState.outflow.name}' (p = 0)`;
+  const speed = Number($("#fp-speed").value);
+  if (speed > 0) {
+    knobInput("inlet").value = `${a.name}=${speed}`;
+    knobInput("outlet").value = `${fpState.outflow.name}=0`;
+  }
+  clearTimeout(fpPreviewTimer);
+  fpPreviewTimer = setTimeout(() => previewInflow(knobInput).catch(() => {}), 250);
+}
+
+async function previewInflow(knobInput) {
+  const out = $("#fp-preview");
+  const speed = Number($("#fp-speed").value);
+  const nu = Number(knobInput("nu").value);
+  if (!fpState || !(speed > 0) || !(nu > 0)) {
+    out.textContent = "";
+    return;
+  }
+  try {
+    const rep = await apiPost("/cfd/inflow", { patch: fpState.inflow.name, speed, nu });
+    out.classList.remove("err");
+    out.textContent = (rep.notes || []).join("\n");
+  } catch (err) {
+    out.classList.add("err");
+    out.textContent = String(err.message || err);
+  }
+}
+
+function resetFlowPicker() {
+  fpState = null;
+  if (viewportUp) window.MeshforgeViewport.disarmPick();
+  const btn = $("#fp-pick");
+  if (!btn) return;
+  btn.dataset.armed = "";
+  btn.textContent = "Pick inflow end";
+  $("#fp-swap").disabled = true;
+  $("#fp-preview").textContent = "";
+  const status = $("#fp-status");
+  status.classList.remove("err");
+  status.textContent = "run lumen (or volmesh), then click Pick and click the vessel near its inflow end";
+}
+
+// Presets follow the SOURCE's length unit; an unknown unit is refused by the
+// server and the dropdowns say why instead of offering wrong-unit numbers.
+async function refreshPresets() {
+  const speedSel = $("#fp-speed-preset");
+  const nuSel = $("#fp-nu-preset");
+  if (!speedSel || !nuSel) return;
+  const note = $("#fp-presets-note");
+  const fill = (sel, items, unit) => {
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = items.length ? "— choose —" : "— unavailable —";
+    sel.appendChild(none);
+    for (const p of items) {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.label}: ${fmtNum(p.value)} ${unit || p.unit}`;
+      sel.appendChild(o);
+    }
+    sel.disabled = !items.length;
+  };
+  try {
+    fpPresets = await apiGet("/cfd/presets");
+    fill(speedSel, fpPresets.speed);
+    fill(nuSel, fpPresets.nu);
+    $("#fp-speed-unit").textContent = `${fpPresets.length_unit}/${fpPresets.time_unit}`;
+    note.hidden = true;
+  } catch (err) {
+    fpPresets = null;
+    fill(speedSel, []);
+    fill(nuSel, []);
+    $("#fp-speed-unit").textContent = "model units/s";
+    note.textContent = "presets: " + String(err.message || err);
+    note.hidden = false;
+  }
+}
+
 // ---- native "Browse…" (desktop shell file bridge) ----------------------
 // The desktop window loads sources by SERVER-SIDE path, so a plain
 // <input type=file> is useless (it exposes contents, not a path). The shell
@@ -435,6 +657,8 @@ async function loadWorkfile() {
   await refreshState();
   viewportField = null;
   await refreshViewport(true);
+  resetFlowPicker();
+  await refreshPresets();
 }
 async function resetSession() {
   await apiPost("/session/reset", {});
@@ -442,8 +666,10 @@ async function resetSession() {
   log("session reset");
   viewportField = null;
   clearViewport();
+  resetFlowPicker();
   await refreshHistory();
   await refreshState();
+  await refreshPresets();
 }
 
 // ---- init --------------------------------------------------------------
@@ -483,6 +709,7 @@ async function init() {
   $("#btn-reset").addEventListener("click", () => resetSession().catch(onError));
 
   initViewport();
+  await refreshPresets();
   await refreshHistory();
   await refreshState();
   await refreshViewport(true); // paints if a session was already in progress
