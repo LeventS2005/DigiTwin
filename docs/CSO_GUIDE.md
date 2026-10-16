@@ -191,6 +191,7 @@ Every command exits nonzero on failure and prints why (fail-loud rule).
 | Import succeeded but the desktop window still shows the old geometry | The Workbench polls the session revision and re-syncs itself within a couple of seconds (session 34). If it genuinely doesn't, ⌘R still works — and say so, that's a bug. |
 | `inverted=N` (N > 0) after volmesh | Use `method=auto` on import (its trial-sweep exists precisely to prevent this), or fall back to `method=voxel`; coarsening `n_axial` can also help on extreme bends. |
 | `give either --thickness or --outer-surface` | volmesh needs exactly one thickness source. |
+| `SDF grid … voxels exceeds the … budget … raise thickness: T or more fits` | The **wall** step sizes its signed-distance grid off `thickness` (grid spacing = `thickness/3`), so a thin wall on a scan-sized bounding box asks for an impossible grid. There is no `spacing` knob — **raise `thickness`**. The message quotes the smallest value that fits this surface; `1.5` is the recommended figure for a mm-scale scan (§5). The stock default `0.5` is sized for the synthetic tube, not for clinical geometry. The refusal is immediate — nothing expensive has run yet. |
 
 ---
 

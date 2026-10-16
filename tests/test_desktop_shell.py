@@ -107,8 +107,8 @@ def test_shell_wires_native_file_bridge() -> None:
 
     source = Path(shell_mod.__file__).read_text()
     for token in ("QWebChannel", "registerObject", "open_file", "open_directory",
-                  "QFileDialog", "qwebchannel.js", "getOpenFileName",
-                  "getExistingDirectory"):
+                  "save_file", "QFileDialog", "qwebchannel.js", "getOpenFileName",
+                  "getExistingDirectory", "getSaveFileName"):
         assert token in source, f"shell.py missing file-bridge wiring: {token}"
     # the filter set the brief specifies
     for ext in (".stl", ".vtp", ".cso", ".dwg", ".dxf", ".step", ".nii.gz"):

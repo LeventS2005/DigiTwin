@@ -146,11 +146,17 @@ body {
   margin: 0; padding: 0 0 var(--pad);
   box-shadow: inset 0 -1px 0 #1a1c1f;
 }
-/* float+width:100% pulls <legend> out of the fieldset's border notch so it
-   can be a full-bleed title bar like every other panel header. */
-.step-box > legend,
+/* step-box is a <details> now (FIX 7: collapsible panels) — no content is
+   rendered while closed, so the box's own bottom padding would be a bare
+   gap under the summary bar with nothing to pad. */
+.step-box:not([open]) { padding-bottom: 0; }
+/* <summary> is a block-level title bar, same look as every other panel
+   header; list-style + the marker rule below strip its native disclosure
+   triangle (same trick as .help > summary above) so our own chevron reads
+   consistently across engines. */
+.step-box > summary,
 .panel-title {
-  float: left; width: 100%; margin: 0;
+  list-style: none; margin: 0;
   height: 23px; padding: 0 var(--pad);
   display: flex; align-items: center; gap: 6px;
   background: linear-gradient(var(--head), #272a2e);
@@ -159,9 +165,17 @@ body {
   font: 600 10.5px/1 var(--ui); letter-spacing: .1em; text-transform: uppercase;
   color: var(--ink-head); user-select: none;
 }
-.panel-title { float: none; font-size: 10.5px; }
+.step-box > summary { cursor: pointer; }
+.step-box > summary::-webkit-details-marker { display: none; }
+.step-box > summary::before {
+  content: "▸"; display: inline-block; width: 8px; flex: 0 0 auto;
+  color: var(--ink-dim); font-size: 9px;
+}
+.step-box[open] > summary::before { content: "▾"; }
+.step-box > summary:hover { color: #e3e6ea; }
+.panel-title { font-size: 10.5px; }
 .dock-panel.flush { padding-bottom: 0; }
-.step-box > *:not(legend) { clear: both; }
+.step-box > *:not(summary) { clear: both; }
 .step-box > .knob:first-of-type { margin-top: var(--pad); }
 .step-box hr {
   border: 0; border-top: 1px solid var(--rule);
@@ -212,6 +226,26 @@ body {
   color: #6f757d; font-size: 10.5px; line-height: 1.35;
 }
 
+/* Inline per-panel error (FIX 7): appears next to the button that caused it,
+   under the .log record of the same thing. Used by step panels, the source
+   panel, and the session save/load rows. */
+.panel-error {
+  margin: 4px var(--pad) 0; padding: 5px 7px;
+  border: 1px solid #5b2a2e; border-radius: 2px;
+  background: #2a1c1e; color: var(--err);
+  font-size: 10.5px; line-height: 1.4;
+}
+
+/* One-time note when there's no native-picker bridge (FIX 6) — a plain
+   browser tab, not the desktop shell. */
+.browse-note {
+  margin: var(--pad) var(--pad) 4px; padding: 5px 7px;
+  border: 1px solid var(--rule); border-radius: 2px;
+  background: #24262a; color: var(--ink-dim);
+  font-size: 10.5px; line-height: 1.4;
+}
+.browse-note code { font-family: var(--mono); color: var(--ink); }
+
 /* ---- buttons: flat raised chrome, never a saturated web pill --------- */
 button.run, button.reset, button.browse {
   height: var(--row); padding: 0 11px; margin: 0;
@@ -227,6 +261,9 @@ button.run:active:not(:disabled), button.reset:active:not(:disabled) {
   background: #212428; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5);
 }
 button.run:disabled { opacity: .4; cursor: default; }
+/* Running state (FIX 5) — the button stays disabled for the request's
+   duration; this just makes that visible instead of looking dead/broken. */
+button.run.busy { opacity: .65; cursor: progress; }
 /* a step panel's own action sits on its trailing edge, dialog-style */
 .step-box > button.run {
   float: right; margin: var(--pad) var(--pad) 0 0;

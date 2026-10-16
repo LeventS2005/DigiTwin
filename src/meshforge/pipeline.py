@@ -13,6 +13,11 @@ from typing import Any
 
 # Declarative knob specs: (type, default, help). The GUI generates its
 # parameter widgets from these, so new knobs appear with no GUI changes.
+#
+# The ``help`` strings are USER-FACING (Workbench knob captions and CLI
+# --help). Keep internal spec/milestone ids ("V38", "V47", D-numbers) OUT of
+# them — they mean nothing to a user. Provenance belongs in the section
+# comments below, in docstrings, or in docs/decisions/.
 STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     "centerline": {
         "voxel_size": (float, None, "voxel size (default: bbox diagonal / 150)"),
@@ -24,7 +29,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "rel_drop": (float, 0.2, "constriction detection threshold"),
     },
     "wall": {
-        "thickness": (float, 0.5, "wall thickness (clear this to use outer_surface)"),
+        "thickness": (float, 0.5, "wall thickness (clear this to use outer_surface); 0.5 suits the synthetic tube — a mm-scale scan wants ~1.5"),
         "outer_surface": (str, "", "path to a measured outer surface (thickness must be cleared)"),
         "mode": (str, "sdf", "sdf (default, robust) | uniform | radius_scaled"),
         "curvature_cap": (float, 0.5, "fraction of 1/|κ| allowed on concave bends"),
@@ -32,7 +37,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     },
     "volmesh": {
         "backend": (str, "swept", "swept | tet"),
-        "thickness": (float, 0.5, "wall thickness"),
+        "thickness": (float, 0.5, "wall thickness; 0.5 suits the synthetic tube — a mm-scale scan wants ~1.5"),
         "n_theta": (int, 32, "azimuthal divisions"),
         "n_axial": (int, 60, "axial stations"),
         "n_layers": (int, 4, "radial layers (swept)"),
@@ -41,10 +46,10 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     # V47: fill the blood volume (lumen) instead of the wall; the result
     # takes the session volmesh slot so deck/solve/cfd/save work unchanged.
     "lumen": {
-        "method": (str, "auto", "auto (O-grid hexes, tet fallback on failure) | ogrid | tet (V47)"),
+        "method": (str, "auto", "auto (O-grid hexes, tet fallback on failure) | ogrid | tet"),
         "n_theta": (int, 32, "rays per station (ring resolution)"),
         "n_axial": (int, 40, "stations along the centerline"),
-        "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim (V26)"),
+        "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim"),
         "smooth": (int, 4, "guarded smoothing iterations, sj_min can never regress (0 = off)"),
         "mesh_size": (float, None, "tet-fallback target size (default: 1.5x median ring edge)"),
     },
@@ -52,37 +57,39 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     "import_cad": {
         "path": (str, "", "DXF/DWG drawing file"),
         "block": (str, "", "block name (empty: modelspace/auto)"),
-        "mode": (str, "auto", "auto | chain | faces (V1)"),
+        "mode": (str, "auto", "auto | chain | faces"),
     },
     "import_cad3d": {
-        "path": (str, "", "STEP/IGES/BREP solid file (V16)"),
+        "path": (str, "", "STEP/IGES/BREP solid file"),
         "mesh_size": (float, None, "absolute surface mesh size"),
         "mesh_size_factor": (float, None, "scales the default (bbox diag / 50)"),
     },
     "import_image": {
-        "path": (str, "", ".npy / .nii(.gz) volume or DICOM directory (V18)"),
+        "path": (str, "", ".npy / .nii(.gz) volume or DICOM directory"),
         "level": (float, None, "iso level (REQUIRED — e.g. HU threshold)"),
         "spacing": (str, "", "X,Y,Z voxel spacing override (.npy inputs)"),
     },
     "import_cso": {
-        "path": (str, "", "MeVisLab Binary .cso contour file (V38)"),
+        "path": (str, "", "MeVisLab Binary .cso contour file"),
         "method": (str, "auto", "auto (default: loft, else voxel — whichever sweeps clean) | loft | voxel"),
         "n_ring": (int, 48, "resample count per ring (loft)"),
         "voxel_size": (float, None, "voxel size for the label volume (voxel)"),
         "cap_ends": (int, 1, "1 = cap the two end rings (watertight, loft)"),
-        "on_open": (str, "skip", "open editor contour policy: skip | close | error (V39)"),
-        "dicom": (str, "", "anchor to a DICOM series' grid: voxelise onto its lattice (V39)"),
+        "on_open": (str, "skip", "open editor contour policy: skip | close | error"),
+        "dicom": (str, "", "anchor to a DICOM series' grid: voxelise onto its lattice"),
     },
+    # V5 structured blocks; V6 projection, V17 Winslow smoothing,
+    # V20 grading, V26 O-grid.
     "blocks": {
         "target_size": (float, None, "max element edge (default: bbox diag / 60)"),
         "thickness": (float, 1.0, "extrusion thickness"),
         "n_layers": (int, 1, "extrusion layers"),
         "holes_like": (str, "", "punch holes at components with outer bbox WxH"),
-        "project": (int, 0, "1 = project curved loops (V6)"),
-        "ogrid": (int, 0, "1 = O-grid (butterfly) disk layout — one loop, no holes (V26)"),
-        "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim (V26)"),
-        "smooth": (int, 0, "1 = elliptic (Winslow) smoothing pass (V17)"),
-        "grade_ratio": (float, 1.0, "transition grading: max/min spacing per interval (V20)"),
+        "project": (int, 0, "1 = project curved loops"),
+        "ogrid": (int, 0, "1 = O-grid (butterfly) disk layout — one loop, no holes"),
+        "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim"),
+        "smooth": (int, 0, "1 = elliptic (Winslow) smoothing pass"),
+        "grade_ratio": (float, 1.0, "transition grading: max/min spacing per interval"),
     },
     "repair": {
         "merge_tol": (float, None, "vertex merge tolerance (default 1e-9 x diag)"),
@@ -94,8 +101,9 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "growth": (float, 1.2, "geometric growth ratio (>= 1)"),
         "normal_smoothing": (int, 10, "Laplacian passes on the growth normals"),
     },
+    # V7 recipe sweeps.
     "recipe": {
-        "path": (str, "", "recipe .yaml to run (V7 sweeps)"),
+        "path": (str, "", "recipe .yaml to run (parameter sweeps)"),
     },
     "replay": {
         "workfile": (str, "", "optional .mfwork (empty: this session's journal)"),
@@ -108,7 +116,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     # displacements/stresses read back as point data.
     "solve": {
         "deck": (str, "", "existing .inp to solve (empty: build one from the session volmesh)"),
-        "analysis": (str, "static", "static | frequency (modal) | heat (steady/transient) | buckle (V32)"),
+        "analysis": (str, "static", "static | frequency (modal) | heat (steady/transient) | buckle"),
         "preloaded": (int, 0, "1 = *STATIC preload then *FREQUENCY, PERTURBATION (frequency, V32)"),
         "E": (float, 1000.0, "Young's modulus (static/frequency decks)"),
         "nu": (float, 0.3, "Poisson's ratio"),
@@ -123,7 +131,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "stefan_boltzmann": (float, None, "Stefan-Boltzmann constant (REQUIRED with radiate)"),
         "absolute_zero": (float, None, "absolute-zero offset in the model temperature unit: 0 (Kelvin) / -273.15 (Celsius) (REQUIRED with radiate)"),
         "specific_heat": (float, 0.0, "specific heat c_p (REQUIRED for transient heat)"),
-        "transient": (int, 0, "1 = transient *HEAT TRANSFER, DIRECT (V31; needs dt/period/t0)"),
+        "transient": (int, 0, "1 = transient *HEAT TRANSFER, DIRECT (needs dt/period/t0)"),
         "dt": (float, 0.0, "transient time increment (accuracy dial: backward Euler is first-order)"),
         "period": (float, 0.0, "transient total time"),
         "t0": (float, None, "initial temperature (REQUIRED for transient — never guessed)"),
@@ -132,7 +140,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "expansion": (float, 0.0, "thermal-expansion coefficient alpha -> *EXPANSION (static thermal stress; needs temperature or temperature_from + t_ref, V45)"),
         "temperature": (float, None, "uniform *TEMPERATURE soak on all nodes (static; needs expansion + t_ref)"),
         "temperature_from": (str, "", "solved heat .frd whose NDTEMP field becomes the *TEMPERATURE load — chain analysis='heat' into thermal stress (static; needs expansion + t_ref)"),
-        "temperature_time": (float, None, "snapshot time to take from the temperature_from frd's transient history (V46; default = last increment; must match one of the frd's own recorded times exactly — no interpolation)"),
+        "temperature_time": (float, None, "snapshot time to take from the temperature_from frd's transient history (default = last increment; must match one of the frd's own recorded times exactly — no interpolation)"),
         "t_ref": (float, None, "stress-free reference temperature -> *INITIAL CONDITIONS (REQUIRED with a thermal load — never guessed: a wrong datum is silently wrong stress)"),
         "fix": (str, "", "DOF fixes NAME:first[-last],... e.g. inlet:3,outlet:3 (bare NAME clamps 1-3; NALL valid for frequency)"),
         "pin_lateral": (int, 0, "1 = tangential single-node pins on the inlet (removes rigid modes)"),
@@ -170,14 +178,67 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "turbulence": (str, "laminar", "laminar | kOmegaSST (steady RANS, V27)"),
         "intensity": (float, 0.05, "inlet turbulence intensity I (kOmegaSST)"),
         "turb_length": (float, 0.0, "inlet mixing length, e.g. 0.07*D (REQUIRED for kOmegaSST)"),
-        "series": (int, 0, "1 = read ALL written time steps back as frames (V29; needs write_interval < end_time)"),
-        "moving_wall": (str, "", "tangentially moving wall NAME=vx,vy,vz, e.g. lid=1,0,0 (V30)"),
-        "empty": (str, "", "comma-separated 2-D 'empty' patches, e.g. front,back (V30)"),
-        "closed_cavity": (int, 0, "1 = sealed domain: pressure level pinned by pRefCell/pRefValue (V30)"),
+        "series": (int, 0, "1 = read ALL written time steps back as frames (needs write_interval < end_time)"),
+        "moving_wall": (str, "", "tangentially moving wall NAME=vx,vy,vz, e.g. lid=1,0,0"),
+        "empty": (str, "", "comma-separated 2-D 'empty' patches, e.g. front,back"),
+        "closed_cavity": (int, 0, "1 = sealed domain: pressure level pinned by pRefCell/pRefValue"),
         "p_ref_cell": (int, 0, "reference cell index (closed_cavity)"),
         "p_ref_value": (float, 0.0, "reference kinematic pressure (closed_cavity)"),
     },
 }
+
+# Panel/display order for front-ends (Workbench builds its left pane from this).
+# STEP_KNOBS is keyed by name everywhere else (recipes.py, web/app.py), so the
+# order a user sees is stated ONCE, here, instead of riding on dict insertion
+# order. The import_* steps come first because a real run starts from a file:
+# they produce the surface every processing step below them consumes.
+STEP_ORDER: tuple[str, ...] = (
+    "import_cad",
+    "import_cad3d",
+    "import_image",
+    "import_cso",
+    "centerline",
+    "sections",
+    "wall",
+    "volmesh",
+    "lumen",
+    "blocks",
+    "repair",
+    "blayers",
+    "recipe",
+    "replay",
+    "screenshot",
+    "solve",
+    "split_patch",
+    "cfd",
+)
+
+# Fail loudly if a step is ever added to STEP_KNOBS without a display slot,
+# rather than letting it silently vanish from (or duplicate in) the GUI.
+_missing = set(STEP_KNOBS) - set(STEP_ORDER)
+_extra = set(STEP_ORDER) - set(STEP_KNOBS)
+if _missing or _extra:  # pragma: no cover - import-time contract check
+    raise RuntimeError(
+        f"STEP_ORDER is out of sync with STEP_KNOBS: missing {sorted(_missing)}, "
+        f"unknown {sorted(_extra)}"
+    )
+if len(STEP_ORDER) != len(set(STEP_ORDER)):  # pragma: no cover
+    raise RuntimeError("STEP_ORDER contains a duplicate step")
+
+
+def _clean_path(raw: str | Path) -> str:
+    r"""Normalise one user-entered path (``~``, surrounding quotes, ``\ ``
+    drag-into-terminal escapes, stray whitespace) — see ``io/paths.py``.
+
+    Applied at EVERY path entry point in this service layer, so the CLI, the
+    Workbench and the desktop shell all accept the same path habits and a
+    missing file reports the loader's own friendly message instead of a raw
+    ``[Errno 2]``. Lazy import: ``meshforge.io`` pulls pyvista, and this
+    module must stay cheap to import (rule 5).
+    """
+    from meshforge.io.paths import normalize_path_str
+
+    return normalize_path_str(raw)
 
 
 def _parse_inlet_spec(inlet: str):
@@ -718,12 +779,16 @@ class MeshingSession:
 
     # -- sources ---------------------------------------------------------
     def load(self, path: str | Path) -> StepResult:
-        from meshforge.io import file_sha256, load_surface
+        from meshforge.io import file_sha256, load_surface, normalize_path
         from meshforge.quality import inspect_surface
 
-        path = Path(path)
+        path = normalize_path(path)
+        # load_surface FIRST: it owns the friendly "surface file not found" and
+        # the wrong-front-door suffix routing. Hashing first would have opened
+        # the file and raised a bare [Errno 2] before either guard could speak.
+        surface = load_surface(path)
         self.input_sha256 = file_sha256(path)
-        self.surface = load_surface(path)
+        self.surface = surface
         self.input_path = path
         self.truth = None
         self._invalidate_downstream()
@@ -841,6 +906,7 @@ class MeshingSession:
         surface = self._require_surface()
         from meshforge.geometry import offset_wall
 
+        outer_surface = _clean_path(outer_surface)
         if outer_surface:
             # Path was gathered earlier; the file is read HERE (trap #7).
             from meshforge.geometry import ThicknessSpec
@@ -938,6 +1004,7 @@ class MeshingSession:
     def compute_import_cad(
         self, *, path: str = "", block: str = "", mode: str = "auto"
     ) -> StepResult:
+        path = _clean_path(path)
         if not path:
             raise ValueError("import_cad needs a drawing path")
         from meshforge.io.cad import load_profile
@@ -986,16 +1053,19 @@ class MeshingSession:
     ) -> StepResult:
         """V16: STEP/IGES/BREP solid -> triangulated surface as the session
         source (replaces load/generate_synth output; downstream invalidated)."""
+        path = _clean_path(path)
         if not path:
             raise ValueError("import_cad3d needs a STEP/IGES/BREP path")
         from meshforge.io import file_sha256
         from meshforge.io.cad3d import load_solid
         from meshforge.quality import inspect_surface
 
-        self.input_sha256 = file_sha256(path)
+        # load_solid FIRST — it owns the friendly "CAD file not found" and the
+        # unsupported-suffix message; hashing first would raise a bare errno.
         self.surface, provenance = load_solid(
             path, mesh_size=mesh_size, mesh_size_factor=mesh_size_factor
         )
+        self.input_sha256 = file_sha256(path)
         self.input_path = Path(path)
         self.truth = None
         self._invalidate_downstream()
@@ -1036,6 +1106,7 @@ class MeshingSession:
     ) -> StepResult:
         """V18: volume (.npy/.nii/DICOM dir) -> iso-surface as the session
         source. ``level`` is required; ``spacing`` overrides .npy voxels."""
+        path = _clean_path(path)
         if not path:
             raise ValueError("import_image needs a volume path")
         if level is None:
@@ -1112,6 +1183,8 @@ class MeshingSession:
         are voxelised onto THAT image's grid so the mask aligns with the scan
         (the DICOM is read-only + checksummed, rule 1; forces method='voxel').
         """
+        path = _clean_path(path)
+        dicom = _clean_path(dicom)
         if not path:
             raise ValueError("import_cso needs a .cso path")
         from meshforge.io.cso import (
@@ -1322,6 +1395,7 @@ class MeshingSession:
         return result
 
     def compute_recipe(self, *, path: str = "") -> StepResult:
+        path = _clean_path(path)
         if not path:
             raise ValueError("recipe needs a .yaml path")
         from meshforge.recipes import run_recipe
@@ -1345,6 +1419,7 @@ class MeshingSession:
         )
 
     def compute_replay(self, *, workfile: str = "", override: str = "") -> StepResult:
+        workfile = _clean_path(workfile)
         overrides: dict[str, dict[str, Any]] = {}
         if override:
             key, sep, raw = override.partition("=")
@@ -1488,6 +1563,9 @@ class MeshingSession:
 
         from meshforge.solve import attach_fields, frd_to_grid, solve_deck
 
+        deck = _clean_path(deck)
+        ccx = _clean_path(ccx)
+        temperature_from = _clean_path(temperature_from)
         params = {
             "deck": deck, "analysis": analysis, "preloaded": preloaded,
             "E": E, "nu": nu,
@@ -1673,6 +1751,7 @@ class MeshingSession:
         """
         from meshforge.solve import solve_case
 
+        case = _clean_path(case)
         params = {
             "case": case, "solver": solver, "nu": nu, "inlet": inlet,
             "outlet": outlet, "end_time": end_time, "delta_t": delta_t,
@@ -1766,6 +1845,7 @@ class MeshingSession:
 
     def compute_screenshot(self, *, path: str = "") -> StepResult:
         """Offscreen-safe render of the current state (no Qt involved)."""
+        path = _clean_path(path)
         import pyvista as pv
 
         out = Path(path) if path else Path("outputs") / "session.png"
@@ -1799,7 +1879,7 @@ class MeshingSession:
     def save(self, what: str, out_path: str | Path, *, fmt: str | None = None) -> StepResult:
         from meshforge.export import export_surface, guard_output_path
 
-        out_path = Path(out_path)
+        out_path = Path(_clean_path(out_path))
         if what == "surface":
             mesh = self._require_surface()
             written = export_surface(mesh, out_path, fmt=fmt, input_path=self.input_path)
@@ -1869,7 +1949,7 @@ class MeshingSession:
 
         if not self.journal:
             raise ValueError("nothing to save: the session journal is empty")
-        path = Path(path)
+        path = Path(_clean_path(path))
         if path.suffix != ".mfwork":
             path = path.with_suffix(".mfwork")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1905,7 +1985,7 @@ def load_workfile(path: str | Path) -> MeshingSession:
     run :func:`replay` to recompute. Corrupted files fail loudly."""
     import json
 
-    path = Path(path)
+    path = Path(_clean_path(path))
     if not path.is_file():
         raise FileNotFoundError(f"work file not found: {path}")
     try:
