@@ -219,7 +219,8 @@ log prints |U| max, frequencies, T range, time steps, buckling factors.
 
 ### 3.10 cfd  (OpenFOAM — needs: volmesh saved as a foam case, or `case`)
 Knobs: `case`, `solver` (`simpleFoam` steady / `icoFoam` transient),
-`nu`, `inlet` ("front=0,0,1"), `outlet` ("back=0"), `end_time`,
+`nu`, `inlet` ("front=0,0,1", or a speed "front=150" — §3.10a),
+`outlet` ("back=0"), `end_time`,
 `delta_t`, `write_interval`, `timeout`, `turbulence`
 (`laminar`/`kOmegaSST`), `intensity`, `turb_length` (REQUIRED for
 kOmegaSST, hint 0.07·D), `series` (1 = read every written time step
@@ -227,6 +228,57 @@ back as animation frames), `moving_wall` ("lid=1,0,0"), `empty`
 ("front,back"), `closed_cavity` + `p_ref_cell` + `p_ref_value`
 (sealed domains). With `series=1` the viewport's **play/slider** arms —
 step the U/p fields through time.
+
+### 3.10a cfd: pick the flow ends, then see the flow
+The **cfd** panel opens with a **flow ends** box. It only fills the
+panel's own `inlet` / `outlet` / `nu` knobs, as plain text, so the
+history, a work file and its replay record exactly what you could have
+typed. It needs a lumen (or volmesh) with exactly two flat end caps;
+anything else is refused with the reason — set the knobs by hand.
+- **Pick inflow end**, then click the vessel near the end the flow comes
+  IN. The nearest cap becomes the inflow, the other the outflow (p = 0).
+  A drag still rotates the view, a click on empty background asks again,
+  and pressing the button again cancels.
+- **Swap** exchanges inflow and outflow.
+- **speed** — the inflow speed in model units per second (the unit is
+  shown beside the field). It is written as `inlet=<inflow>=<speed>`:
+  that speed along the patch's inward normal, measured on the mesh and
+  uniform over the patch (a plug profile, the same as the vector form).
+  You never work out a direction or its sign.
+- **speed preset** / **fluid** — cardiac values converted to the
+  source's length unit. CSO and DICOM sources are millimetres: blood
+  ν = 3.3 mm²/s (Newtonian; μ 3.5 mPa·s, ρ 1060 kg/m³), aorta cycle-mean
+  at rest 150 mm/s, ascending-aorta peak systole 1000 mm/s. STL/VTK,
+  synthetic shapes and gmsh/CAD imports declare no unit, so the presets
+  stay empty and say why — type ν and the speed in your model's units.
+- **Live preview**, under the fields, before anything runs: U·n, the
+  inward normal, the inflow area and equivalent diameter D_eq, the flow
+  rate Q (also in L/min when the unit is known) and Re = U·D_eq/ν. Above
+  Re 2300 it warns that a steady laminar solution may not exist (expect
+  stalled residuals). After a run the same line is in the log. Example,
+  a synthetic 6 mm tube at 150 mm/s with blood: `Q 4168 (0.25 L/min);
+  Re 270`, simpleFoam converged in 88 iterations.
+
+Typed by hand, `inlet` takes either form. `inlet=150` is refused, with
+the reason, on a patch that is not a flat cap (it has no single inflow
+direction) and for a speed ≤ 0 (to reverse the flow, swap the patches).
+`inlet=0,0,150` works as before; the log warns if the vector points out
+of the domain. The CLI `meshforge cfd CASE` has only a case directory,
+not the mesh, so it refuses `--inlet NAME=SPEED` and asks for the
+vector; to run the speed form outside the Workbench, replay a work file
+with `meshforge replay`.
+
+**Flow section.** A CFD result drawn as the vessel's boundary is the
+no-slip wall — U = 0, one flat colour. After a cfd run on a session
+with a centreline, the viewport instead shows the flow on a curved
+section that follows the centreline, turned face-on to the camera.
+Toolbar toggles: **flow section** (on; off returns to the boundary),
+**wall** (off; draws the wall as a faint translucent shell around the
+section), **fit colours** (on: the colour range is the 2nd–98th
+percentile of the flow on the section, so a small fast inflow does not
+pin the scale; off: the full range). Without a session centreline the
+log says so and the viewport shows the boundary — run **centerline**
+first. The section is a view only; nothing is saved or exported.
 
 ### 3.11 split_patch / screenshot / replay / recipe
 - `split_patch`: carve a new boundary group (e.g. a cavity lid) from
@@ -349,6 +401,10 @@ one variant failing never kills the batch).
 | OpenFOAM dies about paths | It cannot run under paths with spaces — meshforge stages to a temp dir automatically; if you drive OpenFOAM by hand, do the same. |
 | `--thickness and --outer-surface are mutually exclusive` | Give exactly one thickness source. |
 | GUI froze during a solve | Long solves run on a worker thread; check the log — `timeout` knob caps runaway solves. |
+| `patch 'X' is not a flat end cap (planarity …)` | A speed inlet needs a flat cap to define "inward"; give that patch a vector `X=vx,vy,vz` instead (§3.10a). |
+| `the inflow picker needs exactly two flat end caps` | The picker only handles a tube with two ends; type `inlet` / `outlet` in the cfd panel. |
+| `cardiac presets need the model's length unit` | The source declares no unit (STL/VTK/synthetic) — type ν and the speed in your model's own units. |
+| `--inlet NAME=SPEED needs the mesh in memory` | CLI `cfd` only has a case directory: use `NAME=vx,vy,vz`, or the Workbench / `meshforge replay`. |
 
 ## 10. Honest limits (as of V44)
 

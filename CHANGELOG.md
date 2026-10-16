@@ -6,38 +6,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-
-- **A first run of the Workbench no longer dead-ends.** Eight front-door
-  defects found in a hands-on walkthrough with a real clinical `.cso`; the
-  meshing engine was not involved and is unchanged.
-  - "Load surface" handed a `.cso` (or DXF/STEP/NIfTI/DICOM) straight to
-    pyvista and leaked its reader error. Twelve suffixes are now routed by
-    name, before the file is opened, to the panel and CLI subcommand that owns
-    them — `.cso` says to use `import_cso` / `meshforge import-cso`.
-  - Path fields rejected `~`, quoted paths, drag-into-terminal `\ ` escapes
-    and trailing spaces. A new normaliser runs at every path entry point in
-    the CLI, the service layer and the web write guards.
-  - A mistyped path reported a bare `[Errno 2] No such file or directory`:
-    the friendly `surface file not found` guard was unreachable because the
-    checksum ran before the load. Both orderings fixed, and `file_sha256()`
-    now checks existence itself.
-  - The SDF voxel-budget refusal named `spacing` — a knob no panel has — and
-    leaked `np.int64(...)`. It now names **thickness**, prints plain integers,
-    and quotes a minimum computed for the actual bounding box and verified to
-    fit.
-  - The four `import_*` panels sat 7th-10th; they now sit directly under
-    `source`, from an explicit step order the server publishes.
-  - Run buttons had no busy state, so a second click fired a second concurrent
-    request. Every request button now disables and relabels for its call.
-  - `Browse…` reached only 5 of 12 file fields, and vanished without
-    explanation in a plain browser tab. All 12 have a picker in the desktop
-    app, and a browser tab gets one note saying why it cannot.
-  - The step pane was 7,924px tall in a 668px viewport and errors printed
-    ~1,000px from the button that caused them. Panels are now collapsible and
-    remember their state; errors appear inline in the panel that produced them.
-  - 29 internal `(Vnn)` milestone tags removed from user-facing help text.
-
 ### Changed
 
 - Public tree slimmed to what someone *using* meshforge needs. The agent and
@@ -94,6 +62,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   former repository name. Both now match the Apache-2.0 `LICENSE` and this repo.
 - The web app's OpenAPI version was hard-coded and had drifted from the package
   version; it now reads `meshforge.__version__`.
+- Workbench assets are now served with `Cache-Control: no-cache`. Without it a
+  browser kept running a stale `app.js` against an upgraded server's routes.
+
+- **A first run of the Workbench no longer dead-ends.** Eight front-door
+  defects found in a hands-on walkthrough with a real clinical `.cso`; the
+  meshing engine was not involved and is unchanged.
+  - "Load surface" handed a `.cso` (or DXF/STEP/NIfTI/DICOM) straight to
+    pyvista and leaked its reader error. Twelve suffixes are now routed by
+    name, before the file is opened, to the panel and CLI subcommand that owns
+    them — `.cso` says to use `import_cso` / `meshforge import-cso`.
+  - Path fields rejected `~`, quoted paths, drag-into-terminal `\ ` escapes
+    and trailing spaces. A new normaliser runs at every path entry point in
+    the CLI, the service layer and the web write guards.
+  - A mistyped path reported a bare `[Errno 2] No such file or directory`:
+    the friendly `surface file not found` guard was unreachable because the
+    checksum ran before the load. Both orderings fixed, and `file_sha256()`
+    now checks existence itself.
+  - The SDF voxel-budget refusal named `spacing` — a knob no panel has — and
+    leaked `np.int64(...)`. It now names **thickness**, prints plain integers,
+    and quotes a minimum computed for the actual bounding box and verified to
+    fit.
+  - The four `import_*` panels sat 7th-10th; they now sit directly under
+    `source`, from an explicit step order the server publishes.
+  - Run buttons had no busy state, so a second click fired a second concurrent
+    request. Every request button now disables and relabels for its call.
+  - `Browse…` reached only 5 of 12 file fields, and vanished without
+    explanation in a plain browser tab. All 12 have a picker in the desktop
+    app, and a browser tab gets one note saying why it cannot.
+  - The step pane was 7,924px tall in a 668px viewport and errors printed
+    ~1,000px from the button that caused them. Panels are now collapsible and
+    remember their state; errors appear inline in the panel that produced them.
+  - 29 internal `(Vnn)` milestone tags removed from user-facing help text.
 
 ### Added
 
@@ -102,6 +102,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Group-name validator tests covering OpenFOAM dictionary metacharacters
   (`;`, `{`, `}`, `#`, `$`, `//`) and an exact length-ceiling check, plus a
   writer-level test for the one patch name that is not a `BoundaryGroup`.
+- `cfd`: the `inlet` knob takes a scalar speed, `inlet=150`, as well as a
+  vector. The velocity is that speed along the patch's inward normal, measured
+  on the mesh, so a sign slip can no longer blow fluid out of the inlet. A patch
+  that is not a flat cap, or a speed <= 0, is refused with the reason. Every
+  session-built run now reports its inflow: area, equivalent diameter, flow rate
+  (also in L/min when the source's length unit is known) and Reynolds number.
+  It warns when a vector points out of the domain, and when Re > 2300 under
+  laminar flow. The CLI `cfd` command has only a case directory, so it refuses
+  the speed form and says why.
+- Workbench **flow ends** picker in the cfd panel: click the vessel near its
+  inflow end, **Swap**, a speed field, and cardiac presets (blood viscosity,
+  aortic mean and peak speed) converted to the source's length unit. Presets
+  are refused when the source declares no unit. A live flow-rate/Reynolds
+  preview shows before the run. The picker only writes the panel's own knobs,
+  so a work file replays the click exactly.
+- Workbench viewport: a CFD result is shown on a curved **flow section** along
+  the vessel centreline, face-on, instead of the uniform no-slip wall. It has
+  toggles for the section, a translucent wall and a robust colour range.
 
 ## [1.0.0] — 2026-07-24
 

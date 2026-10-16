@@ -53,6 +53,8 @@ def styles_css() -> str:
 _UNBUSIED_BUTTONS = {
     "#btn-reset",  # /session/reset is a dict clear — returns before a relabel would paint
     "#vp-play",    # client-side frame timer, no request at all
+    "#fp-pick",    # arms/cancels a viewport pick and relabels itself; no request on click
+    "#fp-swap",    # swaps two client-side ends; the Q/Re preview it triggers is a read-only POST
 }
 
 
@@ -93,7 +95,11 @@ def test_step_run_buttons_are_wrapped(app_js: str) -> None:
 
 
 def test_no_unwrapped_button_slipped_in(app_js: str) -> None:
-    wired = set(re.findall(r'\$\("(#[\w-]+)"\)\.addEventListener\("click"', app_js))
+    # $("#x") and wrap.querySelector("#x") — the cfd flow picker wires its
+    # buttons through the latter, which a $(...)-only scan would never see.
+    wired = set(re.findall(
+        r'(?:\$|\.querySelector)\("(#[\w-]+)"\)\.addEventListener\("click"', app_js
+    ))
     unwrapped = {b for b in wired if b not in _UNBUSIED_BUTTONS}
     for button in sorted(unwrapped):
         wiring = _slice_between(app_js, f'$("{button}").addEventListener', "});\n  $(")

@@ -63,6 +63,18 @@
               <input type="checkbox" id="vp-overlay" checked />
               <span id="vp-overlay-name">contours</span>
             </label>
+            <label class="vp-ctl" id="vp-section-ctl" hidden title="show the flow on a section along the vessel centreline (the wall turns translucent)">
+              <input type="checkbox" id="vp-section" checked />
+              <span>flow section</span>
+            </label>
+            <label class="vp-ctl" id="vp-wall-ctl" hidden title="draw the vessel wall around the flow section (translucent)">
+              <input type="checkbox" id="vp-wall" />
+              <span>wall</span>
+            </label>
+            <label class="vp-ctl" id="vp-fit-ctl" hidden title="colour range = the flow inside the section (2nd-98th percentile), not the full range">
+              <input type="checkbox" id="vp-fit" checked />
+              <span>fit colours</span>
+            </label>
             <div id="vp-colorbar" class="vp-colorbar" hidden>
               <span id="vp-cb-min" class="vp-cb-lim">0</span>
               <span class="vp-cb-gradient" aria-hidden="true"></span>

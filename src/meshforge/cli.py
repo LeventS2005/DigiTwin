@@ -2030,6 +2030,15 @@ def _cmd_cfd(args: argparse.Namespace) -> int:
         if builds_case:
             bcs: dict[str, CfdBC] = {}
             if args.inlet:
+                _, sep, raw = args.inlet.partition("=")
+                if sep and len(raw.split(",")) == 1:
+                    raise ValueError(
+                        "--inlet NAME=SPEED needs the mesh in memory to find "
+                        "the patch's inward normal, and this command only "
+                        "has a case directory: give NAME=VX,VY,VZ here, or "
+                        "use the speed form in the Workbench or a work file "
+                        "run with 'meshforge replay'"
+                    )
                 name, velocity = _parse_inlet_spec(args.inlet)
                 bcs[name] = CfdBC("velocity", velocity)
             if args.outlet:
