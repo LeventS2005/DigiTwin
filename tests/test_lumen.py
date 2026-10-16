@@ -1,13 +1,15 @@
 """V47: structured lumen (blood-volume) fill — swept O-grid + guarded
-smoothing, tet fallback (V47, decision D75)."""
+smoothing, tet fallback (V47, decision D75); end stations anchored on flat
+end caps (D81)."""
 from __future__ import annotations
 
 import math
 
 import numpy as np
 import pytest
-from conftest import cso_family_dir
+from conftest import cso_family_dir, example_cso_dir
 
+from meshforge.geometry.centerline import Centerline
 from meshforge.meshing.lumen import fill_lumen
 from meshforge.pipeline import MeshingSession, load_workfile, replay
 from meshforge.synth import generate
@@ -16,6 +18,21 @@ from meshforge.synth import generate
 def _tube_radius_length(surf, truth):
     b = surf.bounds
     return (b[1] - b[0]) / 2.0, truth.length
+
+
+def _patch_area(wm, name):
+    """Area of a boundary patch from the mesh itself (quads or triangles)."""
+    p = np.asarray(wm.grid.points)
+    f = wm.boundary[name].face_nodes
+    if f.shape[1] == 4:  # planar quad: half the diagonals' cross product
+        d = np.cross(p[f[:, 2]] - p[f[:, 0]], p[f[:, 3]] - p[f[:, 1]])
+    else:
+        d = np.cross(p[f[:, 1]] - p[f[:, 0]], p[f[:, 2]] - p[f[:, 0]])
+    return 0.5 * float(np.linalg.norm(d, axis=1).sum())
+
+
+def _patch_nodes(wm, name):
+    return np.asarray(wm.grid.points)[np.unique(wm.boundary[name].face_nodes)]
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +139,146 @@ def test_auto_falls_back_to_tet_with_loud_note(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# end caps (D81): the inlet/outlet patch IS the surface's flat end cap
+# ---------------------------------------------------------------------------
+_R, _L, _TILT_IN, _TILT_OUT = 3.0, 30.0, 25.0, 35.0
+
+
+def _tilted_cap_tube():
+    """A straight tube along +z whose two flat caps are tilted 25° and 35°.
+
+    z is sheared near each end — z' = z + y·tan(25°)·w_in(z) and
+    z' = z + x·tan(35°)·w_out(z), w ramping 1 -> 0 over 6 from the cap — so
+    x, y (and the wall's cylinder) are untouched, every ring stays planar and
+    each cap stays a flat 64-gon on its tilted plane. Returns (surface,
+    centreline, caps): the centreline is the tube axis, ending 0.05 inside each
+    cap centre — a centreline-normal end station there sends half its rays out
+    through the cap within ~0.1 of the axis (the defect). caps[end] = (exact
+    cap area, outward unit normal, cap centre)."""
+    surf, _ = generate("straight_tube", radius=_R, length=_L, n_theta=64, n_axial=41)
+    p = np.asarray(surf.points, dtype=float).copy()
+    blend = 6.0
+    w_in = np.clip(1.0 - p[:, 2] / blend, 0.0, 1.0)
+    w_out = np.clip(1.0 - (_L - p[:, 2]) / blend, 0.0, 1.0)
+    t_in, t_out = math.tan(math.radians(_TILT_IN)), math.tan(math.radians(_TILT_OUT))
+    p[:, 2] += p[:, 1] * t_in * w_in + p[:, 0] * t_out * w_out
+    surf.points = p
+    z = np.linspace(0.05, _L - 0.05, 201)
+    cl = Centerline(
+        points=np.column_stack([np.zeros_like(z), np.zeros_like(z), z]),
+        tangents=np.tile([0.0, 0.0, 1.0], (len(z), 1)),
+        arc_lengths=z - z[0],
+        radii=np.full(len(z), _R),
+        length=float(z[-1] - z[0]),
+        closed=False,
+        voxel_size=0.0,
+    )
+    a_xy = 0.5 * 64 * _R**2 * math.sin(2.0 * math.pi / 64)  # the 64-gon in plan
+    n_in = np.array([0.0, t_in, -1.0]) / math.hypot(t_in, 1.0)
+    n_out = np.array([-t_out, 0.0, 1.0]) / math.hypot(t_out, 1.0)
+    caps = {
+        "inlet": (a_xy / math.cos(math.radians(_TILT_IN)), n_in, np.zeros(3)),
+        "outlet": (
+            a_xy / math.cos(math.radians(_TILT_OUT)), n_out, np.array([0.0, 0.0, _L])
+        ),
+    }
+    return surf, cl, caps
+
+
+def _assert_patch_is_cap(wm, end, caps):
+    """The patch lies ON its cap's plane, reaches the cap's rim, and matches
+    the cap's area: 32 equal-angle spokes inscribed in the 64-gon rim (which
+    the tilt stretches by 1/cos) fall up to ~1.2% short of it."""
+    nodes = _patch_nodes(wm, end)
+    area, normal, centre = min(
+        caps.values(), key=lambda c: np.linalg.norm(nodes.mean(axis=0) - c[2])
+    )
+    assert np.abs((nodes - centre) @ normal).max() < 1e-9 * _L, end
+    rho = np.hypot(nodes[:, 0], nodes[:, 1])  # distance from the tube axis
+    assert rho.max() <= _R * (1 + 1e-9) and rho.max() >= _R * math.cos(math.pi / 64)
+    assert _patch_area(wm, end) == pytest.approx(area, rel=0.02), end
+
+
+@pytest.mark.parametrize("method", ["ogrid", "tet"])
+def test_tilted_end_caps_patches_are_the_caps(method):
+    if method == "tet":
+        pytest.importorskip("gmsh")
+    surf, cl, caps = _tilted_cap_tube()
+    wm = fill_lumen(surf, method=method, centerline=cl, n_theta=32, n_axial=20)
+    assert wm.backend == f"lumen-{method}"
+    assert wm.quality.n_inverted == 0
+    for end in ("inlet", "outlet"):
+        _assert_patch_is_cap(wm, end, caps)
+        anchored = f"{end}: anchored on its flat end cap"
+        assert any(n.startswith(anchored) for n in wm.notes)
+    # the whole tube is filled (the shear preserves volume): 32-gon x length
+    exact = 0.5 * 32 * _R**2 * math.sin(2.0 * math.pi / 32) * _L
+    assert wm.quality.total_volume == pytest.approx(exact, rel=0.01)
+
+
+def test_tilted_end_caps_reproduce_the_clipped_patch_without_anchoring(monkeypatch):
+    """The fixture is a faithful reproduction: with cap detection off the old
+    centreline-normal end sections come back clipped to well under the cap."""
+    import meshforge.meshing.lumen as lumen_mod
+
+    monkeypatch.setattr(lumen_mod, "_end_caps", lambda *a, **k: {})
+    surf, cl, caps = _tilted_cap_tube()
+    wm = fill_lumen(surf, method="ogrid", centerline=cl, n_theta=32, n_axial=20)
+    for end, (area, _, _) in caps.items():
+        assert _patch_area(wm, end) < 0.8 * area, end
+        assert any(n.startswith(f"{end}: no flat end cap found") for n in wm.notes)
+
+
+def test_tilted_end_caps_with_the_default_centreline():
+    """Same tube through the default path (skeleton centreline, no knob)."""
+    surf, _, caps = _tilted_cap_tube()
+    wm = fill_lumen(surf, method="ogrid", n_theta=32, n_axial=20)
+    assert wm.quality.n_inverted == 0
+    for end in ("inlet", "outlet"):  # (the skeleton may run either way)
+        _assert_patch_is_cap(wm, end, caps)
+
+
+def test_end_without_a_flat_cap_keeps_its_section_loudly():
+    """Cone-shaped ends (each fan apex pushed out along the axis) have no flat
+    cap: the old centreline-normal end section is kept and the notes say so."""
+    surf, _ = generate("straight_tube", radius=_R, length=20.0, n_theta=64, n_axial=41)
+    p = np.asarray(surf.points, dtype=float).copy()
+    apex = np.nonzero(np.hypot(p[:, 0], p[:, 1]) < 1e-9)[0]
+    assert len(apex) == 2
+    p[apex, 2] += np.where(p[apex, 2] > 10.0, 1.0, -1.0)
+    surf.points = p
+    wm = fill_lumen(surf, method="ogrid", n_theta=16, n_axial=10, smooth=0)
+    assert wm.quality.n_inverted == 0
+    for end in ("inlet", "outlet"):
+        assert any(n.startswith(f"{end}: no flat end cap found") for n in wm.notes)
+
+
+def test_cap_filter_rejects_coplanar_wall_facets():
+    """A flat region is only a cap if it closes a whole ring (>= 12 rim
+    vertices) and creases against the wall (>= 10°). A straight tube's flat
+    wall strips (64 of them, 5.6° creases) are coplanar disks but not caps;
+    a 4-triangle planar fan is too small a ring to be one."""
+    from meshforge.meshing import lumen as lumen_mod
+
+    surf, _ = generate("straight_tube", radius=_R, length=20.0, n_theta=64, n_axial=41)
+    tri, pts, regions = lumen_mod._coplanar_regions(surf)
+    caps = [c for c in (lumen_mod._as_cap(tri, pts, *r) for r in regions) if c]
+    assert len(regions) == 66 and len(caps) == 2
+    assert sorted(len(c.loop) for c in caps) == [64, 64]
+
+    def fan(n):
+        th = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
+        fpts = np.vstack([np.column_stack([np.cos(th), np.sin(th), 0 * th]), [0, 0, 0]])
+        ftri = np.array([[n, j, (j + 1) % n] for j in range(n)])
+        area = 0.5 * n * math.sin(2.0 * math.pi / n)
+        return ftri, fpts, np.arange(n), area, np.zeros(3), np.array([0.0, 0.0, 1.0])
+
+    assert lumen_mod._as_cap(*fan(4), 90.0) is None  # rim of 4 < 12
+    assert lumen_mod._as_cap(*fan(16), 90.0) is not None
+    assert lumen_mod._as_cap(*fan(16), 5.0) is None  # no crease: a wall facet
+
+
+# ---------------------------------------------------------------------------
 # session step / workfile / CLI
 # ---------------------------------------------------------------------------
 def test_session_step_records_and_replays(tmp_path):
@@ -200,4 +357,54 @@ def test_real_family_lumen_inverted_zero(cso_path):
     else:
         assert backend == "lumen-ogrid"
     assert any(n.startswith("fold number") for n in r.summary["notes"])
+    assert cso_input_sha256(cso_path) == before  # rule 1: unchanged
+
+
+_EXAMPLE_DIR = example_cso_dir()  # in-repo, git-ignored; may be None
+_EXAMPLES = sorted(_EXAMPLE_DIR.glob("*.cso")) if _EXAMPLE_DIR is not None else []
+
+
+def _loft_caps(surface):
+    """The loft's two end caps measured independently of the lumen code:
+    each is the fan around a centre vertex of valence >= 20 (io/cso.py
+    _loft_surface); its plane is the SVD fit of the fan's rim ring."""
+    pts = np.asarray(surface.points)
+    tri = surface.faces.reshape(-1, 4)[:, 1:]
+    caps = []
+    for c in np.nonzero(np.bincount(tri.ravel(), minlength=len(pts)) >= 20)[0]:
+        fan = tri[(tri == c).any(axis=1)]
+        ring = pts[np.unique(fan[fan != c])]
+        normal = np.linalg.svd(ring - ring.mean(axis=0))[2][2]
+        a, b, d = pts[fan[:, 0]], pts[fan[:, 1]], pts[fan[:, 2]]
+        area = 0.5 * float(np.linalg.norm(np.cross(b - a, d - a), axis=1).sum())
+        caps.append((pts[c], normal, area))
+    return caps
+
+
+@pytest.mark.skipif(not _EXAMPLES, reason="Example CSO Files folder not present")
+@pytest.mark.parametrize("cso_path", _EXAMPLES, ids=lambda p: p.stem.split("_")[0])
+def test_example_family_end_patches_are_the_caps(cso_path):
+    """D81 on the real arches: before, the end-station patches were clipped
+    by the tilted caps (one inlet at 38% of its cap, another at 5%) or
+    stopped short of them (one outlet 25.8 mm inside). Every patch now lies on
+    its cap and matches its area — including the small seed-contour caps at
+    the aortic root, which the surface itself pinches down to."""
+    from meshforge.io.cso import cso_input_sha256
+
+    before = cso_input_sha256(cso_path)
+    s = MeshingSession()
+    s.compute_import_cso(path=str(cso_path))  # auto surface + centreline
+    r = s.compute_lumen()  # product defaults
+    q = r.summary["quality"]
+    assert q["n_inverted"] == 0 and r.summary["backend"] == "lumen-ogrid"
+    assert q["sj_min"] >= 0.1  # the CSO guide's "workable" floor
+    caps = _loft_caps(s.surface)
+    assert len(caps) == 2
+    for end in ("inlet", "outlet"):
+        nodes = _patch_nodes(s.volmesh, end)
+        centre, normal, area = min(
+            caps, key=lambda c: np.linalg.norm(nodes.mean(axis=0) - c[0])
+        )
+        assert _patch_area(s.volmesh, end) == pytest.approx(area, rel=0.02), end
+        assert np.abs((nodes - centre) @ normal).max() < 1e-6, end
     assert cso_input_sha256(cso_path) == before  # rule 1: unchanged
