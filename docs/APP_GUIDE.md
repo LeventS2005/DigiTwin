@@ -160,6 +160,11 @@ volume** — the domain cardiac CFD actually solves on.
 - `smooth` — guarded smoothing iterations; the do-no-harm guard means
   `sj_min` can never regress (0 = off).
 - `core_fraction`, `mesh_size` — O-grid core size; tet target size.
+- End caps need no knob: each end the surface closes with a flat cap is
+  anchored on it, so the `inlet`/`outlet` patch IS the cap. The log gives
+  each patch's area against its cap's, flags an end where the surface
+  narrows sharply, and says loudly when an end has no flat cap (that end
+  keeps the section square to the centreline).
 - **Run lumen** → the result REPLACES the session volume mesh (groups
   `wall`/`inlet`/`outlet`), so solve/cfd/deck/save run on it unchanged.
   The log always reports the fold number F = r·κ (a planar-section

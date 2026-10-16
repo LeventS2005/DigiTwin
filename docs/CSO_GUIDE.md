@@ -108,6 +108,11 @@ Two volume meshes are available from the same CSO surface:
   `inverted 0` (9 structured hex + 1 honest tet on the Test-Scans set;
   10/10 structured hex on the Example set). CLI: `meshforge lumen
   SURFACE.vtp` — the loft's embedded centreline is reused automatically.
+  Each end is anchored on the loft's flat end cap, so the `inlet`/`outlet`
+  patches ARE the caps (the log gives each patch's area against its cap's).
+  Note that contour #0 of these exports is a small seed contour at the
+  aortic root: the surface pinches down to it, and the log says so when an
+  end narrows sharply — a CFD inflow there enters through that pinch.
 
 In the **volmesh** panel:
 

@@ -34,6 +34,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `lumen`: the `inlet`/`outlet` patches were much smaller than the vessel
+  section whenever the surface ended in a tilted flat cap — every real arch
+  tested (one inlet patch covered 38% of its cap, another 5%). The end
+  station sat a fraction of a millimetre inside the cap with its plane square
+  to the centreline, 3–26° off the cap's plane, so the
+  rays on one side left through the cap almost at once; where the centreline
+  stopped short of a cap (up to 25.8 mm) the lumen stopped short with it. Each
+  end with a flat cap is now anchored on it: a short transition from the first
+  interior station that clears the cap ends in a station that IS the cap, its
+  spokes taken from the cap's rim polygon. All 20 patches now lie on their caps
+  at 98.3–99.3% of the cap area (a 32-spoke ring inscribed in the rim); interior stations are untouched; inverted 0
+  and structured hex throughout; sj_min rises in 8 of 10 cases. An end with no
+  flat cap keeps its old section and the log says so.
 - A fresh clone that ran `meshforge-web` or `meshforge-desktop` got a bare
   `ModuleNotFoundError`. `environment.yml` installs the base dependencies only
   and `-e .` pulls no extras, so those entry points are the first thing a new

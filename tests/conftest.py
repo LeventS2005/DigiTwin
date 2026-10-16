@@ -51,6 +51,21 @@ def dicom_dir() -> Path | None:
     return local_data_dir("MESHFORGE_DICOM_DIR", ".local_dicom_dir")
 
 
+def example_cso_dir() -> Path | None:
+    """The second real .cso family, ``Example CSO Files/`` at the repo root.
+
+    That folder is git-ignored (patient-derived), so it exists only on the
+    machine it was supplied to; env MESHFORGE_EXAMPLE_CSO_DIR points
+    elsewhere (e.g. from a worktree). None when neither is a directory.
+    """
+    raw = os.environ.get("MESHFORGE_EXAMPLE_CSO_DIR", "").strip()
+    if raw:
+        d = Path(raw).expanduser()
+    else:
+        d = Path(__file__).parents[1] / "Example CSO Files"
+    return d if d.is_dir() else None
+
+
 def first_local_file(directory: Path | None, pattern: str) -> Path | None:
     """First (sorted) match of ``pattern`` in ``directory``; None when absent.
 
