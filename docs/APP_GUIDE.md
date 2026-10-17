@@ -190,6 +190,48 @@ surface (methods `auto`/`loft`/`voxel`, open-contour policy, optional
 DICOM anchoring) — **full walkthrough: [CSO_GUIDE.md](CSO_GUIDE.md)**.
 In the desktop window every import path knob has a **Browse…** button.
 
+`import_image` maps the volume's full voxel-to-world affine: a NIfTI with
+rotated or negative (LPS-style) axes is placed exactly, no resampling. A
+NIfTI sets the length unit to mm (declared mm; metres/microns converted;
+an undeclared unit is *assumed* mm and the log says so).
+
+### 3.6a segment  (AI segmentation: CT → aorta surface)
+Outlines the aorta on a CT with **TotalSegmentator** (`total` task, ROI
+`aorta`) and makes it the session SOURCE, like an import step.
+- `path` — the CT: `.nrrd` (attached header, raw or gzip, LPS/RAS space)
+  or `.nii` / `.nii.gz`. **Browse…** in the desktop window.
+- `device` — `mps` (Apple GPU, default) or `cpu`.
+- `fast` — `1` = TotalSegmentator's faster 3 mm model.
+- `smoothing` — Gaussian blur of the mask in voxels before the surface
+  (default 1, `0` = off).
+- `timeout` — wall-clock limit for TotalSegmentator, seconds (default 1800).
+
+What happens: the CT is copied (NIfTI) or converted (NRRD → RAS NIfTI)
+into a temp folder without spaces, TotalSegmentator runs there as a
+separate program, and the folder is deleted. Your CT is only read, and it
+is checksummed before and after. The mask keeps its largest connected
+piece (the log reports what was dropped), is cropped to its bounding box,
+blurred, and turned into a closed surface at level 0.5. Where the aorta
+leaves the scan, the surface is closed by a flat cap at the edge of the
+field of view.
+
+**Frame and units:** the surface is in **RAS world coordinates, millimetres**
+(the NIfTI convention). The session length unit is mm, so the cardiac CFD
+presets work downstream.
+
+**Install TotalSegmentator once, in its own environment** (it brings
+PyTorch, which meshforge itself never imports):
+```bash
+conda create -n totalseg --solver=libmamba python=3.11
+conda run -n totalseg pip install TotalSegmentator
+```
+meshforge finds it through `MESHFORGE_TOTALSEG` (the executable's path),
+then `TotalSegmentator` on `PATH`, then
+`~/miniconda3/envs/totalseg/bin/TotalSegmentator`. The first run downloads
+the model weights. meshforge never changes TotalSegmentator's own settings;
+if its usage statistics are on (`~/.totalsegmentator/config.json`), the log
+says so.
+
 ### 3.7 blocks  (2-D profile → multi-block hex, the TrueGrid-style path)
 - `target_size` — in-plane cell size; `thickness`/`n_layers` — extrusion.
 - `holes_like` — "WxH" filter to treat matching components as holes.
@@ -344,6 +386,7 @@ READ-ONLY and checksummed on every load.
 | `import-cad3d` | STEP/IGES/BREP → surface | `meshforge import-cad3d part.step` |
 | `import-image` | volume → iso-surface | `meshforge import-image vol.npy --level 0` |
 | `import-cso` | MeVisLab contours → surface | `meshforge import-cso scan.cso --outputs outputs/mycase` (see [CSO_GUIDE.md](CSO_GUIDE.md)) |
+| `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `meshforge segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
 | `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` |
 | `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
@@ -359,6 +402,50 @@ READ-ONLY and checksummed on every load.
 | `desktop` | the Workbench in a native window | `meshforge desktop` (needs the `web`+`viewport`+`desktop` extras) |
 
 Every command exits nonzero on failure and prints WHY (fail-loud rule).
+
+**`segment` against a reference segmentation.** `--reference-zenodo` takes
+one case folder of the public Zenodo AAA dataset (4D-CTA of 20 abdominal
+aortic aneurysms, DOI [10.5281/zenodo.19182977](https://doi.org/10.5281/zenodo.19182977),
+CC BY 4.0 — credit the authors when you use it), e.g.
+```bash
+meshforge segment ".../Dataset_root/P01/4D_CTA/70%.nrrd" \
+    --out outputs/m1/P01_aorta.vtp --reference-zenodo .../Dataset_root/P01
+```
+The case's surfaces are the authors' **reference segmentation**, not ground
+truth. They are turned into three closed regions by capping each tube on the
+dataset's end planes: `lumen` (blood only), `lumen_ilt` (blood + thrombus)
+and `full` (blood + thrombus + the dataset's constructed 1.5 mm wall). On the
+CT grid, inside the slab between the reference end planes, the command prints
+the voxel Dice against each region, the volumes, and the symmetric surface
+distance (ASSD = mean of the two directed means, HD95 = the larger directed
+95th percentile; measured 2 mm away from each end plane), and names the best
+match. The best match tells you whether the segmentation includes the
+thrombus. The dataset's image and surfaces agree to roughly 1–2 mm, so
+distances of that size are the floor.
+
+**TotalSegmentator needs body context.** The Zenodo images are tight crops of
+about 80 mm around the aneurysm. On them TotalSegmentator finds no aorta, and
+`segment` refuses the empty mask. So the reference comparison above is a check
+of the mask-to-surface pipeline and the metrics, not of the AI. For a real AI
+segmentation, use a CT with the full field of view (chest to pelvis or the
+whole abdomen). One example is the aneurysm group of AortaSeg-60
+(DOI [10.5281/zenodo.18147026](https://doi.org/10.5281/zenodo.18147026),
+CC BY 4.0). Its CT headers have the head-foot axis reversed. Correct a copy
+first:
+```bash
+python -I scripts/prep_aortaseg60.py ct/Anev_06_image.nii.gz \
+    masks/Anev_06_segmentation.nii.gz ct_fixed/Anev_06_image.nii.gz
+```
+The script uses the dataset's own mask as a witness. It lays the mask on the
+CT both as it is and slice-reversed, and only rewrites the header when the
+reversed overlay lands on contrast-filled aorta. Otherwise it refuses. The
+voxel data are copied unchanged. On such a scan the TotalSegmentator `aorta`
+label covers the whole aneurysm sac, intraluminal thrombus included, not just
+the contrast-filled lumen.
+
+Next to `--out` it writes `<name>_mask.nii.gz`, `<name>_totalseg.log` and
+`<name>_segment.json` (configuration, timings, mask and surface statistics,
+check report, validation).
 
 ---
 
@@ -385,7 +472,11 @@ one variant failing never kills the batch).
 
 - `outputs/` — every artifact (git-ignored). Solve: `outputs/solve/
   <deck>/…_results.vtu` + `…_solve.json`. CFD: `outputs/cfd/<case>/…`
-  (+ per-frame `…_t0000.vtu` with `--series`).
+  (+ per-frame `…_t0000.vtu` with `--series`). Segment: the surface at
+  `--out` (default `outputs/segment/<ct name>_aorta.vtp`) with its mask,
+  TotalSegmentator log and summary JSON beside it. The `segment` *step* in
+  the Workbench writes nothing; TotalSegmentator's scratch files live in a
+  temp folder that is deleted.
 - Work files: wherever you save them (`.mfwork`, JSON).
 - Nothing is ever written next to or over an input (guarded).
 
@@ -405,6 +496,12 @@ one variant failing never kills the batch).
 | `the inflow picker needs exactly two flat end caps` | The picker only handles a tube with two ends; type `inlet` / `outlet` in the cfd panel. |
 | `cardiac presets need the model's length unit` | The source declares no unit (STL/VTK/synthetic) — type ν and the speed in your model's own units. |
 | `--inlet NAME=SPEED needs the mesh in memory` | CLI `cfd` only has a case directory: use `NAME=vx,vy,vz`, or the Workbench / `meshforge replay`. |
+| `TotalSegmentator not found: set MESHFORGE_TOTALSEG …` | Install it in its own env (§3.6a) or point `MESHFORGE_TOTALSEG` at the executable. |
+| `TotalSegmentator failed (exit code N). Last log lines: …` | The tail is TotalSegmentator's own output. On a Mac without a working GPU backend, try `device` = `cpu`. |
+| `TotalSegmentator returned an empty aorta mask — is the aorta in the field of view? …` | The scan does not show the aorta (wrong series, cropped away), or it is a tight crop with no body context — TotalSegmentator needs the full-field-of-view CT. Seen on the Zenodo AAA crops (~80 mm boxes around the aneurysm). |
+| `TotalSegmentator's aorta mask holds only … mL … implausibly small for an aorta` | Same cause: a few stray voxels, not an aorta. The step refuses to pass them on. |
+| `… over the 268435456 voxel CT ceiling` | The CT header declares more than 512×512×1024 voxels; crop or downsample it first. |
+| `… the anatomical frame (LPS/RAS) is unknown — refusing to guess` | The NRRD has no `space` field. Re-save it from a viewer that writes `space: left-posterior-superior`. |
 
 ## 10. Honest limits (as of V44)
 

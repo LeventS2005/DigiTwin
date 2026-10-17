@@ -420,6 +420,7 @@ const BROWSE_KNOBS = {
   "screenshot.path": "save",
   "solve.ccx": "file",
   "cfd.case": "dir",
+  "segment.path": "file",
 };
 
 function buildStepPanel(step, knobs) {

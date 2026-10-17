@@ -34,6 +34,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `import_image` / `import-image`: a NIfTI with a rotated affine or negative
+  axis directions (any LPS-derived volume) was refused. Marching cubes now runs
+  in voxel-index space and the vertices go through the full affine; a
+  reflecting affine flips the triangles back so normals stay outward.
+  Singular affines are still refused.
+- `import_image` on a NIfTI now sets the length unit (mm; metres and microns
+  are converted; an undeclared unit is assumed mm with a note), so the cardiac
+  CFD presets work on imaging sources.
+- `segment` on a full chest-to-pelvis CTA: the CT size limit (512 x 512 x
+  1024) refused real 1100-slice scans and is now 512 x 512 x 2048. An aorta
+  mask whose bounding box is over the 40 M-voxel surface limit is now
+  block-averaged by the smallest integer factors that fit, with a note,
+  instead of refused. The smoothing keeps its physical size.
+- Surfaces extracted from images no longer contain line or vertex cells.
+  Merged sliver triangles are now deleted rather than demoted. Before this, a
+  watertight aorta surface could fail the all-triangles check and not be
+  mesh_ready.
 - `lumen`: the `inlet`/`outlet` patches were much smaller than the vessel
   section whenever the surface ended in a tilted flat cap — every real arch
   tested (one inlet patch covered 38% of its cap, another 5%). The end
@@ -97,6 +114,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `segment` step and `meshforge segment` CLI: a CT (`.nrrd`, `.nii`,
+  `.nii.gz`) goes to TotalSegmentator (`total` task, ROI `aorta`, full or
+  `--fast`, `mps` or `cpu`), which runs as a separate program from its own
+  conda env (`MESHFORGE_TOTALSEG`, then `PATH`, then
+  `~/miniconda3/envs/totalseg`). The input is staged in a temp folder without
+  spaces and checksummed before and after. The mask keeps its largest
+  connected piece, is cropped to its bounding box, blurred (σ = 1 voxel by
+  default) and becomes a closed surface in RAS millimetres; the session length
+  unit is mm. Loud errors for a missing or failing executable (with the tail of
+  its log), a timeout, an empty mask, and a mask too small to be an aorta
+  (< 1 mL). The CLI writes the surface plus its mask, log and summary JSON.
+- NRRD reader (`io/nrrd.py`, no new dependency): attached header, raw or gzip,
+  LPS/RAS with negative or rotated directions, converted to the RAS frame. The
+  voxel count is checked from the header before anything is decompressed;
+  detached data, other encodings, non-3-D data and missing space information
+  are refused.
+- Validation against the public Zenodo AAA dataset (DOI 10.5281/zenodo.19182977,
+  CC BY 4.0): `meshforge segment … --reference-zenodo <case>` reports voxel Dice,
+  volumes and symmetric surface distance against three closed regions built from
+  the authors' reference segmentation (lumen; lumen + thrombus; lumen + thrombus
+  + wall) and names the best match (`io/zenodo_aaa.py`, `quality/overlap.py`).
+- `scripts/prep_aortaseg60.py`: AortaSeg-60 (DOI 10.5281/zenodo.18147026,
+  CC BY 4.0) ships its CTs with the head-foot axis of the header reversed.
+  The script checks this against the dataset's own mask before changing
+  anything, then writes a copy with the corrected header. Voxel data are
+  untouched.
 - `SECURITY.md` — threat model, private reporting route, audit index.
 - `CONTRIBUTING.md`, `CHANGELOG.md`, `CITATION.cff`.
 - Group-name validator tests covering OpenFOAM dictionary metacharacters
