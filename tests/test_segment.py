@@ -1,0 +1,415 @@
+"""D83 (M1): the ``segment`` step with a FAKE TotalSegmentator.
+
+The fake is a tiny Python script written into tmp_path, made executable and
+pointed to via MESHFORGE_TOTALSEG. It records its argv, thresholds the staged
+CT (a bright synthetic tube) into ``aorta.nii.gz`` with the input's affine,
+and can be told (env FAKE_TS_MODE) to fail, return an empty mask, write
+nothing, or hang. The real TotalSegmentator runs only in the opt-in test at
+the bottom (MESHFORGE_ZENODO_AAA_DIR + a real executable).
+"""
+from __future__ import annotations
+
+import gzip
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+nib = pytest.importorskip("nibabel")
+
+from conftest import local_data_dir  # noqa: E402
+
+from meshforge.io import segment as segmod  # noqa: E402
+from meshforge.io.segment import (  # noqa: E402
+    EMPTY_MASK_MESSAGE,
+    find_totalseg,
+    segment_ct,
+)
+
+FAKE_TS = '''#!{python}
+import json, os, sys, time
+args = sys.argv[1:]
+record = os.environ.get("FAKE_TS_RECORD")
+if record:
+    with open(record, "a") as fh:
+        fh.write(json.dumps(args) + "\\n")
+if args == ["--version"]:
+    print("2.99.0-fake")
+    sys.exit(0)
+mode = os.environ.get("FAKE_TS_MODE", "ok")
+if mode == "fail":
+    sys.stderr.write("loading weights...\\nRuntimeError: fake model weights missing\\n")
+    sys.exit(1)
+if mode == "hang":
+    time.sleep(60)
+src = args[args.index("-i") + 1]
+out = args[args.index("-o") + 1]
+os.makedirs(out, exist_ok=True)
+if mode == "nomask":
+    sys.exit(0)
+import nibabel as nib
+import numpy as np
+img = nib.load(src)
+data = np.asanyarray(img.dataobj)
+mask = (data > 100).astype(np.uint8)
+if mode == "empty":
+    mask[:] = 0
+if mode == "speck":  # the M0 finding: a few voxels, nowhere near an aorta
+    mask[:] = 0
+    mask[2:5, 2:5, 2:5] = 1
+nib.save(nib.Nifti1Image(mask, img.affine, img.header), os.path.join(out, "aorta.nii.gz"))
+print("fake TotalSegmentator: wrote aorta.nii.gz")
+'''
+
+
+@pytest.fixture
+def fake_ts(tmp_path, monkeypatch):
+    if " " in sys.executable:
+        pytest.skip("a shebang line cannot carry a path with spaces")
+    exe = tmp_path / "bin" / "TotalSegmentator"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_TS.format(python=sys.executable))
+    exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    record = tmp_path / "argv.jsonl"
+    monkeypatch.setenv("MESHFORGE_TOTALSEG", str(exe))
+    monkeypatch.setenv("FAKE_TS_RECORD", str(record))
+    monkeypatch.delenv("FAKE_TS_MODE", raising=False)
+
+    def calls():
+        if not record.is_file():
+            return []
+        return [json.loads(line) for line in record.read_text().splitlines()]
+
+    return exe, calls
+
+
+# ---------------------------------------------------------------------------
+# synthetic CT: a bright tube (HU 300) along the scanner z axis, air elsewhere
+# ---------------------------------------------------------------------------
+SHAPE = (48, 44, 30)
+SPACING = 0.8
+SLICE = 1.5
+TUBE_R_VOX = 9.0
+TUBE_C = (24.0, 21.0)  # (i, j) of the axis
+
+
+def _tube_ct() -> np.ndarray:
+    ii, jj = np.indices(SHAPE[:2])
+    disk = (ii - TUBE_C[0]) ** 2 + (jj - TUBE_C[1]) ** 2 <= TUBE_R_VOX**2
+    ct = np.full(SHAPE, -100, dtype=np.int16)
+    ct[disk] = 300
+    return ct
+
+
+def _write_lps_nrrd(path: Path, ct: np.ndarray, origin_lps=(16.5, -200.6, 544.8)):
+    """The Zenodo P01..P10 header layout: LPS, negative x/y directions, gzip."""
+    raw = np.asarray(ct, dtype="<i2").tobytes(order="F")
+    header = (
+        "NRRD0004\n"
+        "type: short\n"
+        "dimension: 3\n"
+        "space: left-posterior-superior\n"
+        f"sizes: {SHAPE[0]} {SHAPE[1]} {SHAPE[2]}\n"
+        f"space directions: (-{SPACING},0,0) (0,-{SPACING},0) (0,0,{SLICE})\n"
+        "kinds: domain domain domain\n"
+        "endian: little\n"
+        "encoding: gzip\n"
+        f"space origin: ({origin_lps[0]},{origin_lps[1]},{origin_lps[2]})\n\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header.encode() + gzip.compress(raw))
+    return path
+
+
+def _expected_axis_ras(origin_lps=(16.5, -200.6, 544.8)) -> np.ndarray:
+    """RAS (x, y) of the tube axis: LPS position negated in x and y."""
+    lps = np.array(origin_lps[:2]) + np.array([-SPACING * TUBE_C[0], -SPACING * TUBE_C[1]])
+    return -lps
+
+
+def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
+    exe, calls = fake_ts
+    ct_path = _write_lps_nrrd(tmp_path / "dir with spaces" / "70%.nrrd", _tube_ct())
+    before = ct_path.read_bytes()
+    mask_out = tmp_path / "keep" / "mask.nii.gz"
+    seg = segment_ct(ct_path, device="cpu", fast=True, smoothing=1.0, keep_mask=mask_out)
+
+    # argument passing: one --version probe, then the segmentation call
+    argv = calls()
+    assert argv[0] == ["--version"]
+    run = argv[1]
+    assert run[run.index("--roi_subset") + 1] == "aorta"
+    assert "--fast" in run and run[run.index("--device") + 1] == "cpu"
+    staged_in, staged_out = run[run.index("-i") + 1], run[run.index("-o") + 1]
+    assert " " not in staged_in and " " not in staged_out  # staged, space-free
+    assert staged_in.endswith(".nii.gz") and not Path(staged_in).exists()  # cleaned
+    assert "--task" not in run and "-l" not in run and "--license_number" not in run
+
+    # the CT is untouched (rule 1) and nothing was written beside it
+    assert ct_path.read_bytes() == before
+    assert sorted(p.name for p in ct_path.parent.iterdir()) == ["70%.nrrd"]
+
+    s = seg.summary
+    assert s["totalseg"]["version"] == "2.99.0-fake"
+    assert s["totalseg"]["flags"] == ["--roi_subset", "aorta", "--fast", "--device", "cpu"]
+    assert s["totalseg"]["task"] == "total" and s["totalseg"]["wall_time_s"] >= 0
+    assert s["ct"]["format"] == "nrrd" and s["ct"]["shape"] == list(SHAPE)
+    assert s["length_unit"] == "mm" and "RAS" in s["surface"]["frame"]
+    assert s["mask"]["dropped_components"] == 0
+    assert s["surface"]["watertight"] is True and seg.surface.n_open_edges == 0
+    assert any("LPS" in n for n in s["notes"])
+
+    # the surface lands where the tube is, in RAS millimetres
+    pts = np.asarray(seg.surface.points)
+    axis = _expected_axis_ras()
+    mid = pts[np.abs(pts[:, 2] - (544.8 + SLICE * 15)) < 10]
+    np.testing.assert_allclose(mid[:, :2].mean(axis=0), axis, atol=0.05)
+    radius = np.linalg.norm(mid[:, :2] - axis, axis=1).mean()
+    assert radius == pytest.approx(TUBE_R_VOX * SPACING, rel=0.05)
+    assert seg.surface.bounds[4] == pytest.approx(544.8 - SLICE / 2, abs=0.05)
+    assert seg.surface.bounds[5] == pytest.approx(544.8 + SLICE * (SHAPE[2] - 0.5), abs=0.05)
+    assert float(seg.surface.volume) > 0  # outward
+
+    kept = nib.load(str(mask_out))
+    assert np.asanyarray(kept.dataobj).sum() == s["mask"]["kept_voxels"]
+    np.testing.assert_allclose(kept.affine, seg.ct_affine, atol=1e-3)
+
+
+def test_segment_nifti_input_with_negative_ras_axes(tmp_path, fake_ts):
+    """A NIfTI CT whose RAS affine has negative x/y (the Zenodo P11..P20 frame
+    once converted) is copied, segmented and mapped exactly."""
+    a = np.diag([-SPACING, -SPACING, SLICE, 1.0])
+    a[:3, 3] = [40.0, 30.0, -500.0]
+    img = nib.Nifti1Image(_tube_ct(), a)
+    img.header.set_xyzt_units("mm", "sec")
+    ct = tmp_path / "ct.nii.gz"
+    nib.save(img, str(ct))
+    seg = segment_ct(ct, device="mps", fast=False)
+    assert seg.summary["ct"]["format"] == "nifti"
+    assert "--fast" not in seg.summary["totalseg"]["flags"]
+    pts = np.asarray(seg.surface.points)
+    mid = pts[np.abs(pts[:, 2] - (-500 + SLICE * 15)) < 10]
+    axis = a[:2, :2] @ np.array(TUBE_C) + a[:2, 3]
+    np.testing.assert_allclose(mid[:, :2].mean(axis=0), axis, atol=0.05)
+    assert float(seg.surface.volume) > 0 and seg.surface.n_open_edges == 0
+
+
+def test_missing_executable_is_loud_and_names_the_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("MESHFORGE_TOTALSEG", str(tmp_path / "nope" / "TotalSegmentator"))
+    with pytest.raises(RuntimeError, match="MESHFORGE_TOTALSEG"):
+        find_totalseg()
+    # nothing configured anywhere: env unset, PATH empty, no known env
+    monkeypatch.delenv("MESHFORGE_TOTALSEG")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(segmod, "_TOTALSEG_FALLBACK", tmp_path / "no" / "TotalSegmentator")
+    with pytest.raises(RuntimeError) as exc:
+        find_totalseg()
+    message = str(exc.value)
+    assert "MESHFORGE_TOTALSEG" in message
+    assert "conda create -n totalseg --solver=libmamba python=3.11" in message
+    assert "pip install TotalSegmentator" in message
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    with pytest.raises(RuntimeError, match="MESHFORGE_TOTALSEG"):
+        segment_ct(ct)  # fails fast, before staging the CT
+
+
+def test_failing_executable_reports_its_stderr_tail(tmp_path, fake_ts, monkeypatch):
+    monkeypatch.setenv("FAKE_TS_MODE", "fail")
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    with pytest.raises(RuntimeError) as exc:
+        segment_ct(ct, device="cpu")
+    message = str(exc.value)
+    assert "exit code 1" in message
+    assert "fake model weights missing" in message
+
+
+def test_empty_mask_is_refused_loudly(tmp_path, fake_ts, monkeypatch):
+    monkeypatch.setenv("FAKE_TS_MODE", "empty")
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    with pytest.raises(ValueError) as exc:
+        segment_ct(ct, device="cpu")
+    assert str(exc.value) == EMPTY_MASK_MESSAGE
+
+
+def test_a_fragment_is_never_passed_on_as_the_aorta(tmp_path, fake_ts, monkeypatch):
+    monkeypatch.setenv("FAKE_TS_MODE", "speck")
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    with pytest.raises(ValueError, match=r"holds only 0\.0259 mL \(27 voxels\) — implausibly small"):
+        segment_ct(ct, device="cpu")
+
+
+def test_missing_mask_and_timeout_are_loud(tmp_path, fake_ts, monkeypatch):
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    monkeypatch.setenv("FAKE_TS_MODE", "nomask")
+    with pytest.raises(RuntimeError, match=r"wrote no mask for \['aorta'\]"):
+        segment_ct(ct, device="cpu")
+    monkeypatch.setenv("FAKE_TS_MODE", "hang")
+    with pytest.raises(RuntimeError, match="timeout"):
+        segment_ct(ct, device="cpu", timeout=1.0)
+
+
+def test_argument_validation(tmp_path, fake_ts):
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    with pytest.raises(ValueError, match="device must be one of mps/cpu"):
+        segment_ct(ct, device="cuda")
+    with pytest.raises(ValueError, match="not allowed"):
+        segment_ct(ct, rois=("aorta", "brain"))
+    with pytest.raises(ValueError, match="timeout"):
+        segment_ct(ct, timeout=0)
+    with pytest.raises(ValueError, match="smoothing"):
+        segment_ct(ct, smoothing=-1)
+    with pytest.raises(FileNotFoundError):
+        segment_ct(tmp_path / "ghost.nrrd")
+    bad = tmp_path / "ct.mha"
+    bad.write_bytes(b"x")
+    with pytest.raises(ValueError, match="unsupported CT input"):
+        segment_ct(bad)
+    m = nib.Nifti1Image(_tube_ct(), np.eye(4))
+    m.header.set_xyzt_units("meter", "sec")
+    nib.save(m, str(tmp_path / "metres.nii"))
+    with pytest.raises(ValueError, match="TotalSegmentator reads voxel spacing as millimetres"):
+        segment_ct(tmp_path / "metres.nii")
+
+
+def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
+
+    assert STEP_ORDER.index("segment") == STEP_ORDER.index("import_cso") + 1
+    assert set(STEP_KNOBS["segment"]) == {"path", "device", "fast", "smoothing", "timeout"}
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    s = MeshingSession()
+    with pytest.raises(ValueError, match="segment needs a CT volume path"):
+        s.compute_segment()
+    r = s.compute_segment(path=f'"{ct}"', device="cpu", fast=1)  # quoted, like a paste
+    assert r.summary["segment"]["surface"]["watertight"] is True
+    assert "TotalSegmentator 2.99.0-fake" in r.text and "fast on cpu" in r.text
+    assert s.length_unit == "mm"
+    assert s.cfd_presets()["speed"][0]["unit"] == "mm/s"
+    rec = s.journal[-1]
+    assert rec["step"] == "segment" and rec["params"]["fast"] == 1
+    assert rec["input_sha256"] == s.input_sha256
+    wf = s.save_workfile(tmp_path / "seg.mfwork")
+    fresh = load_workfile(wf)
+    out = replay(fresh)
+    assert [x.step for x in out] == ["segment"]
+    assert fresh.surface.n_cells == s.surface.n_cells
+
+
+def test_web_segment_endpoint(tmp_path, fake_ts):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from meshforge.web.app import create_app
+
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    client = TestClient(create_app())
+    schema = client.get("/schema").json()
+    assert schema["segment"]["device"]["default"] == "mps"
+    r = client.post("/step/segment", json={"path": str(ct), "device": "cpu"})
+    assert r.status_code == 200, r.text
+    bad = client.post("/step/segment", json={"path": str(ct), "license": "x"})
+    assert bad.status_code == 422  # unknown knob refused (extra="forbid")
+
+
+def test_cli_segment_with_a_synthetic_zenodo_reference(tmp_path, fake_ts, capsys):
+    """CLI end to end on the fake: surface + mask + log + JSON beside --out,
+    and the three Dice values against a synthetic reference case whose
+    lumen+thrombus tube matches the segmented tube."""
+    from test_overlap import write_synthetic_zenodo_case
+
+    from meshforge.cli import main
+
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct(), origin_lps=(0.0, 0.0, -20.0))
+    # reference tubes coaxial with the CT tube, ends inside the CT's z range
+    axis = _expected_axis_ras((0.0, 0.0, -20.0))
+    case = write_synthetic_zenodo_case(
+        tmp_path / "P42", r_lumen=4.0, r_ilt=TUBE_R_VOX * SPACING, z0=-10.0, z1=10.0
+    )
+    import pyvista as pv
+
+    for name in ("ILTSurface.vtp", "WallSurface.vtp"):
+        m = pv.read(case / name)
+        m.points = np.asarray(m.points) + [axis[0], axis[1], 0.0]
+        m.save(case / name)
+    out = tmp_path / "outputs" / "m1" / "case_aorta.vtp"
+    rc = main([
+        "segment", str(ct), "--out", str(out), "--fast", "--device", "cpu",
+        "--reference-zenodo", str(case),
+    ])
+    printed = capsys.readouterr().out
+    assert rc == 0, printed
+    for f in ("case_aorta.vtp", "case_aorta_mask.nii.gz", "case_aorta_totalseg.log",
+              "case_aorta_segment.json"):
+        assert (out.parent / f).is_file(), f
+    summary = json.loads((out.parent / "case_aorta_segment.json").read_text())
+    val = summary["validation"]
+    assert val["best"] == "lumen_ilt"
+    assert val["regions"]["lumen_ilt"]["dice"] > 0.95
+    assert val["regions"]["lumen"]["dice"] < val["regions"]["lumen_ilt"]["dice"]
+    assert summary["check"]["mesh_ready"] is True
+    for key in ("dice lumen", "dice lumen_ilt", "dice full", "best match  : lumen_ilt",
+                "ASSD", "HD95", "10.5281/zenodo.19182977", "wall"):
+        assert key in printed, key
+
+
+def test_cli_segment_error_is_loud(tmp_path, fake_ts, monkeypatch, capsys):
+    from meshforge.cli import main
+
+    monkeypatch.setenv("FAKE_TS_MODE", "empty")
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    rc = main(["segment", str(ct), "--outputs", str(tmp_path / "o")])
+    assert rc == 1
+    assert EMPTY_MASK_MESSAGE in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# opt-in: the REAL TotalSegmentator on a real Zenodo case
+# ---------------------------------------------------------------------------
+def _real_totalseg() -> str | None:
+    try:
+        exe = find_totalseg()
+    except RuntimeError:
+        return None
+    return exe
+
+
+ZENODO_DIR = local_data_dir("MESHFORGE_ZENODO_AAA_DIR", ".local_zenodo_aaa_dir")
+
+
+@pytest.mark.skipif(
+    ZENODO_DIR is None or _real_totalseg() is None,
+    reason="opt-in: needs MESHFORGE_ZENODO_AAA_DIR (Zenodo Dataset_root) and a real TotalSegmentator",
+)
+@pytest.mark.parametrize("case, frame", [("P01", "70%.nrrd"), ("P17", "CT0.nrrd")])
+def test_real_totalseg_on_zenodo_never_fails_open(case, frame):
+    """The real TotalSegmentator (full resolution, MPS — the M0 benchmark's
+    pick) on a Zenodo AAA crop. M0/M1 finding with TotalSegmentator 2.18.0:
+    its ``aorta`` label is EMPTY on P01 and an 84-voxel speck on P17, so the
+    step must refuse loudly. Should a future version segment these crops,
+    the result must be a closed surface that agrees with the reference."""
+    from meshforge.io.zenodo_aaa import validate_against_reference
+
+    ct = ZENODO_DIR / case / "4D_CTA" / frame
+    try:
+        seg = segment_ct(ct)
+    except ValueError as exc:
+        assert str(exc) == EMPTY_MASK_MESSAGE or "implausibly small" in str(exc)
+        return
+    assert seg.surface.n_open_edges == 0 and float(seg.surface.volume) > 0
+    val = validate_against_reference(seg.surface, ZENODO_DIR / case, seg.ct_shape, seg.ct_affine)
+    best = val["regions"][val["best"]]
+    assert best["dice"] > 0.6 and best["distance"]["assd"] < 3.0
+
+
+def test_ct_ceiling_admits_a_full_body_cta():
+    # A chest-to-pelvis CTA at 0.6 mm is ~1100-1200 slices of 512 x 512; the
+    # first ceiling (1024 slices) refused a real public AAA scan outright.
+    from meshforge.io.segment import MAX_CT_VOXELS
+
+    assert MAX_CT_VOXELS >= 512 * 512 * 1800

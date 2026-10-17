@@ -142,8 +142,15 @@ def test_nifti_roundtrip_and_rotated_affine_refused(tmp_path):
     rot[0, 1] = 0.3
     bad = tmp_path / "rot.nii"
     nib.save(nib.Nifti1Image(vol, rot), str(bad))
-    with pytest.raises(ValueError, match="re-orient"):
+    # D83: load_volume's (spacing, origin) API still cannot express a
+    # rotated/sheared grid, so it refuses — but it now points at the
+    # affine-aware loader, which import_image uses and which maps it exactly.
+    with pytest.raises(ValueError, match="re-orient it first, or load it with load_volume_affine"):
         load_volume(bad)
+    from meshforge.io.image import load_volume_affine
+
+    _, affine, _ = load_volume_affine(bad)
+    np.testing.assert_allclose(affine, rot)
 
 
 def test_volume_input_sha256_file_and_dir(tmp_path):

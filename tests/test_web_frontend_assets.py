@@ -133,6 +133,8 @@ _PATH_KNOBS: dict[str, str | None] = {
     "screenshot.path": "save",
     "solve.ccx": "file",
     "cfd.case": "dir",
+    # D83: the CT for the AI-segmentation step (a file, like every importer)
+    "segment.path": "file",
     # Deliberate omissions — session 41 scoped fix 6 to the fields the
     # walkthrough exercised. These three are real path fields with no picker;
     # promoting them is a one-line BROWSE_KNOBS addition each.

@@ -78,6 +78,15 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "on_open": (str, "skip", "open editor contour policy: skip | close | error"),
         "dicom": (str, "", "anchor to a DICOM series' grid: voxelise onto its lattice"),
     },
+    # D83 (M1): AI segmentation — TotalSegmentator (own conda env, run as a
+    # subprocess) outlines the aorta on a CT; the mask becomes the source surface.
+    "segment": {
+        "path": (str, "", "CT volume .nrrd / .nii(.gz) — the aorta is outlined by TotalSegmentator"),
+        "device": (str, "mps", "mps (Apple GPU) | cpu"),
+        "fast": (int, 0, "1 = TotalSegmentator's faster 3 mm model"),
+        "smoothing": (float, 1.0, "Gaussian blur of the mask in voxels before the surface (0 = off)"),
+        "timeout": (float, 1800.0, "TotalSegmentator wall-clock limit in seconds"),
+    },
     # V5 structured blocks; V6 projection, V17 Winslow smoothing,
     # V20 grading, V26 O-grid.
     "blocks": {
@@ -197,6 +206,7 @@ STEP_ORDER: tuple[str, ...] = (
     "import_cad3d",
     "import_image",
     "import_cso",
+    "segment",
     "centerline",
     "sections",
     "wall",
@@ -1148,27 +1158,29 @@ class MeshingSession:
                 "import_image needs an iso level (a segmentation threshold "
                 "is a modelling decision — no default)"
             )
-        from meshforge.io.image import load_volume, volume_input_sha256, volume_to_surface
+        from meshforge.io.image import (
+            load_volume_affine,
+            override_spacing,
+            volume_input_sha256,
+            volume_to_surface,
+        )
         from meshforge.quality import inspect_surface
 
-        array, sp, origin = load_volume(path)
+        # D83: the full affine, so a rotated/flipped NIfTI maps exactly.
+        array, affine, vinfo = load_volume_affine(path)
         if spacing:
-            parts = [s.strip() for s in spacing.split(",")]
-            if len(parts) != 3:
-                raise ValueError(f"spacing expects X,Y,Z, got {spacing!r}")
-            sp = tuple(float(v) for v in parts)
+            affine = override_spacing(affine, spacing)
         self.input_sha256 = volume_input_sha256(path)
-        surface, provenance = volume_to_surface(
-            array, float(level), spacing=sp, origin=origin
-        )
+        surface, provenance = volume_to_surface(array, float(level), affine=affine)
+        provenance["notes"] = list(vinfo["notes"]) + provenance["notes"]
         self.surface = surface
         self.input_path = Path(path)
         self.truth = None
         self._invalidate_downstream()
-        # DICOM patient coordinates are millimetres by the standard; a
-        # .npy/.nii or a spacing override declares nothing we can trust.
-        dicom_input = Path(path).is_dir() or str(path).lower().endswith(".dcm")
-        self.length_unit = "mm" if dicom_input and not spacing else None
+        # DICOM patient coordinates are millimetres by the standard; NIfTI
+        # follows its xyzt_units (mm, converted, or assumed with a note —
+        # D83). A .npy or a spacing override declares nothing we can trust.
+        self.length_unit = None if spacing else vinfo["length_unit"]
         report = inspect_surface(
             self.surface, path=str(path), sha256=self.input_sha256
         )
@@ -1314,6 +1326,81 @@ class MeshingSession:
                 "cap_ends": cap_ends,
                 "on_open": on_open,
                 "dicom": dicom,
+            },
+            result,
+            input_sha256=self.input_sha256,
+        )
+        return result
+
+    def compute_segment(
+        self,
+        *,
+        path: str = "",
+        device: str = "mps",
+        fast: int = 0,
+        smoothing: float = 1.0,
+        timeout: float = 1800.0,
+    ) -> StepResult:
+        """D83 (M1): CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator aorta mask ->
+        watertight surface as the session source, in RAS millimetres.
+
+        All work lives in ``io/segment.py`` (rule 4); TotalSegmentator runs in
+        its own env as a subprocess, staged in a temp dir — nothing is written
+        next to the CT or into outputs/ by this step.
+        """
+        path = _clean_path(path)
+        if not path:
+            raise ValueError("segment needs a CT volume path (.nrrd or .nii/.nii.gz)")
+        from meshforge.io.segment import segment_ct
+        from meshforge.quality import inspect_surface
+
+        seg = segment_ct(
+            path,
+            device=device,
+            fast=bool(fast),
+            smoothing=float(smoothing),
+            timeout=float(timeout),
+        )
+        self.surface = seg.surface
+        self.input_path = Path(path)
+        self.input_sha256 = seg.input_sha256
+        self.truth = None
+        self._invalidate_downstream()
+        self.length_unit = "mm"  # NRRD anatomical space / NIfTI mm (D83)
+        summ = seg.summary
+        ts, mask, surf = summ["totalseg"], summ["mask"], summ["surface"]
+        report = inspect_surface(self.surface, path=str(path), sha256=self.input_sha256)
+        text = (
+            f"segment: TotalSegmentator {ts['version'] or '(version unknown)'} "
+            f"task total, roi {'+'.join(ts['rois'])}, "
+            f"{'fast' if ts['fast'] else 'full'} on {ts['device']}, "
+            f"{ts['wall_time_s']:.1f} s\n"
+            f"  mask: {mask['kept_voxels']} voxels kept "
+            f"({summ['mask_volume_ml']:.1f} mL); dropped "
+            f"{mask['dropped_components']} component(s) / "
+            f"{mask['dropped_voxels']} voxels; smoothing sigma {mask['sigma']:g} vox\n"
+            f"  surface: {surf['n_points']} pts, {surf['n_triangles']} tris, "
+            f"watertight {surf['watertight']}, frame {surf['frame']}\n"
+        )
+        for note in summ["notes"]:
+            text += f"  note: {note}\n"
+        text += report.to_text()
+        result = StepResult(
+            step="segment",
+            summary={**report.to_dict(), "segment": summ},
+            text=text,
+            render_hints={
+                "mesh": self.surface, "kind": "surface", "label": Path(path).name
+            },
+        )
+        self._record(
+            "segment",
+            {
+                "path": path,
+                "device": device,
+                "fast": int(fast),
+                "smoothing": float(smoothing),
+                "timeout": float(timeout),
             },
             result,
             input_sha256=self.input_sha256,
@@ -2112,6 +2199,7 @@ _WORKFILE_STEPS = (
     "import_cad3d",
     "import_image",
     "import_cso",
+    "segment",
     "blocks",
     "repair",
     "solve",
@@ -2223,6 +2311,8 @@ def replay(
             results.append(session.compute_import_image(**params))
         elif name == "import_cso":
             results.append(session.compute_import_cso(**params))
+        elif name == "segment":
+            results.append(session.compute_segment(**params))
         elif name == "blocks":
             results.append(session.compute_blocks(**params))
         elif name == "repair":

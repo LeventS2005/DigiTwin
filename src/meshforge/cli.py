@@ -598,6 +598,43 @@ def main(argv: list[str] | None = None) -> int:
     p_img.add_argument("--out", type=_path_arg, default=None, help="output .vtp path")
     p_img.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
+    p_seg = sub.add_parser(
+        "segment",
+        help="AI segmentation: CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator "
+        "aorta mask -> watertight surface (.vtp, RAS millimetres) + mask, "
+        "TotalSegmentator log and summary JSON beside it; with "
+        "--reference-zenodo, Dice / volume / surface distance against that "
+        "case's reference segmentation. Exits 1 when the surface is not "
+        "mesh_ready.",
+    )
+    p_seg.add_argument("ct", type=_path_arg, help="CT volume (.nrrd, .nii, .nii.gz)")
+    p_seg.add_argument(
+        "--out", type=_path_arg, default=None,
+        help="surface .vtp path (default: <outputs>/segment/<ct stem>_aorta.vtp)",
+    )
+    p_seg.add_argument(
+        "--fast", action="store_true",
+        help="TotalSegmentator's faster 3 mm model",
+    )
+    p_seg.add_argument(
+        "--device", choices=("mps", "cpu"), default=None,
+        help="TotalSegmentator device (default: mps)",
+    )
+    p_seg.add_argument(
+        "--smoothing", type=float, default=1.0,
+        help="Gaussian blur of the mask in voxels before the surface (0 = off)",
+    )
+    p_seg.add_argument(
+        "--timeout", type=float, default=1800.0,
+        help="TotalSegmentator wall-clock limit in seconds",
+    )
+    p_seg.add_argument(
+        "--reference-zenodo", type=_path_arg, default=None, metavar="CASE_DIR",
+        help="a Zenodo AAA case folder (e.g. .../Dataset_root/P01): compare "
+        "with its reference segmentation (DOI 10.5281/zenodo.19182977)",
+    )
+    p_seg.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+
     p_cso = sub.add_parser(
         "import-cso",
         help="MeVisLab Binary .cso contour ingest: loft (or voxelise) the "
@@ -876,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_import_image(args)
     if args.command == "import-cso":
         return _cmd_import_cso(args)
+    if args.command == "segment":
+        return _cmd_segment(args)
     if args.command == "import-cad3d":
         return _cmd_import_cad3d(args)
     if args.command == "foam":
@@ -1667,7 +1706,12 @@ def _cmd_import_image(args: argparse.Namespace) -> int:
     import json
 
     from meshforge.export import guard_output_path
-    from meshforge.io.image import load_volume, volume_input_sha256, volume_to_surface
+    from meshforge.io.image import (
+        load_volume_affine,
+        override_spacing,
+        volume_input_sha256,
+        volume_to_surface,
+    )
     from meshforge.quality.check import check_surface
 
     src: Path = args.volume
@@ -1675,15 +1719,12 @@ def _cmd_import_image(args: argparse.Namespace) -> int:
 
     try:
         checksum_before = volume_input_sha256(src)
-        array, spacing, origin = load_volume(src)
+        # Full affine: rotated / flipped NIfTI grids map exactly (D83).
+        array, affine, vinfo = load_volume_affine(src)
         if args.spacing:
-            parts = [s.strip() for s in args.spacing.split(",")]
-            if len(parts) != 3:
-                raise ValueError(f"--spacing expects X,Y,Z, got {args.spacing!r}")
-            spacing = tuple(float(v) for v in parts)
-        surface, provenance = volume_to_surface(
-            array, args.level, spacing=spacing, origin=origin
-        )
+            affine = override_spacing(affine, args.spacing)
+        surface, provenance = volume_to_surface(array, args.level, affine=affine)
+        provenance["notes"] = list(vinfo["notes"]) + provenance["notes"]
         guard_output_path(out, input_paths=[src if src.is_file() else None])
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1714,6 +1755,133 @@ def _cmd_import_image(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
     return 0
+
+
+def _cmd_segment(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io.segment import DEFAULT_DEVICE, DEFAULT_FAST, segment_ct
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.ct
+    stem = src.name
+    for suffix in (".nii.gz", ".nrrd", ".nii"):
+        if stem.lower().endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    out: Path = args.out or (args.outputs / "segment" / f"{stem}_aorta.vtp")
+    if out.suffix.lower() != ".vtp":
+        out = out.with_suffix(".vtp")
+    base = out.with_suffix("")
+    mask_path = base.parent / f"{base.name}_mask.nii.gz"
+    log_path = base.parent / f"{base.name}_totalseg.log"
+    json_path = base.parent / f"{base.name}_segment.json"
+    device = args.device or DEFAULT_DEVICE
+    fast = bool(args.fast or DEFAULT_FAST)
+
+    try:
+        for target in (out, mask_path, log_path, json_path):
+            guard_output_path(target, input_paths=[src])
+        if args.reference_zenodo is not None and not args.reference_zenodo.is_dir():
+            raise FileNotFoundError(
+                f"Zenodo case directory not found: {args.reference_zenodo}"
+            )
+        print(
+            f"segment     : {src.name} -> TotalSegmentator (task total, roi aorta, "
+            f"{'fast' if fast else 'full'}, device {device}) ...",
+            flush=True,
+        )
+        seg = segment_ct(
+            src,
+            device=device,
+            fast=fast,
+            smoothing=args.smoothing,
+            timeout=args.timeout,
+            keep_mask=mask_path,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    seg.surface.save(out)
+    log_path.write_text(seg.log)
+    summary = dict(seg.summary)
+    report = check_surface(seg.surface, path=str(src), sha256=seg.input_sha256)
+    summary["check"] = report.to_dict()
+    ts, mask, surf, ct = (
+        summary["totalseg"], summary["mask"], summary["surface"], summary["ct"]
+    )
+    print(
+        f"ct          : {ct['format']} {ct['shape']} voxels, spacing "
+        f"{[round(v, 4) for v in ct['spacing_mm']]} mm"
+    )
+    print(
+        f"totalseg    : {ts['version'] or '(version unknown)'}  task total, roi "
+        f"{'+'.join(ts['rois'])}, {'fast' if ts['fast'] else 'full'}, device "
+        f"{ts['device']}, wall {ts['wall_time_s']:.1f} s"
+    )
+    print(
+        f"mask        : {mask['kept_voxels']} voxels kept ({summary['mask_volume_ml']:.2f} mL), "
+        f"{mask['components']} component(s), dropped {mask['dropped_components']} / "
+        f"{mask['dropped_voxels']} voxels, smoothing sigma {mask['sigma']:g} vox"
+    )
+    print(
+        f"surface     : {surf['n_points']} pts, {surf['n_triangles']} tris, "
+        f"enclosed {surf['enclosed_volume_ml']} mL, frame {surf['frame']}"
+    )
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+    for note in summary["notes"]:
+        print(f"note        : {note}")
+
+    rc = 0
+    if args.reference_zenodo is not None:
+        from meshforge.io.zenodo_aaa import validate_against_reference
+
+        try:
+            val = validate_against_reference(
+                seg.surface, args.reference_zenodo, seg.ct_shape, seg.ct_affine
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: reference validation failed: {exc}", file=sys.stderr)
+            rc = 1
+        else:
+            summary["validation"] = val
+            z0, z1 = val["slab_z_mm"]
+            print(f"reference   : {val['reference']}, case {val['case']}")
+            print(
+                f"slab        : z {z0:.2f} .. {z1:.2f} mm (reference end planes), "
+                f"{val['slab_voxels']} CT voxels; segmented volume "
+                f"{val['segmented_volume_ml']:.2f} mL"
+            )
+            for name, reg in val["regions"].items():
+                d = reg["distance"]
+                ratio = reg["volume_ratio"]
+                ratio_txt = "n/a" if ratio is None else f"{ratio:.3f}"
+                print(
+                    f"dice {name:<9}: {reg['dice']:.4f}  ref volume "
+                    f"{reg['volume_ml']:.2f} mL (seg/ref {ratio_txt})  "
+                    f"ASSD {d['assd']:.2f} mm  HD95 {d['hd95']:.2f} mm  "
+                    f"[{val['region_labels'][name]}]"
+                )
+            best = val["regions"][val["best"]]
+            print(
+                f"best match  : {val['best']} ({val['region_labels'][val['best']]}) "
+                f"Dice {best['dice']:.4f}, ASSD {best['distance']['assd']:.2f} mm, "
+                f"HD95 {best['distance']['hd95']:.2f} mm"
+            )
+
+    json_path.write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    print(f"surface     : {out}")
+    print(f"mask        : {mask_path}")
+    print(f"log         : {log_path}")
+    print(f"summary     : {json_path}")
+    if not report.mesh_ready:
+        print("error: segmented surface is not mesh_ready — see check report",
+              file=sys.stderr)
+        return 1
+    return rc
 
 
 def _cmd_import_cso(args: argparse.Namespace) -> int:

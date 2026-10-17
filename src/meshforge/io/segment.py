@@ -1,0 +1,558 @@
+"""AI segmentation (M1, D83): CT -> TotalSegmentator aorta mask -> surface.
+
+TotalSegmentator (Wasserthal et al., Apache-2.0; ``total`` task only, never
+a licensed task) runs as a SUBPROCESS from its own conda env, so torch never
+enters meshforge's environment. It is found like ccx
+(``solve/runner.find_ccx``): ``MESHFORGE_TOTALSEG`` -> ``TotalSegmentator``
+on PATH -> ``~/miniconda3/envs/totalseg/bin/TotalSegmentator``. An explicit
+``MESHFORGE_TOTALSEG`` that does not point at an executable is an error, not
+a silent fall-through to another copy.
+
+The CT may be NIfTI or NRRD (``io/nrrd.py``; converted to a RAS NIfTI). The
+input is staged — copied or converted — into a temp dir whose path has no
+spaces, TotalSegmentator writes there, and the temp dir is deleted: the
+user's CT is only ever read (rule 1, checksummed before and after) and
+nothing lands in the repo. The mask becomes a surface through
+``io/image.mask_to_surface`` (largest component, bounding-box crop,
+Gaussian blur, level 0.5, affine-mapped marching cubes).
+
+Output frame: RAS world coordinates in millimetres (the NIfTI convention
+nibabel reports), so the surface overlays the reference segmentation of the
+Zenodo AAA dataset without any transform.
+
+This module never touches TotalSegmentator's own configuration (usage
+statistics, licence); it only reports what that config says.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import signal
+import subprocess
+import tempfile
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from meshforge.textguard import scrub
+
+TOTALSEG_ENV_VAR = "MESHFORGE_TOTALSEG"
+_TOTALSEG_FALLBACK = Path.home() / "miniconda3/envs/totalseg/bin/TotalSegmentator"
+INSTALL_HINT = (
+    "conda create -n totalseg --solver=libmamba python=3.11, then "
+    "conda run -n totalseg pip install TotalSegmentator"
+)
+#: ``total``-task classes this step may request (no licensed task, ever).
+ALLOWED_ROIS = ("aorta", "iliac_artery_left", "iliac_artery_right")
+DEVICES = ("mps", "cpu")
+#: Defaults from the M0 benchmark (outputs/break-the-barrier/totalseg_benchmark_m0.md).
+DEFAULT_DEVICE = "mps"
+DEFAULT_FAST = False
+DEFAULT_TIMEOUT_S = 1800.0
+#: CT ceiling, checked from the header before any data is read: a 512 x 512
+#: x 2048-slice scan (1 GB of int16). A chest-to-pelvis CTA at 0.6 mm runs
+#: 1000-1200 slices (AortaSeg-60 Anev_04: 1136), so 1024 refused real scans.
+#: The geometry ceiling (MAX_VOXELS, 40 M) applies later, to the mask cropped
+#: to its object.
+MAX_CT_VOXELS = 512 * 512 * 2048
+CT_SUFFIXES = (".nrrd", ".nii", ".nii.gz")
+EMPTY_MASK_MESSAGE = (
+    "TotalSegmentator returned an empty aorta mask — is the aorta in the "
+    "field of view? The field of view may also be a tight crop without body "
+    "context (e.g. a box around the aneurysm), which TotalSegmentator cannot "
+    "read as anatomy; give it the full-field-of-view CT"
+)
+#: Below this the mask is a fragment, not an aorta (even 2 cm of a 1 cm-wide
+#: aorta is ~6 mL). Seen for real in M0: an 84-voxel, 0.0046 mL speck inside
+#: the thrombus of a tight crop around an aneurysm.
+MIN_AORTA_ML = 1.0
+_TAIL_LINES = 25
+
+
+def find_totalseg() -> str:
+    """Path of the TotalSegmentator executable, or a loud RuntimeError."""
+    explicit = os.environ.get(TOTALSEG_ENV_VAR, "").strip()
+    if explicit:
+        p = Path(explicit).expanduser()
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p)
+        raise RuntimeError(
+            f"{TOTALSEG_ENV_VAR}={explicit!r} is not an executable file — point "
+            f"it at the TotalSegmentator executable or unset it. Install: "
+            f"{INSTALL_HINT}"
+        )
+    for candidate in (shutil.which("TotalSegmentator"), str(_TOTALSEG_FALLBACK)):
+        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    raise RuntimeError(
+        f"TotalSegmentator not found: set {TOTALSEG_ENV_VAR} to its executable, "
+        f"put it on PATH, or install it in its own env: {INSTALL_HINT}"
+    )
+
+
+def totalseg_version(executable: str) -> str | None:
+    """``TotalSegmentator --version`` (None when it cannot be read)."""
+    try:
+        cp = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = scrub((cp.stdout or cp.stderr or "").strip()).splitlines()
+    if cp.returncode != 0 or not lines:
+        return None
+    return lines[-1].strip()[:64]
+
+
+def _usage_stats_note() -> str | None:
+    """Report (never change) TotalSegmentator's usage-statistics setting."""
+    home = os.environ.get("TOTALSEG_HOME_DIR")
+    cfg = (Path(home) if home else Path.home() / ".totalsegmentator") / "config.json"
+    if not cfg.is_file():
+        return (
+            f"no TotalSegmentator config at {cfg}: its first run creates one "
+            f"with usage statistics ON (send_usage_stats)"
+        )
+    try:
+        on = bool(json.loads(cfg.read_text()).get("send_usage_stats", True))
+    except (OSError, ValueError):
+        return f"could not read {cfg} to check TotalSegmentator's usage statistics"
+    if on:
+        return f"TotalSegmentator usage statistics are ON in {cfg} (send_usage_stats)"
+    return None
+
+
+def _tail(text: str, n: int = _TAIL_LINES) -> str:
+    # tqdm progress bars redraw with \r: keep only the final state of a line.
+    lines = [ln.rsplit("\r", 1)[-1].rstrip() for ln in text.splitlines()]
+    lines = [ln[:300] for ln in lines if ln.strip()]
+    return "\n".join(lines[-n:]) if lines else "(no output)"
+
+
+@contextmanager
+def _staging_dir():
+    """A fresh temp dir whose path contains no spaces (removed afterwards)."""
+    path = None
+    for base in (None, "/tmp"):
+        try:
+            candidate = tempfile.mkdtemp(prefix="meshforge_ts_", dir=base)
+        except OSError:
+            continue
+        if " " not in candidate:
+            path = Path(candidate)
+            break
+        shutil.rmtree(candidate, ignore_errors=True)
+    if path is None:
+        raise RuntimeError(
+            "could not create a temporary directory without spaces in its path "
+            "for TotalSegmentator — set TMPDIR to a space-free directory"
+        )
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)  # its worker processes too
+        else:  # pragma: no cover - not exercised on macOS
+            proc.kill()
+    except (ProcessLookupError, PermissionError):
+        pass
+    proc.wait()
+
+
+@dataclass
+class TotalSegRun:
+    executable: str
+    version: str | None
+    flags: list[str]
+    device: str
+    fast: bool
+    rois: tuple[str, ...]
+    wall_time_s: float
+    log: str
+    masks: dict[str, Path]
+    notes: list[str] = field(default_factory=list)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "executable": self.executable,
+            "version": self.version,
+            "task": "total",
+            "rois": list(self.rois),
+            "fast": self.fast,
+            "device": self.device,
+            "flags": list(self.flags),
+            "wall_time_s": round(self.wall_time_s, 2),
+        }
+
+
+def run_totalseg(
+    ct_nifti: str | Path,
+    out_dir: str | Path,
+    *,
+    device: str = DEFAULT_DEVICE,
+    fast: bool = DEFAULT_FAST,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    rois: tuple[str, ...] = ("aorta",),
+    executable: str | None = None,
+) -> TotalSegRun:
+    """Run TotalSegmentator (``total`` task, ``--roi_subset``) on a NIfTI.
+
+    ``ct_nifti`` and ``out_dir`` must be space-free paths (``segment_ct``
+    stages them). Argument list, never a shell. The combined stdout/stderr
+    log is captured; a non-zero exit, a timeout (the whole process group is
+    killed) or a missing mask raises RuntimeError with a scrubbed log tail.
+    """
+    device, rois, timeout = _check_run_args(device, rois, timeout)
+    ct_nifti, out_dir = Path(ct_nifti), Path(out_dir)
+    for p in (ct_nifti, out_dir):
+        if " " in str(p):
+            raise ValueError(f"stage TotalSegmentator paths without spaces: {p}")
+    exe = executable or find_totalseg()
+    notes = [n for n in (_usage_stats_note(),) if n]
+    version = totalseg_version(exe)
+    if version is None:
+        notes.append("could not read the TotalSegmentator version (--version)")
+    flags = ["--roi_subset", *rois, *(["--fast"] if fast else []), "--device", device]
+    cmd = [exe, "-i", str(ct_nifti), "-o", str(out_dir), *flags]
+    log_path = out_dir.parent / f"{out_dir.name}.log"
+    t0 = time.monotonic()
+    with log_path.open("wb") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=(os.name == "posix"),
+        )
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill(proc)
+            log = scrub(log_path.read_bytes().decode("utf-8", "replace"))
+            raise RuntimeError(
+                f"TotalSegmentator exceeded the {timeout:g} s timeout and was "
+                f"stopped — raise the timeout or use fast mode. Last log lines:\n"
+                f"{_tail(log)}"
+            ) from None
+        finally:
+            _kill(proc)  # no-op once it exited; never leave workers behind
+    wall = time.monotonic() - t0
+    log = scrub(log_path.read_bytes().decode("utf-8", "replace"))
+    if rc != 0:
+        raise RuntimeError(
+            f"TotalSegmentator failed (exit code {rc}). Last log lines:\n{_tail(log)}"
+        )
+    masks = {roi: out_dir / f"{roi}.nii.gz" for roi in rois}
+    missing = [roi for roi, p in masks.items() if not p.is_file()]
+    if missing:
+        raise RuntimeError(
+            f"TotalSegmentator exited 0 but wrote no mask for {missing}. Last log "
+            f"lines:\n{_tail(log)}"
+        )
+    return TotalSegRun(
+        executable=exe,
+        version=version,
+        flags=flags,
+        device=device,
+        fast=bool(fast),
+        rois=rois,
+        wall_time_s=wall,
+        log=log,
+        masks=masks,
+        notes=notes,
+    )
+
+
+def _check_run_args(device, rois, timeout):
+    device = str(device).strip().lower()
+    if device not in DEVICES:
+        raise ValueError(f"device must be one of {'/'.join(DEVICES)}, got {device!r}")
+    rois = tuple(str(r) for r in rois)
+    bad = [r for r in rois if r not in ALLOWED_ROIS]
+    if not rois or bad:
+        raise ValueError(
+            f"roi(s) {bad or '(none)'} not allowed; this step requests only "
+            f"{', '.join(ALLOWED_ROIS)} from the 'total' task"
+        )
+    timeout = float(timeout)
+    if not np.isfinite(timeout) or timeout <= 0:
+        raise ValueError(f"timeout must be a positive number of seconds, got {timeout}")
+    return device, rois, timeout
+
+
+# ---------------------------------------------------------------------------
+# CT staging (NRRD -> NIfTI) and mask loading
+# ---------------------------------------------------------------------------
+def _nib():
+    try:
+        import nibabel as nib
+    except ImportError as exc:
+        raise RuntimeError(
+            "segmentation needs nibabel — install with: pip install nibabel"
+        ) from exc
+    return nib
+
+
+def _refuse_shear(affine: np.ndarray, name: str) -> None:
+    cols = affine[:3, :3] / np.linalg.norm(affine[:3, :3], axis=0)
+    gram = cols.T @ cols
+    if float(np.abs(gram - np.eye(3)).max()) > 1e-4:
+        raise ValueError(
+            f"{name}: the voxel axes are not orthogonal (a sheared grid, e.g. "
+            f"gantry tilt) — a NIfTI qform cannot carry that faithfully; "
+            f"resample the CT to an orthogonal grid first"
+        )
+
+
+def write_ct_nifti(array: np.ndarray, affine: np.ndarray, out: Path) -> None:
+    """Write a RAS-mm NIfTI with qform = sform = ``affine`` (code scanner)."""
+    nib = _nib()
+    img = nib.Nifti1Image(array, affine)
+    img.header.set_xyzt_units("mm", "sec")
+    img.set_qform(affine, code=1)
+    img.set_sform(affine, code=1)
+    nib.save(img, str(out))
+
+
+def stage_ct(path: Path, dest_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
+    """Copy (NIfTI) or convert (NRRD) the CT into ``dest_dir``.
+
+    Returns ``(staged_nifti, grid, notes)`` with ``grid`` = ``{"shape",
+    "affine", "format"}`` in RAS millimetres.
+    """
+    from meshforge.io.image import check_affine, nifti_affine_mm, nifti_mm_scale
+
+    name = path.name.lower()
+    if name.endswith(".nrrd"):
+        from meshforge.io.nrrd import read_nrrd
+
+        vol = read_nrrd(path, max_voxels=MAX_CT_VOXELS)
+        _refuse_shear(vol.affine, path.name)
+        staged = dest_dir / "ct.nii.gz"
+        write_ct_nifti(vol.array, vol.affine, staged)
+        grid = {"shape": tuple(vol.array.shape), "affine": vol.affine, "format": "nrrd"}
+        return staged, grid, list(vol.notes)
+    if name.endswith((".nii", ".nii.gz")):
+        nib = _nib()
+        img = nib.load(str(path))
+        shape = tuple(int(s) for s in img.header.get_data_shape())
+        if len(shape) != 3:
+            raise ValueError(f"{path.name}: a 3-D CT is required, got shape {shape}")
+        if int(np.prod(shape)) > MAX_CT_VOXELS:
+            raise ValueError(
+                f"{path.name}: {shape} = {int(np.prod(shape))} voxels is over the "
+                f"{MAX_CT_VOXELS} voxel CT ceiling — crop or downsample first"
+            )
+        factor, _ = nifti_mm_scale(img.header)
+        if factor != 1.0:
+            raise ValueError(
+                f"{path.name} declares spatial unit "
+                f"{img.header.get_xyzt_units()[0]!r}; TotalSegmentator reads voxel "
+                f"spacing as millimetres — convert the CT to mm first"
+            )
+        affine, notes = nifti_affine_mm(img)
+        _refuse_shear(check_affine(affine), path.name)
+        staged = dest_dir / ("ct.nii.gz" if name.endswith(".gz") else "ct.nii")
+        shutil.copyfile(path, staged)
+        return staged, {"shape": shape, "affine": affine, "format": "nifti"}, notes
+    raise ValueError(
+        f"unsupported CT input {path.name!r}; supported: {', '.join(CT_SUFFIXES)}"
+    )
+
+
+def load_mask(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """A TotalSegmentator mask as ``(bool array, RAS-mm affine)``.
+
+    The header shape is bounded before any voxel is read; the data is read
+    as stored (uint8), never as float64.
+    """
+    from meshforge.io.image import check_affine
+
+    nib = _nib()
+    img = nib.load(str(path))
+    shape = tuple(int(s) for s in img.header.get_data_shape())
+    if len(shape) != 3 or int(np.prod(shape)) > MAX_CT_VOXELS:
+        raise ValueError(
+            f"mask {path.name} has shape {shape}: expected a 3-D grid of at most "
+            f"{MAX_CT_VOXELS} voxels"
+        )
+    data = np.asanyarray(img.dataobj)
+    return data > 0.5, check_affine(img.affine)
+
+
+def _refuse_fragment(n_voxels: int, voxel_ml: float, what: str) -> None:
+    ml = n_voxels * voxel_ml
+    if ml < MIN_AORTA_ML:
+        raise ValueError(
+            f"TotalSegmentator's aorta mask {what}holds only {ml:.4f} mL "
+            f"({n_voxels} voxels) — implausibly small for an aorta (< "
+            f"{MIN_AORTA_ML:g} mL). It needs more anatomy than a tight crop "
+            f"around the aneurysm; refusing to pass a fragment on as the aorta"
+        )
+
+
+# ---------------------------------------------------------------------------
+# the whole step
+# ---------------------------------------------------------------------------
+@dataclass
+class SegmentResult:
+    surface: Any  # pv.PolyData, RAS world frame, millimetres
+    summary: dict[str, Any]
+    ct_shape: tuple[int, int, int]
+    ct_affine: np.ndarray  # voxel index -> RAS mm
+    input_sha256: str
+    log: str
+    notes: list[str]
+
+
+def segment_ct(
+    path: str | Path,
+    *,
+    device: str = DEFAULT_DEVICE,
+    fast: bool = DEFAULT_FAST,
+    smoothing: float = 1.0,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    rois: tuple[str, ...] = ("aorta",),
+    executable: str | None = None,
+    keep_mask: str | Path | None = None,
+) -> SegmentResult:
+    """CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator -> watertight surface (mm, RAS).
+
+    ``smoothing`` is the Gaussian sigma in voxels applied to the binary mask
+    before the level-0.5 surface (0 = off). ``keep_mask`` optionally saves
+    the (union) mask NIfTI there before the staging dir is deleted. The CT is
+    checksummed before and after: a change on disk is a loud error (rule 1).
+    """
+    from meshforge.io.image import mask_to_surface
+    from meshforge.io.load import file_sha256
+
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"CT volume not found: {path}")
+    if not path.name.lower().endswith(CT_SUFFIXES):
+        raise ValueError(
+            f"unsupported CT input {path.name!r}; supported: {', '.join(CT_SUFFIXES)}"
+        )
+    device, rois, timeout = _check_run_args(device, rois, timeout)
+    smoothing = float(smoothing)
+    if not np.isfinite(smoothing) or smoothing < 0:
+        raise ValueError(f"smoothing must be >= 0 voxels, got {smoothing}")
+    exe = executable or find_totalseg()  # fail fast, before staging the CT
+    sha_before = file_sha256(path)
+
+    with _staging_dir() as stage:
+        staged, grid, notes = stage_ct(path, stage)
+        run = run_totalseg(
+            staged,
+            stage / "ts",
+            device=device,
+            fast=fast,
+            timeout=timeout,
+            rois=rois,
+            executable=exe,
+        )
+        notes = notes + run.notes
+        mask = mask_affine = None
+        for roi, mpath in run.masks.items():
+            m, a = load_mask(mpath)
+            if mask is None:
+                mask, mask_affine = m, a
+            elif m.shape != mask.shape or not np.allclose(a, mask_affine, atol=1e-4):
+                raise RuntimeError(
+                    f"TotalSegmentator masks {list(run.masks)} are on different grids"
+                )
+            else:
+                mask |= m
+        if mask.shape != tuple(grid["shape"]) or not np.allclose(
+            mask_affine, grid["affine"], atol=1e-3
+        ):
+            notes.append(
+                "the mask grid differs from the CT grid; the mask's own affine "
+                "is used for the surface"
+            )
+        if not mask.any():
+            raise ValueError(EMPTY_MASK_MESSAGE)
+        voxel_ml = abs(float(np.linalg.det(mask_affine[:3, :3]))) / 1000.0
+        _refuse_fragment(int(np.count_nonzero(mask)), voxel_ml, "")
+        if keep_mask is not None:
+            nib = _nib()
+            keep_mask = Path(keep_mask)
+            keep_mask.parent.mkdir(parents=True, exist_ok=True)
+            out = nib.Nifti1Image(mask.astype(np.uint8), mask_affine)
+            out.header.set_xyzt_units("mm", "sec")
+            out.set_qform(mask_affine, code=1)
+            out.set_sform(mask_affine, code=1)
+            nib.save(out, str(keep_mask))
+
+    surface, mprov = mask_to_surface(mask, mask_affine, sigma=smoothing)
+    del mask
+    _refuse_fragment(mprov["kept_voxels"], voxel_ml, "its largest connected piece ")
+    notes = notes + list(mprov["notes"])
+    if file_sha256(path) != sha_before:
+        raise RuntimeError(f"input changed on disk during segmentation: {path}")
+
+    affine = np.asarray(grid["affine"], dtype=float)
+    summary = {
+        "input": str(path),
+        "input_sha256": sha_before,
+        "ct": {
+            "format": grid["format"],
+            "shape": [int(s) for s in grid["shape"]],
+            "spacing_mm": [round(float(s), 6) for s in np.linalg.norm(affine[:3, :3], axis=0)],
+            "affine_ras_mm": affine.round(6).tolist(),
+        },
+        "totalseg": run.summary(),
+        "mask": {
+            key: mprov[key]
+            for key in (
+                "mask_voxels",
+                "kept_voxels",
+                "components",
+                "dropped_components",
+                "dropped_voxels",
+                "crop_lo",
+                "crop_hi",
+                "sigma",
+            )
+        },
+        "surface": {
+            "n_points": mprov["n_points"],
+            "n_triangles": mprov["n_triangles"],
+            "watertight": mprov["watertight"],
+            "pieces_before_cleanup": mprov["surface_pieces"],
+            "enclosed_volume_ml": (
+                None
+                if mprov["enclosed_volume"] is None
+                else round(mprov["enclosed_volume"] / 1000.0, 3)
+            ),
+            "frame": "RAS world (NIfTI convention), millimetres",
+        },
+        "mask_volume_ml": round(mprov["mask_volume"] / 1000.0, 3),
+        "length_unit": "mm",
+        "notes": notes,
+    }
+    return SegmentResult(
+        surface=surface,
+        summary=summary,
+        ct_shape=tuple(int(s) for s in grid["shape"]),
+        ct_affine=affine,
+        input_sha256=sha_before,
+        log=run.log,
+        notes=notes,
+    )
