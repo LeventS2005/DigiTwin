@@ -280,7 +280,9 @@ def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch)
     from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
 
     assert STEP_ORDER.index("segment") == STEP_ORDER.index("import_cso") + 1
-    assert set(STEP_KNOBS["segment"]) == {"path", "device", "fast", "smoothing", "timeout"}
+    assert set(STEP_KNOBS["segment"]) == {
+        "path", "device", "fast", "smoothing", "timeout", "lumen_out", "lumen_hu",  # D85
+    }
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     s = MeshingSession()
     with pytest.raises(ValueError, match="segment needs a CT volume path"):
@@ -413,3 +415,68 @@ def test_ct_ceiling_admits_a_full_body_cta():
     from meshforge.io.segment import MAX_CT_VOXELS
 
     assert MAX_CT_VOXELS >= 512 * 512 * 1800
+
+
+# ---------------------------------------------------------------------------
+# D85: the contrast blood lumen = AI mask AND CT >= 150 HU (a threshold)
+# ---------------------------------------------------------------------------
+def _lumen_ct() -> np.ndarray:
+    """A 120 HU thrombus-like rim (inside the fake's > 100 HU 'aorta'), a
+    300 HU contrast core of radius 5 voxels, and a detached 800 HU
+    calcification blob in the rim."""
+    ii, jj = np.indices(SHAPE[:2])
+    r2 = (ii - TUBE_C[0]) ** 2 + (jj - TUBE_C[1]) ** 2
+    ct = np.full(SHAPE, -100, dtype=np.int16)
+    ct[r2 <= TUBE_R_VOX**2] = 120
+    ct[r2 <= 25] = 300
+    ct[31:33, 20:22, 10:13] = 800  # r 7..8.1 voxels: in the rim, not touching the core
+    return ct
+
+
+def test_ct_lumen_is_the_bright_core_of_the_mask_and_drops_detached_calcium(tmp_path):
+    from meshforge.io.segment import ct_lumen_surface, write_ct_nifti
+
+    ct = _lumen_ct()
+    aff = np.diag([SPACING, SPACING, SLICE, 1.0])
+    path = tmp_path / "ct dir" / "ct.nii.gz"
+    path.parent.mkdir()
+    write_ct_nifti(ct, aff, path)
+    mask = ct > 100
+    surf, summ = ct_lumen_surface(path, mask, aff, SHAPE, aff)
+    core = int((ct == 300).sum())
+    assert summ["kept_voxels"] == core
+    assert summ["dropped_components"] == 1 and summ["dropped_voxels"] == 12
+    assert summ["above_threshold_voxels"] == core + 12
+    assert summ["dice_vs_ai_mask"] == pytest.approx(2 * core / (int(mask.sum()) + core), abs=1e-4)
+    assert summ["fraction_of_mask"] == pytest.approx(core / int(mask.sum()), abs=1e-4)
+    assert "THRESHOLD" in summ["method"] and "not an AI segmentation" in summ["method"]
+    assert surf.n_open_edges == 0
+    # the core cylinder (radius 5 voxels, open to the volume ends) inside the rim
+    assert summ["surface"]["enclosed_volume_ml"] == pytest.approx(
+        core * SPACING * SPACING * SLICE / 1000.0, rel=0.15)
+    with pytest.raises(ValueError, match="reaches 5000 HU"):
+        ct_lumen_surface(path, mask, aff, SHAPE, aff, lumen_hu=5000.0)
+    with pytest.raises(ValueError, match="not on the CT grid"):
+        ct_lumen_surface(path, mask[:-1], aff, SHAPE, aff)
+    with pytest.raises(ValueError, match="not on the CT grid"):
+        ct_lumen_surface(path, mask, aff * 1.1, SHAPE, aff)
+
+
+def test_cli_segment_writes_the_threshold_lumen(tmp_path, fake_ts, capsys):
+    from meshforge.cli import main
+    from meshforge.io.segment import write_ct_nifti
+
+    ct_path = tmp_path / "ct.nii.gz"
+    write_ct_nifti(_lumen_ct(), np.diag([SPACING, SPACING, SLICE, 1.0]), ct_path)
+    out = tmp_path / "out" / "aorta.vtp"
+    lumen = tmp_path / "out" / "lumen.vtp"
+    rc = main(["segment", str(ct_path), "--out", str(out), "--fast", "--device", "cpu",
+               "--lumen-out", str(lumen)])
+    printed = capsys.readouterr().out
+    assert rc == 0, printed
+    assert lumen.is_file() and out.is_file()
+    assert "CT THRESHOLD inside the AI label" in printed
+    assert "dropped 1 piece(s) / 12 voxels" in printed
+    summary = json.loads((tmp_path / "out" / "aorta_segment.json").read_text())
+    assert summary["lumen"]["lumen_hu"] == 150.0
+    assert summary["lumen"]["dropped_voxels"] == 12

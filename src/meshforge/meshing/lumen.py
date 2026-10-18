@@ -203,6 +203,18 @@ def _boundary_loop(bedges: np.ndarray) -> np.ndarray | None:
     return np.asarray(loop) if len(loop) == len(nbr) else None
 
 
+def flat_cap_cells(surface: pv.PolyData) -> list[np.ndarray]:
+    """Cell ids of every flat end cap of ``surface`` — each a planar disk the
+    D81 anchoring would accept (coplanar within ``_CAP_ANGLE_TOL``, one rim
+    of >= ``_CAP_MIN_RIM`` vertices, creased >= ``_CAP_MIN_CREASE`` to the
+    wall). Empty when the surface is not all triangles."""
+    found = _coplanar_regions(surface)
+    if found is None:
+        return []
+    tri, pts, regions = found
+    return [r[0] for r in regions if _as_cap(tri, pts, *r) is not None]
+
+
 def _end_caps(surface: pv.PolyData, ends: dict) -> dict[str, _Cap]:
     """The flat cap belonging to each centreline end.
 
@@ -812,7 +824,17 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True):
         gmsh.model.geo.addVolume([loop])
         gmsh.model.geo.synchronize()
         gmsh.option.setNumber("Mesh.MeshSizeMax", mesh_size)
-        gmsh.model.mesh.generate(3)
+        try:
+            gmsh.model.mesh.generate(3)
+        except Exception as gmsh_exc:  # gmsh raises a bare Exception
+            # D85: fail loudly with a readable cause instead of a raw gmsh
+            # traceback (seen on a real eccentric sac: the station rings of a
+            # folding sweep overlap, so the ring shell self-intersects)
+            raise RuntimeError(
+                f"lumen tet fill failed — gmsh: {gmsh_exc}. The station-ring shell "
+                f"is invalid, typically because the rings overlap where the "
+                f"centreline bends tighter than the section radius"
+            ) from None
         opt_note = "optimization disabled (optimize=False)"
         if optimize:
             try:

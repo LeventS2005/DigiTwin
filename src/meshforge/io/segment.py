@@ -72,6 +72,13 @@ EMPTY_MASK_MESSAGE = (
 #: the thrombus of a tight crop around an aneurysm.
 MIN_AORTA_ML = 1.0
 _TAIL_LINES = 25
+#: D85 (M2): contrast blood lumen = AI aorta mask AND CT >= this many HU.
+DEFAULT_LUMEN_HU = 150.0
+LUMEN_METHOD_NOTE = (
+    "blood lumen = TotalSegmentator aorta mask AND CT >= {hu:g} HU, largest "
+    "connected piece: a CT THRESHOLD inside the AI label, not an AI "
+    "segmentation; bright calcification touching the lumen stays in it"
+)
 
 
 def find_totalseg() -> str:
@@ -408,6 +415,114 @@ def _refuse_fragment(n_voxels: int, voxel_ml: float, what: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# contrast lumen (D85): a CT threshold inside the AI mask
+# ---------------------------------------------------------------------------
+def _ct_box(path: Path, shape: tuple[int, int, int], lo, hi) -> np.ndarray:
+    """CT intensities in the index box [lo, hi) — read-only, the stored
+    values with the NIfTI scaling applied (Hounsfield units for a CT)."""
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
+    name = path.name.lower()
+    if name.endswith(".nrrd"):
+        from meshforge.io.nrrd import read_nrrd
+
+        vol = read_nrrd(path, max_voxels=MAX_CT_VOXELS)
+        if tuple(vol.array.shape) != tuple(shape):
+            raise ValueError(f"{path.name}: CT shape {vol.array.shape} != grid {shape}")
+        return np.asarray(vol.array[sl])
+    img = _nib().load(str(path))
+    if tuple(int(v) for v in img.header.get_data_shape()) != tuple(shape):
+        raise ValueError(f"{path.name}: CT shape differs from the segmented grid")
+    return np.asanyarray(img.dataobj[sl])
+
+
+def ct_lumen_surface(
+    ct_path: str | Path,
+    mask: np.ndarray,
+    mask_affine: np.ndarray,
+    ct_shape: tuple[int, int, int],
+    ct_affine: np.ndarray,
+    *,
+    lumen_hu: float = DEFAULT_LUMEN_HU,
+    smoothing: float = 1.0,
+) -> tuple[Any, dict[str, Any]]:
+    """The contrast-filled blood lumen inside an AI aorta mask.
+
+    lumen = mask AND (CT >= ``lumen_hu``), then the same ``mask_to_surface``
+    path as the aorta (largest 6-connected component, blur ``smoothing``
+    voxels, level 0.5). Bright calcified plaque is also >= 150 HU: plaque
+    detached from the lumen is dropped with the small components (counted);
+    plaque touching the lumen stays in it. Refused loudly: a mask not on the
+    CT grid, no voxel over the threshold, a lumen under ``MIN_AORTA_ML``.
+    Returns ``(surface, summary)``; the summary carries the Dice between the
+    lumen and the whole AI mask (the lumen is a subset, so Dice =
+    2|L| / (|M| + |L|)).
+    """
+    from meshforge.io.image import mask_to_surface
+
+    ct_path = Path(ct_path)
+    lumen_hu = float(lumen_hu)
+    if not np.isfinite(lumen_hu):
+        raise ValueError(f"lumen_hu must be a finite HU value, got {lumen_hu}")
+    mask = np.asarray(mask, dtype=bool)
+    if mask.shape != tuple(ct_shape) or not np.allclose(mask_affine, ct_affine, atol=1e-3):
+        raise ValueError(
+            "the aorta mask is not on the CT grid — the CT cannot be thresholded "
+            "inside it voxel for voxel"
+        )
+    n_mask = int(np.count_nonzero(mask))
+    if n_mask == 0:
+        raise ValueError("the aorta mask is empty — no lumen to threshold")
+    lo, hi = [], []
+    for ax in range(3):
+        other = tuple(i for i in range(3) if i != ax)
+        idx = np.flatnonzero(mask.any(axis=other))
+        lo.append(max(int(idx[0]) - 1, 0))
+        hi.append(min(int(idx[-1]) + 2, mask.shape[ax]))
+    ct = _ct_box(ct_path, tuple(ct_shape), lo, hi)
+    sub = mask[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] & (ct >= lumen_hu)
+    del ct
+    n_thr = int(np.count_nonzero(sub))
+    voxel_ml = abs(float(np.linalg.det(np.asarray(mask_affine)[:3, :3]))) / 1000.0
+    if n_thr == 0:
+        raise ValueError(
+            f"no voxel inside the aorta mask reaches {lumen_hu:g} HU — not a contrast "
+            f"CT (CTA), or the threshold is too high"
+        )
+    shift = np.eye(4)
+    shift[:3, 3] = lo
+    surface, prov = mask_to_surface(sub, np.asarray(mask_affine) @ shift, sigma=smoothing)
+    kept = int(prov["kept_voxels"])
+    if kept * voxel_ml < MIN_AORTA_ML:
+        raise ValueError(
+            f"the contrast lumen's largest piece holds only {kept * voxel_ml:.4f} mL "
+            f"(< {MIN_AORTA_ML:g} mL) — not a lumen; refusing to pass a fragment on"
+        )
+    summary = {
+        "method": LUMEN_METHOD_NOTE.format(hu=lumen_hu),
+        "lumen_hu": lumen_hu,
+        "mask_voxels": n_mask,
+        "above_threshold_voxels": n_thr,
+        "kept_voxels": kept,
+        "dropped_components": prov["dropped_components"],
+        "dropped_voxels": prov["dropped_voxels"],
+        "lumen_volume_ml": round(kept * voxel_ml, 3),
+        "fraction_of_mask": round(kept / n_mask, 4),
+        "dice_vs_ai_mask": round(2.0 * kept / (n_mask + kept), 4),
+        "surface": {
+            "n_points": prov["n_points"],
+            "n_triangles": prov["n_triangles"],
+            "watertight": prov["watertight"],
+            "enclosed_volume_ml": (
+                None if prov["enclosed_volume"] is None
+                else round(prov["enclosed_volume"] / 1000.0, 3)
+            ),
+        },
+        "notes": [LUMEN_METHOD_NOTE.format(hu=lumen_hu)] + list(prov["notes"]),
+    }
+    return surface, summary
+
+
+# ---------------------------------------------------------------------------
 # the whole step
 # ---------------------------------------------------------------------------
 @dataclass
@@ -419,6 +534,7 @@ class SegmentResult:
     input_sha256: str
     log: str
     notes: list[str]
+    lumen_surface: Any = None  # D85: contrast lumen (CT threshold), when asked
 
 
 def segment_ct(
@@ -431,6 +547,7 @@ def segment_ct(
     rois: tuple[str, ...] = ("aorta",),
     executable: str | None = None,
     keep_mask: str | Path | None = None,
+    lumen_hu: float | None = None,
 ) -> SegmentResult:
     """CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator -> watertight surface (mm, RAS).
 
@@ -438,6 +555,8 @@ def segment_ct(
     before the level-0.5 surface (0 = off). ``keep_mask`` optionally saves
     the (union) mask NIfTI there before the staging dir is deleted. The CT is
     checksummed before and after: a change on disk is a loud error (rule 1).
+    ``lumen_hu`` (D85) also extracts the contrast blood lumen inside the mask
+    (``ct_lumen_surface``) as ``result.lumen_surface``, summary key ``lumen``.
     """
     from meshforge.io.image import mask_to_surface
     from meshforge.io.load import file_sha256
@@ -501,8 +620,14 @@ def segment_ct(
             nib.save(out, str(keep_mask))
 
     surface, mprov = mask_to_surface(mask, mask_affine, sigma=smoothing)
-    del mask
     _refuse_fragment(mprov["kept_voxels"], voxel_ml, "its largest connected piece ")
+    lumen_surface = lumen_summary = None
+    if lumen_hu is not None:
+        lumen_surface, lumen_summary = ct_lumen_surface(
+            path, mask, mask_affine, tuple(grid["shape"]), np.asarray(grid["affine"]),
+            lumen_hu=lumen_hu, smoothing=smoothing,
+        )
+    del mask
     notes = notes + list(mprov["notes"])
     if file_sha256(path) != sha_before:
         raise RuntimeError(f"input changed on disk during segmentation: {path}")
@@ -547,6 +672,8 @@ def segment_ct(
         "length_unit": "mm",
         "notes": notes,
     }
+    if lumen_summary is not None:
+        summary["lumen"] = lumen_summary
     return SegmentResult(
         surface=surface,
         summary=summary,
@@ -555,4 +682,5 @@ def segment_ct(
         input_sha256=sha_before,
         log=run.log,
         notes=notes,
+        lumen_surface=lumen_surface,
     )
