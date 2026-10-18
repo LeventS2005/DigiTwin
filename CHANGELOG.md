@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `lumen --method surface-tet`, and as the last `auto` fallback: tet-fills
+  the cropped surface itself, after a gmsh reparametrize-and-remesh, so it
+  needs no centreline rings.
+  - On a real AAA lumen whose centreline bends tighter than the vessel,
+    both the O-grid and the station-ring tet fill failed; this one gives
+    0 inverted cells.
+  - The remesh removes the needle triangles of a marching-cubes surface.
+    Filled as-is they became sliver tets (scaled Jacobian about 1e-4), and
+    simpleFoam diverged on them.
+  - Inlet and outlet faces are tagged by lying on their cap plane.
+
 - `aaa_stress` step and `meshforge aaa-stress` — an investigational wall
   stress for an abdominal aortic aneurysm under blood pressure. Stiff-linear
   CalculiX solves on the loaded (imaged) geometry of a swept hex wall: uniform

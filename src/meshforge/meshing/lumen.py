@@ -800,9 +800,14 @@ def _ring_shell(stations, normals, binormals, radii, cos_t, sin_t):
     return pts, np.asarray(tris, dtype=np.int64), np.asarray(labels, dtype=np.int64)
 
 
-def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True):
+def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, remesh=False):
     """gmsh-fill the labelled shell; classify boundary faces by nearest shell
-    patch (the TetBackend pattern with wall/inlet/outlet labels)."""
+    patch (the TetBackend pattern with wall/inlet/outlet labels).
+
+    ``remesh``: reparametrize the shell (patches split at 40 deg creases) and
+    remesh it at ``mesh_size`` before the fill. A marching-cubes surface
+    carries needle triangles at its cap rims; filled as-is they become sliver
+    tets (scaled Jacobian ~1e-4) on which simpleFoam diverged."""
     try:
         import gmsh
     except ImportError as exc:
@@ -820,7 +825,14 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True):
         gmsh.model.addDiscreteEntity(2, 1)
         gmsh.model.mesh.addNodes(2, 1, node_tags, shell_pts.ravel())
         gmsh.model.mesh.addElementsByType(1, 2, [], (shell_tris + 1).ravel())
-        loop = gmsh.model.geo.addSurfaceLoop([1])
+        if remesh:
+            gmsh.model.mesh.classifySurfaces(math.radians(40.0), True, True, math.pi)
+            gmsh.model.mesh.createGeometry()
+            surfaces = [tag for _, tag in gmsh.model.getEntities(2)]
+            loop = gmsh.model.geo.addSurfaceLoop(surfaces)
+            gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * mesh_size)
+        else:
+            loop = gmsh.model.geo.addSurfaceLoop([1])
         gmsh.model.geo.addVolume([loop])
         gmsh.model.geo.synchronize()
         gmsh.option.setNumber("Mesh.MeshSizeMax", mesh_size)
@@ -884,12 +896,29 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True):
             f"reoriented {int(flip.sum())} negatively-wound tets from gmsh"
         )
 
-    tree = cKDTree(shell_pts[shell_tris].mean(axis=1))
     surf = grid.extract_surface(algorithm="dataset_surface")
     faces = surf.faces.reshape(-1, 4)[:, 1:]
-    centroids = surf.points[faces].mean(axis=1)
-    _, nearest = tree.query(centroids)
-    face_labels = patch_labels[nearest]
+    if remesh:
+        # A remeshed cap's faces sit far from the ORIGINAL cap triangles'
+        # centroids (big fan triangles), so nearest-centroid tagging handed
+        # ~30% of each cap rim to the wall. Caps are planar: a face is a cap
+        # face when all three of its nodes lie on that cap's plane.
+        face_labels = np.zeros(len(faces), dtype=np.int64)
+        tol = 1e-3 * float(mesh_size)
+        for label in (2, 3):
+            cap_nodes = np.unique(shell_tris[patch_labels == label])
+            if len(cap_nodes) < 3:
+                continue
+            p = shell_pts[cap_nodes]
+            c = p.mean(axis=0)
+            n = np.linalg.svd(p - c, full_matrices=False)[2][-1]
+            off = np.abs((surf.points[faces] - c) @ n)
+            face_labels[off.max(axis=1) < tol] = label
+    else:
+        tree = cKDTree(shell_pts[shell_tris].mean(axis=1))
+        centroids = surf.points[faces].mean(axis=1)
+        _, nearest = tree.query(centroids)
+        face_labels = patch_labels[nearest]
     orig_cell = np.asarray(surf.cell_data["vtkOriginalCellIds"], dtype=np.int64)
     orig_point = np.asarray(surf.point_data["vtkOriginalPointIds"], dtype=np.int64)
     face_nodes = orig_point[faces]
@@ -922,17 +951,20 @@ def fill_lumen(
 
     ``method``: ``ogrid`` = structured swept O-grid hexes (loud failure where
     the geometry obstructs), ``tet`` = gmsh tetra fill of the station-ring
-    shell, ``auto`` (default) = ogrid, falling back to tet with a loud
-    fold-number note when the structured fill fails or sweeps inverted.
+    shell, ``surface-tet`` = gmsh tetra fill of the input surface itself (no
+    centreline rings; needs exactly two flat end caps), ``auto`` (default) =
+    ogrid, falling back to tet with a loud fold-number note when the
+    structured fill fails or sweeps inverted, and to surface-tet when the
+    ring shell itself is invalid (rings overlapping on a tight bend).
 
     Each end the surface closes with a flat cap is anchored on that cap
     (D81), so the ``inlet``/``outlet`` patch is the cap itself; the notes
     give each patch's area against its cap's, or say loudly why an end kept
     the centreline-normal section.
     """
-    if method not in ("auto", "ogrid", "tet"):
+    if method not in ("auto", "ogrid", "tet", "surface-tet"):
         raise ValueError(
-            f"lumen method must be auto | ogrid | tet, got {method!r}"
+            f"lumen method must be auto | ogrid | tet | surface-tet, got {method!r}"
         )
     if n_theta < 8 or n_axial < 2:
         raise ValueError(
@@ -1041,15 +1073,69 @@ def fill_lumen(
             notes=mesh_notes,
         )
 
+    def surface_tet(reason: str | None) -> WallMesh:
+        # The input surface IS a valid closed shell even where the centreline
+        # bends tighter than the vessel (the station rings then overlap and
+        # the ring shell self-intersects): fill it directly. Its two flat end
+        # caps become inlet (the cap at the centreline's start) and outlet.
+        tri = surface.triangulate()
+        faces = tri.faces.reshape(-1, 4)[:, 1:]
+        caps = flat_cap_cells(tri)
+        if len(caps) != 2:
+            raise ValueError(
+                f"surface-tet lumen fill needs exactly two flat end caps, found "
+                f"{len(caps)} — crop the vessel with two planar caps first"
+            )
+        start = np.asarray(stations[0], dtype=float)
+        cents = [tri.points[faces[c]].mean(axis=(0, 1)) for c in caps]
+        order = np.argsort([np.linalg.norm(c - start) for c in cents])
+        labels = np.zeros(len(faces), dtype=np.int64)
+        labels[caps[order[0]]] = 2  # inlet
+        labels[caps[order[1]]] = 3  # outlet
+        edges = np.linalg.norm(
+            tri.points[faces] - tri.points[np.roll(faces, -1, axis=1)], axis=2
+        )
+        size = mesh_size if mesh_size is not None else float(np.median(edges)) * 1.5
+        grid, boundary, quality, opt_note = _tet_fill(
+            np.asarray(tri.points, dtype=float), faces, labels, mesh_size=size,
+            remesh=True,
+        )
+        mesh_notes = [
+            f"tet lumen fill of the input surface itself, remeshed by gmsh at "
+            f"mesh_size={size:.4g} ({tri.n_points} input surface nodes); inlet = "
+            f"the flat cap nearest the centreline start",
+            opt_note,
+            fold,
+        ]
+        if reason:
+            mesh_notes.append(reason)
+        mesh_notes.extend(quality.notes)
+        return WallMesh(
+            grid=grid,
+            boundary=boundary,
+            backend="lumen-surface-tet",
+            quality=quality,
+            notes=mesh_notes,
+        )
+
     if method == "ogrid":
         return structured()
     if method == "tet":
         return tet(None)
+    if method == "surface-tet":
+        return surface_tet(None)
     try:
         return structured()
     except ValueError as exc:
         # The station geometry itself is fine (rays hit) — the STRUCTURED
         # fill is what failed; the tet fallback meshes the same shell.
-        return tet(
-            f"structured O-grid fill failed ({exc}); tet fallback ({fold})"
-        )
+        reason = f"structured O-grid fill failed ({exc}); tet fallback ({fold})"
+        try:
+            return tet(reason)
+        except RuntimeError as ring_exc:
+            # The ring shell itself self-intersects (tight bend): fill the
+            # input surface directly instead.
+            return surface_tet(
+                f"{reason}; the station-ring shell is invalid ({ring_exc}); "
+                f"surface-tet fallback"
+            )

@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     p_lumen.add_argument(
         "--method",
         default="auto",
-        help="auto (default: O-grid, tet fallback on failure) | ogrid | tet",
+        help="auto (default: O-grid, then tet, then surface-tet on failure) | ogrid | tet | surface-tet",
     )
     p_lumen.add_argument("--n-theta", type=int, default=32, help="rays per station")
     p_lumen.add_argument(
