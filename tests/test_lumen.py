@@ -408,3 +408,61 @@ def test_example_family_end_patches_are_the_caps(cso_path):
         assert _patch_area(s.volmesh, end) == pytest.approx(area, rel=0.02), end
         assert np.abs((nodes - centre) @ normal).max() < 1e-6, end
     assert cso_input_sha256(cso_path) == before  # rule 1: unchanged
+
+
+# --- surface-tet fallback (a centreline that bends tighter than the vessel) --
+
+
+def test_surface_tet_fills_the_surface_itself_and_tags_the_caps():
+    surf, _ = generate("straight_tube")
+    wm = fill_lumen(surf, method="surface-tet")
+    assert wm.backend == "lumen-surface-tet"
+    assert wm.quality.n_inverted == 0
+    assert set(wm.boundary) == {"wall", "inlet", "outlet"}
+    assert abs(wm.grid.volume) == pytest.approx(abs(surf.volume), rel=0.01)
+    # each patch is the WHOLE cap after the gmsh remesh, not a rim-less core
+    from meshforge.meshing.lumen import flat_cap_cells
+    from meshforge.solve.inflow import patch_geometry
+
+    tri = surf.triangulate()
+    cap_areas = sorted(float(tri.extract_cells(c).area) for c in flat_cap_cells(tri))
+    patch_areas = sorted(patch_geometry(wm, n).area for n in ("inlet", "outlet"))
+    assert patch_areas == pytest.approx(cap_areas, rel=0.02)
+
+
+def test_surface_tet_refuses_a_surface_without_two_flat_caps(monkeypatch):
+    # inlet/outlet come from the two flat caps; one (or three) is ambiguous
+    import meshforge.meshing.lumen as lumen
+
+    real = lumen.flat_cap_cells
+    monkeypatch.setattr(lumen, "flat_cap_cells", lambda s: real(s)[:1])
+    surf, _ = generate("straight_tube")
+    with pytest.raises(ValueError, match="exactly two flat end caps"):
+        fill_lumen(surf, method="surface-tet")
+
+
+def test_auto_falls_back_to_surface_tet_when_the_ring_shell_is_invalid(monkeypatch):
+    # A centreline bending tighter than the vessel makes the station rings
+    # overlap: the O-grid fails AND the ring shell self-intersects. Simulate
+    # both and check auto still delivers a mesh, loudly.
+    import meshforge.meshing.lumen as lumen
+
+    def bad_sweep(*a, **k):
+        raise ValueError("simulated O-grid failure")
+
+    real_tet_fill = lumen._tet_fill
+    calls = {"n": 0}
+
+    def tet_fill(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:  # the station-ring shell
+            raise RuntimeError("lumen tet fill failed — simulated self-intersecting ring shell")
+        return real_tet_fill(*a, **k)
+
+    monkeypatch.setattr(lumen, "_sweep", bad_sweep)
+    monkeypatch.setattr(lumen, "_tet_fill", tet_fill)
+    surf, _ = generate("straight_tube")
+    wm = fill_lumen(surf, method="auto")
+    assert wm.backend == "lumen-surface-tet"
+    assert wm.quality.n_inverted == 0
+    assert any("surface-tet fallback" in n for n in wm.notes)

@@ -52,7 +52,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     # V47: fill the blood volume (lumen) instead of the wall; the result
     # takes the session volmesh slot so deck/solve/cfd/save work unchanged.
     "lumen": {
-        "method": (str, "auto", "auto (O-grid hexes, tet fallback on failure) | ogrid | tet"),
+        "method": (str, "auto", "auto (O-grid hexes, then tet, then surface-tet on failure) | ogrid | tet | surface-tet"),
         "n_theta": (int, 32, "rays per station (ring resolution)"),
         "n_axial": (int, 40, "stations along the centerline"),
         "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim"),

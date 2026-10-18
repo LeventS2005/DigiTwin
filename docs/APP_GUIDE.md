@@ -195,7 +195,18 @@ Where `volmesh` meshes the vessel WALL, `lumen` fills the **blood
 volume** — the domain cardiac CFD actually solves on.
 - `method` — `auto` (default: swept O-grid hexahedra, automatic gmsh
   tet fallback with a loud note when the structured fill fails),
-  `ogrid` (force structured, loud failure), `tet` (force tetrahedra).
+  `ogrid` (force structured, loud failure), `tet` (force tetrahedra),
+  `surface-tet` (tetrahedra filling the input surface itself).
+  - Where the centreline bends tighter than the vessel radius, the
+    O-grid stations and the tet fallback's station rings overlap, so
+    both fail.
+  - In that case `auto` falls through to `surface-tet`. It needs no
+    centreline: gmsh reparametrizes the surface (splitting at 40°
+    creases), remeshes it at an even size and fills it.
+  - It needs exactly two flat end caps, so crop first. The cap nearest
+    the centreline's start is `inlet`.
+  - Cap faces are tagged by lying on their cap's plane, so each patch
+    is the whole cap.
 - `n_theta` / `n_axial` — rays per station / stations along the
   centreline (the validated centreline embedded by `import_cso` is
   reused automatically).
@@ -663,7 +674,7 @@ READ-ONLY and checksummed on every load.
 | `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `meshforge crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
 | `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
-| `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
+| `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, then tet, then surface-tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
 | `blayers` | external boundary layers | `meshforge blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
 | `deck` | full solver input deck | `meshforge deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
 | `aaa-stress` | AAA wall stress, investigational (§3.9a) | `meshforge aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
