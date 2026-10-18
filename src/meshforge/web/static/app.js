@@ -428,6 +428,7 @@ const BROWSE_KNOBS = {
   "sac.lumen_mask": "file",
   "aaa_stress.crop_report": "file",
   "aaa_stress.ccx": "file",
+  "tissue_index.from_summary": "file",
 };
 
 function buildStepPanel(step, knobs) {

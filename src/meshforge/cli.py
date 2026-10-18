@@ -750,6 +750,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_sac.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
+    p_tix = sub.add_parser(
+        "tissue-index",
+        help="Rupture-potential index band: peak wall stress / lab-measured wall "
+        "strength (tissue library v0: open USP AAA strip tests, CC BY 4.0), "
+        "P10/P50/P90 with n shown. Investigational index, not a diagnosis.",
+    )
+    pws_src = p_tix.add_mutually_exclusive_group(required=True)
+    pws_src.add_argument("--pws", type=float, metavar="MPA",
+                         help="peak wall stress in MPa (Cauchy, from the wall-stress solve)")
+    pws_src.add_argument("--from-summary", type=_path_arg, metavar="JSON",
+                         help="wall-stress summary JSON holding a pws_mpa value (read only)")
+    p_tix.add_argument("--selection", choices=("aaa", "control", "all"), default="aaa",
+                       help="strength strips: aaa = rupture-border aneurysm wall (default), "
+                       "control = non-dilated aorta of the same donors, all = both")
+    p_tix.add_argument("--method", choices=("empirical", "lognormal"), default="empirical",
+                       help="band: empirical strip quantiles (default) or a lognormal fit")
+    p_tix.add_argument("--out", type=_path_arg, default=None,
+                       help="also write the band, sensitivities and provenance as JSON here")
+
     p_cso = sub.add_parser(
         "import-cso",
         help="MeVisLab Binary .cso contour ingest: loft (or voxelise) the "
@@ -1075,6 +1094,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_crop(args)
     if args.command == "sac":
         return _cmd_sac(args)
+    if args.command == "tissue-index":
+        return _cmd_tissue_index(args)
     if args.command == "import-cad3d":
         return _cmd_import_cad3d(args)
     if args.command == "foam":
@@ -2249,6 +2270,42 @@ def _cmd_sac(args: argparse.Namespace) -> int:
         print("error: sac surface is not mesh_ready — see check report", file=sys.stderr)
         return 1
     return rc
+
+
+def _cmd_tissue_index(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.tissue.strength import (
+        StrengthLibraryError,
+        index_band_report,
+        index_band_text,
+        pws_from_summary,
+    )
+
+    try:
+        if args.from_summary is not None:
+            pws, where, digest = pws_from_summary(args.from_summary)
+            pws_source = f"{args.from_summary.name}: {where}"
+        else:
+            pws, pws_source, digest = args.pws, "entered", None
+        if args.out is not None and args.from_summary is not None and (
+            args.out.resolve() == args.from_summary.resolve()
+        ):
+            raise ValueError(f"refusing to overwrite input file: {args.from_summary}")
+        report = index_band_report(pws, selection=args.selection, method=args.method)
+    except (ValueError, FileNotFoundError, StrengthLibraryError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    report["pws_source"] = pws_source
+    if digest is not None:
+        report["pws_summary_sha256"] = digest
+    print(index_band_text(report, pws_source=pws_source), end="")
+    if args.out is not None:
+        out = args.out if args.out.suffix.lower() == ".json" else args.out.with_suffix(".json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2) + "\n")
+        print(f"summary            : {out}")
+    return 0
 
 
 def _cmd_import_cso(args: argparse.Namespace) -> int:

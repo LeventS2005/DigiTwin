@@ -147,6 +147,9 @@ _PATH_KNOBS: dict[str, str | None] = {
     # like solve, may name the CalculiX executable
     "aaa_stress.crop_report": "file",
     "aaa_stress.ccx": "file",
+    # D89: the tissue index reads PWS from a wall-stress summary JSON — a real
+    # input file, so it gets a picker
+    "tissue_index.from_summary": "file",
     # Deliberate omissions — session 41 scoped fix 6 to the fields the
     # walkthrough exercised. These three are real path fields with no picker;
     # promoting them is a one-line BROWSE_KNOBS addition each.
