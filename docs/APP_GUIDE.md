@@ -447,6 +447,91 @@ DOFs 1–3; NALL valid for frequency), `pin_lateral`, `nlgeom`, `ccx`,
 `timeout`. Results attach to the mesh (U_mag/S_mises/NDTEMP) and the
 log prints |U| max, frequencies, T range, time steps, buckling factors.
 
+### 3.9a aaa_stress  (AAA wall stress under blood pressure — needs: a swept hex wall)
+An **investigational** wall-stress metric for an abdominal aortic aneurysm —
+not a diagnosis and not a rupture prediction. It runs on the session's swept
+hex wall (`volmesh`, e.g. the 1.5 mm wall on a cropped sac, §3.6c), or from
+the CLI on a saved wall `.vtu` with its `<stem>.summary.json`.
+
+**Method (stiff-linear on the loaded geometry).** The CT shows the aorta
+already pressurised, so a linear elastic, small-strain solve on that geometry
+gives a stress set by the geometry and the pressure, not by the modulus
+(changing E ten-fold moves it by 0). Units are mm, N and MPa (1 mmHg =
+133.322 Pa). CalculiX, two real solves: the `systolic_mmhg` (default 140) and
+the `whatif_mmhg` (default 120) pressure, each uniform on the wall's lumen
+side (`inner`), both ends (`inlet`, `outlet`) clamped (encastre), as in the
+Zenodo AAA dataset's own model. Wall E 100 MPa, ν 0.49. The hexes are solved
+as 20-node quadratic hexes (C3D20R: mid-edge nodes added on straight edges,
+so the geometry is identical) — 8-node C3D8 locks at ν 0.49 and C3D8I reads
+10–21% low on the tilted cells of a real sac wall.
+
+**What it reports** (outside the end zones; the zone next to each clamp is
+dominated by the clamp):
+- **PWS** — the 99th percentile of the von Mises stress, volume-weighted over
+  the integration points (2×2×2 per hex), in kPa;
+- the 99th percentile of the max principal stress, and the von Mises max;
+- the **peak location** (coordinates, height above the distal cap) and the
+  centroid of the top-1% region;
+- **wall tension** (N/mm) p50 / p99 / max: the through-thickness resultant
+  of the in-plane stress (wall thickness × the layer-mean in-plane stress, its
+  larger principal value). On the loaded geometry it does not depend on the
+  assumed thickness (1.2 / 1.5 / 2.0 mm agree within 0.3%), while the PWS
+  scales as 1/t;
+- the what-if: PWS at 120 / 140 mmHg (= 0.857 — the solve is linear).
+
+**End zones** (`end_zone`): `neck` (default) — one neck diameter from each
+cap plane, from the crop report (`crop_report`, or this session's `crop`
+step), else each cap's own equivalent diameter; `bending` — 3 shell bending
+lengths `sqrt(R t)/(3(1−ν²))^¼` per cap (where a clamp's local disturbance
+has decayed); or a length in mm. If the zones leave less than 10% of the
+wall, the PWS is **refused** — the crop is too short for that rule. The
+AortaSeg-60 Anev_02 crop is: its caps are 50.7 mm apart and its neck is
+24.7 mm, so the default leaves 1.9%; run it with `--end-zone bending`.
+
+**Refusals** (no number, the reason printed, exit 1): any inverted cell; any
+capped or floored wall ray (both sweep kinds — planes: tilt + concavity); a
+missing or mismatched mesh summary; too little wall outside the end zones.
+
+**Assumptions it always prints:** investigational; wall thickness assumed
+1.5 mm, uniform; **no intraluminal thrombus modelled, so wall stress is
+overstated where thrombus is present**; stiff-linear on the loaded geometry;
+uniform static pressure, both ends clamped.
+
+Output (`outputs/aaa_stress/session/` from the Workbench; the CLI's
+`--out-dir`): `<stem>_aaa_stress.vtu` — point and cell fields `von_mises`,
+`max_principal`, `tension` (MPa, MPa, N/mm; `_whatif` for the second
+pressure), `excluded_end_zone`, `DISP`; `<stem>_aaa_stress.json`; the two
+`.inp` decks with their `.dat`/`.frd`.
+
+```bash
+meshforge aaa-stress outputs/m2/e2e/Anev_02_sac_wall_auto_s4.vtu \
+    --crop-report outputs/m2/e2e/Anev_02_crop_crop.json \
+    --systolic 140 --whatif 120 --end-zone bending --out-dir outputs/m3/anev02
+```
+(AortaSeg-60 Anev_02, a native AAA: PWS 889 kPa at 140 mmHg, 762 kPa at
+120 mmHg, ratio 0.857; 30 s.) `python -I scripts/m3_stress_maps.py
+<stem>_aaa_stress.vtu outputs/m3/<name>` renders the stress map and the
+140-vs-120 pair off-screen.
+
+**Validation.** Against closed forms: a clamped cylinder (hoop tension = P·a
+to 0.6%, PWS = the Lamé von Mises to 0.2%), a sphere-like bulge (Young–
+Laplace at the apex, +2.9%), a fusiform sac (general Laplace −0.5%; PWS 0.83
+of P·R/t, inside the membrane bounds 0.75–1.05). Against the Zenodo AAA
+dataset's published FE result (`scripts/m3_tension_validation.py`,
+`outputs/m3/tension_validation.md`), on all 12 cases whose crop used the
+automatic landmarks and whose wall passed the gate, at their 16 kPa: median
+Spearman ρ 0.70 (0.42–0.89), median offset between their and our top-1%
+tension regions 9.8 mm, our p99 / their p99 1.42 (p50 1.56). Ours reads
+higher because our wall carries no thrombus: their pressure acts on the
+lumen, inside the thrombus. Across the cases our/their p50 follows the
+thrombus thickness (Spearman 0.90); on the thin-thrombus case P12 it is 1.12
+with ρ 0.89.
+
+Data credits: Zenodo AAA 4D-CTA dataset, doi 10.5281/zenodo.19182977,
+CC BY 4.0 (its surfaces are a *reference segmentation* and its tension maps
+are *the dataset's published FE result* — neither is ground truth);
+AortaSeg-60, doi 10.5281/zenodo.18147026, CC BY 4.0.
+
 ### 3.10 cfd  (OpenFOAM — needs: volmesh saved as a foam case, or `case`)
 Knobs: `case`, `solver` (`simpleFoam` steady / `icoFoam` transient),
 `nu`, `inlet` ("front=0,0,1", or a speed "front=150" — §3.10a),
@@ -581,6 +666,7 @@ READ-ONLY and checksummed on every load.
 | `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
 | `blayers` | external boundary layers | `meshforge blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
 | `deck` | full solver input deck | `meshforge deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
+| `aaa-stress` | AAA wall stress, investigational (§3.9a) | `meshforge aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
 | `solve` | run ccx (.inp) or MYSTRAN (.bdf) | `meshforge solve outputs/tube_ccx.inp` (`.k`/`.cdb` refuse loudly — no LS-DYNA/ANSYS solver) |
 | `foam` | mesh → OpenFOAM polyMesh case | `meshforge foam tube.vtp --thickness 1 --case outputs/tube_case` |
 | `cfd` | run OpenFOAM on a case | `meshforge cfd outputs/tube_case --nu 0.1 --inlet inlet=0,0,1 --outlet outlet=0` (+ `--series`, `--turbulence kOmegaSST --turb-length`, `--moving-wall --empty --closed-cavity`) |
@@ -668,7 +754,10 @@ one variant failing never kills the batch).
   `lumen_out`; TotalSegmentator's scratch files live in a temp folder that is
   deleted. Crop: the surface at `--out` (default `outputs/crop/<name>_crop.vtp`),
   `<out>_crop.json` (landmarks, planes, caps, full diameter profile) and the
-  cut lumen (`--lumen-out`, default `<out>_lumen.vtp`).
+  cut lumen (`--lumen-out`, default `<out>_lumen.vtp`). AAA wall stress:
+  `outputs/aaa_stress/<wall stem>/` (or `--out-dir`) — `<stem>_aaa_stress.vtu`
+  + `.json` and the two decks with their `.dat`/`.frd`; the Workbench step
+  writes to `outputs/aaa_stress/session/`.
 - **Public AAA data used in the M2 gate table** (`outputs/m2/`): Zenodo AAA
   4D-CTA dataset, doi 10.5281/zenodo.19182977, CC BY 4.0 (the authors'
   surfaces are a *reference segmentation*, not ground truth); AortaSeg-60,
@@ -697,6 +786,8 @@ one variant failing never kills the batch).
 | `TotalSegmentator failed (exit code N). Last log lines: …` | The tail is TotalSegmentator's own output. On a Mac without a working GPU backend, try `device` = `cpu`. |
 | `TotalSegmentator returned an empty aorta mask — is the aorta in the field of view? …` | The scan does not show the aorta (wrong series, cropped away), or it is a tight crop with no body context — TotalSegmentator needs the full-field-of-view CT. Seen on the Zenodo AAA crops (~80 mm boxes around the aneurysm). |
 | `TotalSegmentator's aorta mask holds only … mL … implausibly small for an aorta` | Same cause: a few stray voxels, not an aorta. The step refuses to pass them on. |
+| `REFUSED : … wall rays capped …` / `… inverted cell(s)` / `no mesh summary …` | `aaa-stress` will not score a wall the gate did not clear — re-mesh (`--curvature-cap 0.9`, `--sweep auto`, `--section-smoothing`) until the wall is 0 inverted / 0 capped / 0 floored, and keep the `.summary.json` next to the `.vtu`. |
+| `REFUSED : the end zones (…) leave N% of the wall volume (< 10%)` | The crop is too short for one neck diameter at each clamped end. Re-crop with longer ends, or pass `--end-zone bending` (or a length in mm); the zones used are printed. |
 | `… over the 268435456 voxel CT ceiling` | The CT header declares more than 512×512×1024 voxels; crop or downsample it first. |
 | `… the anatomical frame (LPS/RAS) is unknown — refusing to guess` | The NRRD has no `space` field. Re-save it from a viewer that writes `space: left-posterior-superior`. |
 

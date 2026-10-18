@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `aaa_stress` step and `meshforge aaa-stress` — an investigational wall
+  stress for an abdominal aortic aneurysm under blood pressure. Stiff-linear
+  CalculiX solves on the loaded (imaged) geometry of a swept hex wall: uniform
+  pressure on the lumen side, both ends clamped, E 100 MPa, ν 0.49, the hexes
+  solved as C3D20R. Two real solves (systolic, default 140 mmHg, and a
+  what-if, default 120 mmHg). Reports the peak wall stress (99th percentile of
+  the integration-point von Mises outside the clamped end zones), the max
+  principal p99, the max, the peak location (height above the distal cap) and
+  the wall tension (N/mm, ~independent of the assumed thickness). Writes a
+  results `.vtu` (point and cell fields, end zones flagged) and a summary
+  JSON, and always prints its assumptions (thickness assumed 1.5 mm, no
+  thrombus modelled, stiff-linear, investigational). Refuses — no number, the
+  reason printed, exit 1 — a wall with inverted cells, capped or floored wall
+  rays, a missing mesh summary, or end zones that leave under 10% of the wall.
+  Input: a wall `.vtu` with its `.summary.json` (boundary groups are recovered
+  from the swept lattice), or a `.mfwork` session.
+  The summary JSON holds the peak wall stress once, at the top level:
+  `pws_mpa` (systolic von Mises 99th percentile, Cauchy, MPa; `null` when
+  refused) with `pws_measure` and `pws_pressure_mmhg`; each pressure's block
+  has `von_mises_p99_mpa`.
+- `read_frd(..., elements=False)` / `solve_deck(..., read_elements=False)`:
+  read only the nodal fields of a result whose element type has no viewer
+  mapping (the quadratic AAA wall).
+- `scripts/m3_stress_maps.py` (off-screen stress-map stills) and
+  `scripts/m3_tension_validation.py` (our tension vs the Zenodo AAA dataset's
+  published FE result, doi 10.5281/zenodo.19182977, CC BY 4.0).
+
 ### Changed
 
 - Public tree slimmed to what someone *using* meshforge needs. The agent and

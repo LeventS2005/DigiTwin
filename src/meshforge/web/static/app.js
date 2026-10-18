@@ -426,6 +426,8 @@ const BROWSE_KNOBS = {
   "crop.lumen_out": "save",
   "sac.path": "file",
   "sac.lumen_mask": "file",
+  "aaa_stress.crop_report": "file",
+  "aaa_stress.ccx": "file",
 };
 
 function buildStepPanel(step, knobs) {
