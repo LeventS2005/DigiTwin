@@ -421,6 +421,11 @@ const BROWSE_KNOBS = {
   "solve.ccx": "file",
   "cfd.case": "dir",
   "segment.path": "file",
+  "segment.lumen_out": "save",
+  "crop.lumen": "file",
+  "crop.lumen_out": "save",
+  "sac.path": "file",
+  "sac.lumen_mask": "file",
 };
 
 function buildStepPanel(step, knobs) {

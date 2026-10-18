@@ -135,6 +135,14 @@ _PATH_KNOBS: dict[str, str | None] = {
     "cfd.case": "dir",
     # D83: the CT for the AI-segmentation step (a file, like every importer)
     "segment.path": "file",
+    # D85: the contrast-lumen surface segment writes, and the lumen the crop
+    # step cuts with the same planes (read) and writes (save)
+    "segment.lumen_out": "save",
+    "crop.lumen": "file",
+    "crop.lumen_out": "save",
+    # D86: the sac step reads a CT and a lumen mask — both files, both pickers
+    "sac.path": "file",
+    "sac.lumen_mask": "file",
     # Deliberate omissions — session 41 scoped fix 6 to the fields the
     # walkthrough exercised. These three are real path fields with no picker;
     # promoting them is a one-line BROWSE_KNOBS addition each.

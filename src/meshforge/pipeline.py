@@ -42,6 +42,12 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "n_axial": (int, 60, "axial stations"),
         "n_layers": (int, 4, "radial layers (swept)"),
         "layer_ratio": (float, 1.0, "radial grading: outer/inner layer thickness"),
+        "curvature_cap": (float, 0.5, "swept: fraction of the fold radius 1/|κ| a wall ray may reach on a concave bend (0.9 for an aneurysm sac)"),
+        # D87: station layout of the swept wall (default unchanged).
+        "sweep": (str, "centreline", "swept stations: centreline (rays square to the centreline) | planes (sections parallel to two flat parallel end caps — for a short, wide, eccentric segment such as a cropped sac) | auto (centreline unless its wall inverts or is capped/floored, then planes)"),
+        "side": (str, "outward", "planes: grow the wall outward of the surface, or inward (the surface is the outer wall, e.g. a recovered sac)"),
+        "max_tilt": (float, None, "planes: largest surface tilt to the station planes, degrees, before the wall is thinned (default 80)"),
+        "section_smoothing": (float, 0.0, "planes: Gaussian smoothing of each section along its length (length units, 0 = exact) for a surface rougher than the wall thickness; how far the nodes move is reported"),
     },
     # V47: fill the blood volume (lumen) instead of the wall; the result
     # takes the session volmesh slot so deck/solve/cfd/save work unchanged.
@@ -86,6 +92,31 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "fast": (int, 0, "1 = TotalSegmentator's faster 3 mm model"),
         "smoothing": (float, 1.0, "Gaussian blur of the mask in voxels before the surface (0 = off)"),
         "timeout": (float, 1800.0, "TotalSegmentator wall-clock limit in seconds"),
+        "lumen_out": (str, "", "also write the contrast blood lumen to this .vtp file (CT >= lumen_hu inside the AI outline — a threshold, not AI)"),
+        "lumen_hu": (float, 150.0, "HU threshold for the blood lumen (calcification is bright too: detached pieces are dropped)"),
+    },
+    # D85 (M2): crop the aorta to its infrarenal aneurysm segment — two cut
+    # planes square to the centreline, flat caps, landmark report.
+    "crop": {
+        "neck_extension_mm": (float, 25.0, "proximal cut this far above the neck start (the flow/clamp extension), held inside the neck"),
+        "distal_margin_mm": (float, 10.0, "distal cut this far above the top of the bifurcation flare"),
+        "distal_height_mm": (float, None, "manual distal cut, mm above the caudal end (set both heights or neither)"),
+        "proximal_height_mm": (float, None, "manual proximal cut, mm above the caudal end"),
+        "lumen": (str, "", "blood-lumen surface file to cut with the same two planes"),
+        "lumen_out": (str, "", "write the cut lumen surface to this .vtp file"),
+    },
+    # D86 (M2): outer aneurysm sac (lumen + thrombus + wall) recovered from the
+    # CT around a lumen-only mask, by axial rays to the first fat plane.
+    "sac": {
+        "path": (str, "", "CT volume .nrrd / .nii(.gz) in HU — the scan the lumen mask was drawn on"),
+        "lumen_mask": (str, "", "lumen mask file on the same grid (.nii/.nii.gz/.nrrd), e.g. an AI aorta mask"),
+        "lumen_hu": (float, 150.0, "contrast threshold (HU): mask voxels at or above it are the lumen"),
+        "fat_hu": (float, -30.0, "fat / air below this HU marks the outer sac edge"),
+        "max_thickness_mm": (float, 40.0, "longest thrombus + wall searched beyond the lumen (mm)"),
+        "n_rays": (int, 72, "rays per axial slice"),
+        "roi_mm": (float, 150.0, "height above the lumen's lower end to process (mm; 0 = whole mask)"),
+        "min_resolved": (float, 0.5, "refuse when fewer rays than this fraction find a fat plane"),
+        "smoothing": (float, 1.0, "Gaussian blur of the sac mask in voxels before the surface (0 = off)"),
     },
     # V5 structured blocks; V6 projection, V17 Winslow smoothing,
     # V20 grading, V26 O-grid.
@@ -207,6 +238,8 @@ STEP_ORDER: tuple[str, ...] = (
     "import_image",
     "import_cso",
     "segment",
+    "sac",
+    "crop",
     "centerline",
     "sections",
     "wall",
@@ -234,6 +267,29 @@ if _missing or _extra:  # pragma: no cover - import-time contract check
     )
 if len(STEP_ORDER) != len(set(STEP_ORDER)):  # pragma: no cover
     raise RuntimeError("STEP_ORDER contains a duplicate step")
+
+
+def sac_text(summ: dict[str, Any]) -> str:
+    """Human-readable sac summary (step text and CLI share it)."""
+    md, th = summ["max_diameter"], summ["thickness_mm"]
+    counts = ", ".join(f"{k} {v}" for k, v in summ["ray_status_counts"].items())
+    rps = summ["resolved_fraction_per_slice"]
+    text = (
+        f"sac: {summ['n_slices']} axial slices x {summ['n_rays']} rays, h "
+        f"{summ['h_range_mm'][0]:g}..{summ['h_range_mm'][1]:g} mm above the lumen's "
+        f"lower end\n"
+        f"  resolved (fat plane found): {summ['resolved_fraction']:.1%} of rays; per "
+        f"slice min {rps['min']:.0%} / median {rps['median']:.0%}; {counts}\n"
+        f"  sac {summ['sac_volume_ml']:.1f} mL, lumen {summ['lumen_volume_ml']:.1f} mL; "
+        f"max diameter {md['max_caliper']['value_mm']:.1f} mm (caliper, h "
+        f"{md['max_caliper']['h_mm']:g}), short axis {md['min_caliper']['value_mm']:.1f} "
+        f"mm, area-equivalent {md['area_equivalent']['value_mm']:.1f} mm\n"
+        f"  thrombus + wall thickness: median {th['all_rays']['median']:.1f}, p90 "
+        f"{th['all_rays']['p90']:.1f}, max {th['all_rays']['max']:.1f} mm\n"
+    )
+    for note in summ["notes"]:
+        text += f"  note: {note}\n"
+    return text
 
 
 def _clean_path(raw: str | Path) -> str:
@@ -736,6 +792,44 @@ class StepResult:
     render_hints: dict[str, Any] = field(default_factory=dict)
 
 
+def crop_text(rep: dict[str, Any]) -> str:
+    """Human-readable lines of a crop report (``geometry.crop.CropResult.report``)
+    — shared by the crop step and the CLI."""
+    lines = []
+    lm = rep.get("landmarks")
+    if lm:
+        lines.append(
+            f"landmarks   : sac h {lm['sac_height_mm']:.1f} mm, d_equiv "
+            f"{lm['sac_d_equiv_mm']:.1f} mm (max diameter {lm['sac_max_diameter_mm']:.1f}); "
+            f"neck from h {lm['neck_start_height_mm']:.1f} mm, d {lm['neck_d_equiv_mm']:.1f} "
+            f"mm, length {'>= ' if lm['neck_open_ended'] else ''}{lm['neck_length_mm']:.1f} mm; "
+            f"sac/neck {lm['sac_neck_ratio']:.2f}; flare top h {lm['flare_top_height_mm']:.1f} mm"
+        )
+    else:
+        lines.append("landmarks   : not found (manual heights or planes)")
+    for name in ("distal", "proximal"):
+        pl, cap = rep["planes"][name], rep["caps"][name]
+        lines.append(
+            f"{name + ' cap':<12}: h {pl['height_mm']:.1f} mm, d_equiv {cap['d_equiv_mm']:.1f} mm, "
+            f"{cap['rim_vertices']} rim vertices, planar to {cap['planarity_mm']:.1e} mm, rim "
+            f"crease >= {cap['rim_crease_min_deg']:.1f} deg, normal "
+            f"{[round(v, 4) for v in pl['normal_out']]}"
+        )
+    srf = rep["surface"]
+    lines.append(
+        f"cropped     : {srf['n_points']} pts, {srf['n_triangles']} tris, watertight "
+        f"{srf['watertight']}, {srf['volume_ml']:.2f} mL"
+    )
+    if rep.get("lumen"):
+        lum = rep["lumen"]
+        lines.append(
+            f"lumen       : {lum['n_triangles']} tris, watertight {lum['watertight']}, "
+            f"{lum['volume_ml']:.2f} mL, same two planes"
+        )
+    lines += [f"note        : {n}" for n in rep.get("notes", [])]
+    return "\n".join(lines) + "\n"
+
+
 def auto_cso_surface(data, *, n_ring: int, voxel_size, cap_ends: bool):
     """V40: pick the first CSO surface + centreline whose swept volmesh has
     ``inverted == 0`` — loft + skeleton centreline, then loft + the interior
@@ -996,6 +1090,21 @@ class MeshingSession:
             f"sj_min {q['sj_min']:.4g}, volume {q['total_volume']:.6g}\n"
             f"  boundary: {s['boundary_faces']}\n"
         )
+        if "lattice" in s:
+            lat = s["lattice"]
+            text += (
+                f"  wall rays: capped {lat['n_capped']}, floored {lat['n_floored']} of "
+                f"{lat['n_rays']} (curvature_cap {lat['curvature_cap']:g}); thickness "
+                f"{lat['thickness_min']:.4g}..{lat['thickness_max']:.4g}\n"
+            )
+            if lat.get("sweep") == "planes":
+                text += (
+                    f"  plane sweep ({lat['side']}): capped by tilt {lat['n_capped_tilt']}, "
+                    f"by concavity {lat['n_capped_concave']}; tilt max "
+                    f"{lat['tilt_max_deg']:.1f} deg; nodes off the surface max "
+                    f"{lat['surface_offset_max']:.3g} (section_smoothing "
+                    f"{lat['section_smoothing']:g})\n"
+                )
         result = StepResult(
             step="volmesh",
             summary=s,
@@ -1340,9 +1449,15 @@ class MeshingSession:
         fast: int = 0,
         smoothing: float = 1.0,
         timeout: float = 1800.0,
+        lumen_out: str = "",
+        lumen_hu: float = 150.0,
     ) -> StepResult:
         """D83 (M1): CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator aorta mask ->
         watertight surface as the session source, in RAS millimetres.
+
+        D85: ``lumen_out`` also writes the contrast blood lumen (CT >=
+        ``lumen_hu`` inside the AI mask, largest piece — a threshold, not AI)
+        to that .vtp; the session source stays the AI outline.
 
         All work lives in ``io/segment.py`` (rule 4); TotalSegmentator runs in
         its own env as a subprocess, staged in a temp dir — nothing is written
@@ -1354,13 +1469,22 @@ class MeshingSession:
         from meshforge.io.segment import segment_ct
         from meshforge.quality import inspect_surface
 
+        lumen_out = _clean_path(lumen_out)
+        if lumen_out:
+            from meshforge.export import guard_output_path
+
+            guard_output_path(lumen_out, input_paths=[path])
         seg = segment_ct(
             path,
             device=device,
             fast=bool(fast),
             smoothing=float(smoothing),
             timeout=float(timeout),
+            lumen_hu=float(lumen_hu) if lumen_out else None,
         )
+        if lumen_out:
+            Path(lumen_out).parent.mkdir(parents=True, exist_ok=True)
+            seg.lumen_surface.save(lumen_out)
         self.surface = seg.surface
         self.input_path = Path(path)
         self.input_sha256 = seg.input_sha256
@@ -1384,6 +1508,15 @@ class MeshingSession:
         )
         for note in summ["notes"]:
             text += f"  note: {note}\n"
+        if lumen_out:
+            lum = summ["lumen"]
+            text += (
+                f"  lumen: {lum['kept_voxels']} voxels >= {lum['lumen_hu']:g} HU kept "
+                f"({lum['lumen_volume_ml']:.1f} mL, {100 * lum['fraction_of_mask']:.1f}% of "
+                f"the AI mask, Dice {lum['dice_vs_ai_mask']:.4f}); dropped "
+                f"{lum['dropped_components']} piece(s) / {lum['dropped_voxels']} voxels -> "
+                f"{lumen_out}\n  lumen: {lum['method']}\n"
+            )
         text += report.to_text()
         result = StepResult(
             step="segment",
@@ -1401,6 +1534,162 @@ class MeshingSession:
                 "fast": int(fast),
                 "smoothing": float(smoothing),
                 "timeout": float(timeout),
+                "lumen_out": lumen_out,
+                "lumen_hu": float(lumen_hu),
+            },
+            result,
+            input_sha256=self.input_sha256,
+        )
+        return result
+
+    def compute_crop(
+        self,
+        *,
+        neck_extension_mm: float = 25.0,
+        distal_margin_mm: float = 10.0,
+        distal_height_mm: float | None = None,
+        proximal_height_mm: float | None = None,
+        lumen: str = "",
+        lumen_out: str = "",
+    ) -> StepResult:
+        """D85 (M2): crop the session surface (an aorta in millimetres, +z
+        superior) to its infrarenal aneurysm segment with two flat caps square
+        to the centreline; an optional lumen surface is cut by the SAME planes
+        and written to ``lumen_out``. All work lives in ``geometry/crop.py``."""
+        surface = self._require_surface()
+        if self.length_unit not in (None, "mm"):
+            raise ValueError(
+                f"crop works in millimetres; this surface is in {self.length_unit!r}"
+            )
+        lumen, lumen_out = _clean_path(lumen), _clean_path(lumen_out)
+        if bool(lumen) != bool(lumen_out):
+            raise ValueError(
+                "crop: give both lumen (the surface to cut) and lumen_out (where the cut "
+                "lumen is written), or neither"
+            )
+        from meshforge.geometry.crop import crop_aaa
+        from meshforge.quality import inspect_surface
+
+        lumen_mesh = None
+        if lumen:
+            from meshforge.export import guard_output_path
+            from meshforge.io import load_surface
+
+            guard_output_path(lumen_out, input_paths=[self.input_path, lumen])
+            lumen_mesh = load_surface(lumen)
+        res = crop_aaa(
+            surface,
+            neck_extension_mm=float(neck_extension_mm),
+            distal_margin_mm=float(distal_margin_mm),
+            distal_height_mm=None if distal_height_mm is None else float(distal_height_mm),
+            proximal_height_mm=None if proximal_height_mm is None else float(proximal_height_mm),
+            lumen=lumen_mesh,
+        )
+        rep = res.report()
+        rep.pop("profile", None)  # every section: in the CLI's JSON, not the journal
+        if self.length_unit is None:
+            rep["notes"].append("the surface carries no length unit: millimetres assumed")
+        self.surface = res.surface
+        self._invalidate_downstream()
+        if lumen_out:
+            Path(lumen_out).parent.mkdir(parents=True, exist_ok=True)
+            res.lumen.save(lumen_out)
+        report = inspect_surface(self.surface, path=str(self.input_path), sha256=self.input_sha256)
+        text = crop_text(rep) + report.to_text()
+        import pyvista as pv
+
+        from meshforge.geometry import centerline_from_surface
+
+        hints: dict[str, Any] = {"mesh": self.surface, "kind": "surface", "label": "AAA crop"}
+        seg_cl = centerline_from_surface(self.surface)
+        if seg_cl is not None:
+            hints["overlay"] = pv.lines_from_points(seg_cl.points)
+            hints["overlay_label"] = "segment centreline"
+        result = StepResult(
+            step="crop", summary={**report.to_dict(), "crop": rep}, text=text,
+            render_hints=hints,
+        )
+        self._record(
+            "crop",
+            {
+                "neck_extension_mm": float(neck_extension_mm),
+                "distal_margin_mm": float(distal_margin_mm),
+                "distal_height_mm": distal_height_mm,
+                "proximal_height_mm": proximal_height_mm,
+                "lumen": lumen,
+                "lumen_out": lumen_out,
+            },
+            result,
+            input_sha256=self.input_sha256,
+        )
+        return result
+
+    def compute_sac(
+        self,
+        *,
+        path: str = "",
+        lumen_mask: str = "",
+        lumen_hu: float = 150.0,
+        fat_hu: float = -30.0,
+        max_thickness_mm: float = 40.0,
+        n_rays: int = 72,
+        roi_mm: float = 150.0,
+        min_resolved: float = 0.5,
+        smoothing: float = 1.0,
+    ) -> StepResult:
+        """D86 (M2): CT + lumen-only mask -> outer aneurysm sac (lumen +
+        thrombus + wall) as the session source surface, RAS millimetres, with
+        point fields ``ilt_thickness_mm`` and ``sac_resolved``.
+
+        All work lives in ``geometry/sac.py`` (rule 4); nothing is written.
+        """
+        path, lumen_mask = _clean_path(path), _clean_path(lumen_mask)
+        if not path or not lumen_mask:
+            raise ValueError(
+                "sac needs a CT volume path and a lumen mask path on the same grid"
+            )
+        from meshforge.geometry.sac import recover_sac_from_files
+        from meshforge.quality import inspect_surface
+
+        run = recover_sac_from_files(
+            path,
+            lumen_mask,
+            lumen_hu=float(lumen_hu),
+            fat_hu=float(fat_hu),
+            max_thickness_mm=float(max_thickness_mm),
+            n_rays=int(n_rays),
+            roi_mm=float(roi_mm),
+            min_resolved=float(min_resolved),
+            smoothing=float(smoothing),
+        )
+        self.surface = run.surface
+        self.input_path = Path(path)
+        self.input_sha256 = run.input_sha256["ct"]
+        self.truth = None
+        self._invalidate_downstream()
+        self.length_unit = "mm"
+        summ = run.summary
+        report = inspect_surface(self.surface, path=str(path), sha256=self.input_sha256)
+        text = sac_text(summ)
+        text += report.to_text()
+        result = StepResult(
+            step="sac",
+            summary={**report.to_dict(), "sac": summ},
+            text=text,
+            render_hints={"mesh": self.surface, "kind": "surface", "label": "sac"},
+        )
+        self._record(
+            "sac",
+            {
+                "path": path,
+                "lumen_mask": lumen_mask,
+                "lumen_hu": float(lumen_hu),
+                "fat_hu": float(fat_hu),
+                "max_thickness_mm": float(max_thickness_mm),
+                "n_rays": int(n_rays),
+                "roi_mm": float(roi_mm),
+                "min_resolved": float(min_resolved),
+                "smoothing": float(smoothing),
             },
             result,
             input_sha256=self.input_sha256,
@@ -2200,6 +2489,8 @@ _WORKFILE_STEPS = (
     "import_image",
     "import_cso",
     "segment",
+    "sac",
+    "crop",
     "blocks",
     "repair",
     "solve",
@@ -2313,6 +2604,10 @@ def replay(
             results.append(session.compute_import_cso(**params))
         elif name == "segment":
             results.append(session.compute_segment(**params))
+        elif name == "crop":
+            results.append(session.compute_crop(**params))
+        elif name == "sac":
+            results.append(session.compute_sac(**params))
         elif name == "blocks":
             results.append(session.compute_blocks(**params))
         elif name == "repair":

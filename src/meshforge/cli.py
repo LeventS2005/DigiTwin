@@ -144,6 +144,44 @@ def main(argv: list[str] | None = None) -> int:
         default=1.0,
         help="radial grading ratio, outer/inner layer thickness (swept only)",
     )
+    p_vol.add_argument(
+        "--curvature-cap",
+        type=float,
+        default=0.5,
+        help="swept only: fraction of the fold radius 1/|kappa| a wall ray may reach on a "
+        "concave bend before it is capped (default 0.5; 0.9 for an aneurysm sac)",
+    )
+    p_vol.add_argument(
+        "--sweep",
+        choices=("centreline", "planes", "auto"),
+        default="centreline",
+        help="swept only: station layout — centreline (default: rays square to the "
+        "centreline), planes (sections parallel to two flat parallel end caps; for a "
+        "short, wide, eccentric segment such as a cropped aneurysm sac), auto "
+        "(centreline unless its wall inverts or is capped/floored, then planes)",
+    )
+    p_vol.add_argument(
+        "--side",
+        choices=("outward", "inward"),
+        default="outward",
+        help="planes only: grow the wall outward of the surface (default) or inward "
+        "(the surface is the outer wall, e.g. a recovered sac)",
+    )
+    p_vol.add_argument(
+        "--max-tilt",
+        type=float,
+        default=None,
+        help="planes only: largest surface tilt to the station planes (degrees) before "
+        "the wall is thinned and counted as capped (default 80)",
+    )
+    p_vol.add_argument(
+        "--section-smoothing",
+        type=float,
+        default=0.0,
+        help="planes only: Gaussian smoothing of each section along its length "
+        "(length units; default 0 = exact) for a surface rougher than the wall; the "
+        "distance the nodes move off the surface is reported",
+    )
     p_vol.add_argument("--mesh-size", type=float, default=None, help="target size (tet only)")
     p_vol.add_argument(
         "--no-optimize",
@@ -629,11 +667,88 @@ def main(argv: list[str] | None = None) -> int:
         help="TotalSegmentator wall-clock limit in seconds",
     )
     p_seg.add_argument(
+        "--lumen-out", type=_path_arg, default=None, metavar="PATH",
+        help="also write the contrast blood lumen (.vtp): CT >= --lumen-hu inside the AI "
+        "aorta mask, largest piece — a CT threshold, not AI",
+    )
+    p_seg.add_argument(
+        "--lumen-hu", type=float, default=150.0,
+        help="HU threshold for --lumen-out (default 150)",
+    )
+    p_seg.add_argument(
         "--reference-zenodo", type=_path_arg, default=None, metavar="CASE_DIR",
         help="a Zenodo AAA case folder (e.g. .../Dataset_root/P01): compare "
         "with its reference segmentation (DOI 10.5281/zenodo.19182977)",
     )
     p_seg.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+
+    p_crop = sub.add_parser(
+        "crop",
+        help="Crop an aorta surface (mm, +z superior, e.g. from 'segment') to its "
+        "infrarenal aneurysm: landmarks from the centreline diameter profile (sac, "
+        "neck, bifurcation flare), two cut planes square to the centreline, exactly "
+        "flat caps; --lumen cuts a second surface with the same planes. Writes the "
+        "cropped .vtp and a <out>_crop.json landmark report. Exits 1 on a refusal "
+        "(no sac / no neck).",
+    )
+    p_crop.add_argument("surface", type=_path_arg, help="closed aorta surface (.vtp/.stl/...)")
+    p_crop.add_argument("--out", type=_path_arg, default=None,
+                        help="cropped surface .vtp (default: <outputs>/crop/<stem>_crop.vtp)")
+    p_crop.add_argument("--lumen", type=_path_arg, default=None,
+                        help="second closed surface (e.g. the blood lumen) cut by the same planes")
+    p_crop.add_argument("--lumen-out", type=_path_arg, default=None,
+                        help="where the cut --lumen is written (default: <out stem>_lumen.vtp)")
+    p_crop.add_argument("--neck-extension", type=float, default=25.0,
+                        help="proximal cut, mm above the neck start (default 25)")
+    p_crop.add_argument("--distal-margin", type=float, default=10.0,
+                        help="distal cut, mm above the bifurcation flare top (default 10)")
+    p_crop.add_argument("--distal-height", type=float, default=None,
+                        help="manual distal cut, mm above the caudal end (with --proximal-height)")
+    p_crop.add_argument("--proximal-height", type=float, default=None,
+                        help="manual proximal cut, mm above the caudal end")
+    p_crop.add_argument("--planes-from", type=_path_arg, default=None, metavar="CROP_JSON",
+                        help="reuse the two planes of an earlier crop's JSON report (no "
+                        "landmark rules) — e.g. to cut a later outer-sac surface identically")
+    p_crop.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+
+    p_sac = sub.add_parser(
+        "sac",
+        help="Outer aneurysm sac from a contrast CT and a lumen-only mask: axial "
+        "rays from the lumen to the first fat plane -> lumen + thrombus + wall "
+        "surface (.vtp, RAS millimetres, point fields ilt_thickness_mm and "
+        "sac_resolved) + sac mask (<out>_mask.nii.gz) + summary JSON (<out>.json); with "
+        "--reference-zenodo, Dice / volume / surface distance against that "
+        "case's reference segmentation. Exits 1 when too few rays find a fat "
+        "plane or the surface is not mesh_ready.",
+    )
+    p_sac.add_argument("ct", type=_path_arg, help="CT volume in HU (.nrrd, .nii, .nii.gz)")
+    p_sac.add_argument(
+        "--lumen-mask", type=_path_arg, required=True,
+        help="lumen mask on the CT grid (.nii, .nii.gz, .nrrd), e.g. a TotalSegmentator aorta mask",
+    )
+    p_sac.add_argument(
+        "--out", type=_path_arg, default=None,
+        help="surface .vtp path (default: <outputs>/sac/<ct stem>_sac.vtp)",
+    )
+    p_sac.add_argument("--lumen-hu", type=float, default=150.0,
+                       help="contrast threshold: mask voxels at or above it are the lumen")
+    p_sac.add_argument("--fat-hu", type=float, default=-30.0,
+                       help="fat / air below this HU marks the outer sac edge")
+    p_sac.add_argument("--max-thickness", type=float, default=40.0,
+                       help="longest thrombus + wall searched beyond the lumen (mm)")
+    p_sac.add_argument("--n-rays", type=int, default=72, help="rays per axial slice")
+    p_sac.add_argument("--roi-mm", type=float, default=150.0,
+                       help="height above the lumen's lower end to process (mm; 0 = whole mask)")
+    p_sac.add_argument("--min-resolved", type=float, default=0.5,
+                       help="refuse when fewer rays than this fraction find a fat plane")
+    p_sac.add_argument("--smoothing", type=float, default=1.0,
+                       help="Gaussian blur of the sac mask in voxels before the surface (0 = off)")
+    p_sac.add_argument(
+        "--reference-zenodo", type=_path_arg, default=None, metavar="CASE_DIR",
+        help="a Zenodo AAA case folder (e.g. .../Dataset_root/P01): compare "
+        "with its reference segmentation (DOI 10.5281/zenodo.19182977)",
+    )
+    p_sac.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
     p_cso = sub.add_parser(
         "import-cso",
@@ -915,6 +1030,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_import_cso(args)
     if args.command == "segment":
         return _cmd_segment(args)
+    if args.command == "crop":
+        return _cmd_crop(args)
+    if args.command == "sac":
+        return _cmd_sac(args)
     if args.command == "import-cad3d":
         return _cmd_import_cad3d(args)
     if args.command == "foam":
@@ -1781,8 +1900,9 @@ def _cmd_segment(args: argparse.Namespace) -> int:
     fast = bool(args.fast or DEFAULT_FAST)
 
     try:
-        for target in (out, mask_path, log_path, json_path):
-            guard_output_path(target, input_paths=[src])
+        for target in (out, mask_path, log_path, json_path, args.lumen_out):
+            if target is not None:
+                guard_output_path(target, input_paths=[src])
         if args.reference_zenodo is not None and not args.reference_zenodo.is_dir():
             raise FileNotFoundError(
                 f"Zenodo case directory not found: {args.reference_zenodo}"
@@ -1799,6 +1919,7 @@ def _cmd_segment(args: argparse.Namespace) -> int:
             smoothing=args.smoothing,
             timeout=args.timeout,
             keep_mask=mask_path,
+            lumen_hu=args.lumen_hu if args.lumen_out is not None else None,
         )
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1806,6 +1927,9 @@ def _cmd_segment(args: argparse.Namespace) -> int:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     seg.surface.save(out)
+    if args.lumen_out is not None:
+        args.lumen_out.parent.mkdir(parents=True, exist_ok=True)
+        seg.lumen_surface.save(args.lumen_out)
     log_path.write_text(seg.log)
     summary = dict(seg.summary)
     report = check_surface(seg.surface, path=str(src), sha256=seg.input_sha256)
@@ -1834,6 +1958,17 @@ def _cmd_segment(args: argparse.Namespace) -> int:
     print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
     for note in summary["notes"]:
         print(f"note        : {note}")
+    if args.lumen_out is not None:
+        lum = summary["lumen"]
+        print(
+            f"lumen       : {lum['kept_voxels']} voxels >= {lum['lumen_hu']:g} HU kept "
+            f"({lum['lumen_volume_ml']:.2f} mL, {100 * lum['fraction_of_mask']:.1f}% of the AI "
+            f"mask, Dice vs mask {lum['dice_vs_ai_mask']:.4f}); dropped "
+            f"{lum['dropped_components']} piece(s) / {lum['dropped_voxels']} voxels"
+        )
+        print(f"lumen       : {lum['method']}")
+        for note in lum["notes"][1:]:
+            print(f"lumen note  : {note}")
 
     rc = 0
     if args.reference_zenodo is not None:
@@ -1877,9 +2012,198 @@ def _cmd_segment(args: argparse.Namespace) -> int:
     print(f"mask        : {mask_path}")
     print(f"log         : {log_path}")
     print(f"summary     : {json_path}")
+    if args.lumen_out is not None:
+        print(f"lumen       : {args.lumen_out}")
     if not report.mesh_ready:
         print("error: segmented surface is not mesh_ready — see check report",
               file=sys.stderr)
+        return 1
+    return rc
+
+
+def _cmd_crop(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.geometry.crop import crop_aaa, crop_with_planes, planes_from_report
+    from meshforge.io import file_sha256, load_surface
+    from meshforge.pipeline import crop_text
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.surface
+    out: Path = args.out or (args.outputs / "crop" / f"{src.stem}_crop.vtp")
+    if out.suffix.lower() != ".vtp":
+        out = out.with_suffix(".vtp")
+    json_path = out.with_name(f"{out.stem}_crop.json")
+    lumen_out = None
+    if args.lumen is not None:
+        lumen_out = args.lumen_out or out.with_name(f"{out.stem}_lumen.vtp")
+    try:
+        if args.lumen_out is not None and args.lumen is None:
+            raise ValueError("--lumen-out needs --lumen (the surface to cut)")
+        for target in (out, json_path, lumen_out):
+            if target is not None:
+                guard_output_path(target, input_paths=[src, args.lumen, args.planes_from])
+        sha = {p: file_sha256(p) for p in (src, args.lumen) if p is not None}
+        surface = load_surface(src)
+        lumen = load_surface(args.lumen) if args.lumen is not None else None
+        print(f"crop        : {src.name}"
+              + (f" + {args.lumen.name} (same planes)" if lumen is not None else ""), flush=True)
+        if args.planes_from is not None:
+            if args.distal_height is not None or args.proximal_height is not None:
+                raise ValueError("--planes-from and manual heights are mutually exclusive")
+            planes = planes_from_report(json.loads(args.planes_from.read_text()))
+            cut, caps, note = crop_with_planes(surface, planes, what="surface")
+            rep = {
+                "planes": {pl.name: pl.to_dict() for pl in planes},
+                "caps": {k: v.to_dict() for k, v in caps.items()},
+                "surface": {"n_points": int(cut.n_points), "n_triangles": int(cut.n_cells),
+                            "watertight": int(cut.n_open_edges) == 0,
+                            "volume_ml": round(float(cut.volume) / 1000.0, 4)},
+                "landmarks": None,
+                "notes": [f"planes reused from {args.planes_from.name}", note],
+            }
+            lumen_cut = None
+            if lumen is not None:
+                lumen_cut, lcaps, lnote = crop_with_planes(lumen, planes, what="lumen")
+                rep["lumen"] = {"n_points": int(lumen_cut.n_points),
+                                "n_triangles": int(lumen_cut.n_cells),
+                                "watertight": int(lumen_cut.n_open_edges) == 0,
+                                "volume_ml": round(float(lumen_cut.volume) / 1000.0, 4),
+                                "caps": {k: v.to_dict() for k, v in lcaps.items()}}
+                rep["notes"].append(lnote)
+        else:
+            res = crop_aaa(
+                surface,
+                neck_extension_mm=args.neck_extension,
+                distal_margin_mm=args.distal_margin,
+                distal_height_mm=args.distal_height,
+                proximal_height_mm=args.proximal_height,
+                lumen=lumen,
+            )
+            cut, lumen_cut, rep = res.surface, res.lumen, res.report()
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for p, h in sha.items():
+        if file_sha256(p) != h:
+            print(f"error: input changed on disk during the crop: {p}", file=sys.stderr)
+            return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cut.save(out)
+    if lumen_cut is not None:
+        lumen_cut.save(lumen_out)
+    report = check_surface(cut, path=str(src), sha256=sha[src])
+    rep["check"] = report.to_dict()
+    json_path.write_text(json.dumps(rep, indent=1, default=str) + "\n")
+    print(crop_text(rep), end="")
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+    print(f"surface     : {out}")
+    if lumen_cut is not None:
+        print(f"lumen       : {lumen_out}")
+    print(f"report      : {json_path}")
+    if not report.mesh_ready:
+        print("error: the cropped surface is not mesh_ready", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_sac(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.geometry.sac import recover_sac_from_files, write_sac_mask
+    from meshforge.pipeline import sac_text
+    from meshforge.quality.check import check_surface
+
+    src: Path = args.ct
+    stem = src.name
+    for suffix in (".nii.gz", ".nrrd", ".nii"):
+        if stem.lower().endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    out: Path = args.out or (args.outputs / "sac" / f"{stem}_sac.vtp")
+    if out.suffix.lower() != ".vtp":
+        out = out.with_suffix(".vtp")
+    base = out.with_suffix("")
+    mask_path = base.parent / f"{base.name}_mask.nii.gz"
+    json_path = base.parent / f"{base.name}.json"
+    try:
+        for target in (out, mask_path, json_path):
+            guard_output_path(target, input_paths=[src, args.lumen_mask])
+        if args.reference_zenodo is not None and not args.reference_zenodo.is_dir():
+            raise FileNotFoundError(
+                f"Zenodo case directory not found: {args.reference_zenodo}"
+            )
+        print(f"sac         : {src.name} + lumen {args.lumen_mask.name} -> outer sac ...",
+              flush=True)
+        run = recover_sac_from_files(
+            src,
+            args.lumen_mask,
+            lumen_hu=args.lumen_hu,
+            fat_hu=args.fat_hu,
+            max_thickness_mm=args.max_thickness,
+            n_rays=args.n_rays,
+            roi_mm=args.roi_mm,
+            min_resolved=args.min_resolved,
+            smoothing=args.smoothing,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    run.surface.save(out)
+    write_sac_mask(run.result, mask_path)
+    summary = dict(run.summary)
+    report = check_surface(run.surface, path=str(src), sha256=run.input_sha256["ct"])
+    summary["check"] = report.to_dict()
+    surf = summary["surface"]
+    print(sac_text(summary), end="")
+    print(
+        f"surface     : {surf['n_points']} pts, {surf['n_triangles']} tris, "
+        f"enclosed {surf['enclosed_volume_ml']} mL, point data "
+        f"{'+'.join(surf['point_data'])}, frame {surf['frame']}"
+    )
+    print(f"check       : watertight={report.watertight}  mesh_ready={report.mesh_ready}")
+
+    rc = 0
+    if args.reference_zenodo is not None:
+        from meshforge.io.zenodo_aaa import validate_against_reference
+
+        try:
+            val = validate_against_reference(
+                run.surface, args.reference_zenodo, run.grid_shape, run.grid_affine
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: reference validation failed: {exc}", file=sys.stderr)
+            rc = 1
+        else:
+            summary["validation"] = val
+            z0, z1 = val["slab_z_mm"]
+            print(f"reference   : {val['reference']}, case {val['case']}")
+            print(
+                f"slab        : z {z0:.2f} .. {z1:.2f} mm (reference end planes); "
+                f"sac volume in slab {val['segmented_volume_ml']:.2f} mL"
+            )
+            for name, reg in val["regions"].items():
+                d = reg["distance"]
+                ratio = reg["volume_ratio"]
+                ratio_txt = "n/a" if ratio is None else f"{ratio:.3f}"
+                print(
+                    f"dice {name:<9}: {reg['dice']:.4f}  ref volume "
+                    f"{reg['volume_ml']:.2f} mL (sac/ref {ratio_txt})  "
+                    f"ASSD {d['assd']:.2f} mm  HD95 {d['hd95']:.2f} mm  "
+                    f"[{val['region_labels'][name]}]"
+                )
+            print("agreement   : with a reference segmentation, not accuracy")
+
+    json_path.write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    print(f"surface     : {out}")
+    print(f"sac mask    : {mask_path}")
+    print(f"summary     : {json_path}")
+    if not report.mesh_ready:
+        print("error: sac surface is not mesh_ready — see check report", file=sys.stderr)
         return 1
     return rc
 
@@ -2416,6 +2740,14 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
         if args.backend == "swept":
             kwargs["n_layers"] = args.n_layers
             kwargs["layer_ratio"] = args.layer_ratio
+            kwargs["curvature_cap"] = args.curvature_cap
+            kwargs["sweep"] = args.sweep
+            kwargs["side"] = args.side
+            kwargs["max_tilt"] = args.max_tilt
+            kwargs["section_smoothing"] = args.section_smoothing
+        elif (args.sweep != "centreline" or args.side != "outward"
+              or args.max_tilt is not None or args.section_smoothing):
+            raise ValueError("--sweep/--side/--max-tilt/--section-smoothing are swept-only")
         if args.backend == "tet" and args.mesh_size is not None:
             kwargs["mesh_size"] = args.mesh_size
         if args.backend == "tet" and args.no_optimize:
@@ -2445,6 +2777,21 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
         f"sj_min={q['sj_min']:.4g}  sj_mean={q['sj_mean']:.4g}  "
         f"volume={q['total_volume']:.6g}"
     )
+    if "lattice" in summary:
+        lat = summary["lattice"]
+        print(
+            f"wall rays   : capped={lat['n_capped']}  floored={lat['n_floored']}  of "
+            f"{lat['n_rays']} (curvature_cap {lat['curvature_cap']:g}); thickness "
+            f"{lat['thickness_min']:.4g}..{lat['thickness_max']:.4g}"
+        )
+        if lat.get("sweep") == "planes":
+            print(
+                f"plane sweep : side={lat['side']}  capped_tilt={lat['n_capped_tilt']}  "
+                f"capped_concave={lat['n_capped_concave']}  tilt_max={lat['tilt_max_deg']:.1f} "
+                f"deg (bound {lat['max_tilt_deg']:g})  section_smoothing="
+                f"{lat['section_smoothing']:g}  nodes_off_surface max="
+                f"{lat['surface_offset_max']:.3g} p95={lat['surface_offset_p95']:.3g}"
+            )
     for note in summary["notes"]:
         print(f"note        : {note}")
     print(f"mesh        : {out}")

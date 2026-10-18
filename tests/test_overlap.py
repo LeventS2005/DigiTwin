@@ -218,3 +218,26 @@ def test_zenodo_reference_refusals(tmp_path):
     w.merge(extra).extract_surface(algorithm="dataset_surface").save(case / "WallSurface.vtp")
     with pytest.raises(ValueError, match="exactly 2"):
         load_reference(case)
+
+
+def test_zenodo_end_planes_tolerate_a_vertex_a_hair_off_its_plane(tmp_path):
+    """D85: P05 / P16 each carry one annulus vertex 0.009 / 0.002 mm off its
+    plane; rounding to 1e-3 used to call that a third z level and refuse."""
+    from meshforge.io.zenodo_aaa import load_reference
+
+    case = write_synthetic_zenodo_case(tmp_path / "P05")
+    w = pv.read(case / "WallSurface.vtp")
+    pts = np.asarray(w.points).copy()
+    top = np.flatnonzero(np.isclose(pts[:, 2], 10.0))
+    pts[top[0], 2] += 0.009
+    w.points = pts
+    w.save(case / "WallSurface.vtp")
+    ref = load_reference(case)
+    assert (ref.z0, ref.z1) == (-10.0, 10.0)  # each plane's most populated level
+    pts[top[0], 2] += 0.5  # half a millimetre: an annulus that is not flat
+    w.points = pts
+    w.save(case / "WallSurface.vtp")
+    # (D86's loader) levels further apart than 0.01 mm are separate planes,
+    # so the off-plane vertex reads as a third level and is refused
+    with pytest.raises(ValueError, match="3 z level"):
+        load_reference(case)

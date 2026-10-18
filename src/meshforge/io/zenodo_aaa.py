@@ -139,6 +139,26 @@ def _cap(tube, z0: float, z1: float, label: str, tol: float):
     return capped
 
 
+def _end_planes(z: np.ndarray, tol: float, case: str) -> tuple[float, float]:
+    """The two end-plane heights of the annuli's points.
+
+    Levels are the points' z rounded to 1e-3 mm; levels closer than ``tol``
+    form one plane (D86: P05 and P16 each carry ONE rim vertex 0.009 / 0.002
+    mm off its plane — float32 rounding — which the strict count refused).
+    Each plane's height is its most populated level. Anything other than
+    exactly two planes is refused.
+    """
+    levels, counts = np.unique(np.round(z, 3), return_counts=True)
+    groups = np.split(np.arange(levels.size), np.flatnonzero(np.diff(levels) > tol) + 1)
+    if len(groups) != 2:
+        raise ValueError(
+            f"{case}: end annuli lie on {len(groups)} z level(s), expected "
+            f"exactly 2 (the min-z and max-z planes)"
+        )
+    lo, hi = (float(levels[g[int(np.argmax(counts[g]))]]) for g in groups)
+    return lo, hi
+
+
 def load_reference(case_dir: str | Path) -> ZenodoReference:
     """The three closed reference regions of one Zenodo AAA case (RAS, mm).
 
@@ -157,14 +177,8 @@ def load_reference(case_dir: str | Path) -> ZenodoReference:
         return meshes[name]
 
     ends = _patch(mesh(_END_PATCH[0]), _END_PATCH[1], f"{case_dir.name} end annuli")
-    zs = np.unique(np.round(np.asarray(ends.points)[:, 2], 3))
-    if zs.size != 2:
-        raise ValueError(
-            f"{case_dir.name}: end annuli lie on {zs.size} z level(s), expected "
-            f"exactly 2 (the min-z and max-z planes)"
-        )
-    z0, z1 = float(zs[0]), float(zs[1])
-    tol = 1e-2  # mm; the annuli sit exactly on their planes (rounded 1e-3)
+    tol = 1e-2  # mm; the annuli sit on their planes (rounded 1e-3)
+    z0, z1 = _end_planes(np.asarray(ends.points)[:, 2], tol, case_dir.name)
     regions, walls = {}, {}
     for region, (fname, sid) in REGION_PATCHES.items():
         label = f"{case_dir.name} {region} ({fname} {PATCH_ARRAY} {sid})"

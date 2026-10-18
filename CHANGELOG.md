@@ -34,6 +34,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Zenodo AAA reference loading refused two of the 20 cases ("end annuli lie
+  on 3 z levels"). In each, a single end-ring vertex sits 0.009 or 0.002 mm off
+  its plane (float32 rounding). End-plane levels closer than 0.01 mm are now
+  one plane. A genuine third plane is still refused.
+- Lumen tet fallback: a gmsh failure (overlapping ring-shell facets on a
+  folding sweep) now raises a readable error instead of a bare gmsh
+  exception the CLI did not catch.
 - `import_image` / `import-image`: a NIfTI with a rotated affine or negative
   axis directions (any LPS-derived volume) was refused. Marching cubes now runs
   in voxel-index space and the vertices go through the full affine; a
@@ -114,6 +121,81 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `volmesh --sweep planes|auto` / knob `sweep` (swept backend; default
+  `centreline`, unchanged): a **parallel-plane sweep** for a wall between two
+  flat parallel end caps — a cropped aneurysm sac, where the centreline's
+  rays cross and the wall folds (Anev_02's recovered sac: 1917 of 7552 hex
+  inverted, 486 rays capped, 469 floored). Stations are planes square to the
+  common cap normal, evenly spaced from cap to cap, so they never cross; each
+  station is the plane's section of the surface (the cap's rim at the ends),
+  sampled evenly in arc length and carried station to station along the
+  surface; the wall layers are offset in the plane by t/cos(tilt) so the
+  thickness along the surface normal stays t and the inlet/outlet faces lie
+  on the caps. Counted, never silent: `capped` = surface steeper than
+  `--max-tilt` (default 80°) plus sections that turn tighter than the offset;
+  `floored`; small extra section loops are dropped and counted, a large one
+  (a plane meeting the segment twice) refuses, as do caps more than 2° from
+  parallel. `--side inward` grows the wall into the surface (the surface is
+  the outer wall, e.g. a recovered sac). `--section-smoothing <mm>` (default
+  0) Gaussian-smooths each section before sampling, for a surface rougher than
+  the wall, and reports how far the nodes then sit from the input surface.
+  `auto` keeps the centreline sweep when its wall is clean (0 inverted,
+  capped, floored) and otherwise takes the planes when the caps are parallel.
+  Results at 1.5 mm, cap 0.9: Zenodo P05 470 → 0 inverted, P16 347 → 0, both
+  0 capped / 0 floored with no smoothing; Anev_02 sac 1917 → 0 inverted,
+  0 capped / 0 floored with `--section-smoothing 4` (nodes ≤ 1.49 mm off the
+  sac; unsmoothed: 0 inverted but 10 nodes capped at mm-scale notches of the
+  recovered surface). The `eccentric_sac` synthetic (a 60 mm segment between
+  parallel caps, exact circular z-sections) is the test shape.
+- `crop` step and `meshforge crop` CLI (M2): crops an aorta surface (mm, +z
+  superior) to its infrarenal aneurysm. Landmarks come from the centreline's
+  equivalent-diameter profile — bifurcation (caudal end), flare top, sac
+  (widest section), neck (first stretch above the sac with d <= max(1.2 x
+  d_ref, d_ref + 2 mm) for >= 10 mm). Two cut planes square to the local
+  vessel axis: flare top + `--distal-margin` (10 mm) and neck start +
+  `--neck-extension` (25 mm). Each opening gets an exactly planar cap; a cut
+  that opens two loops, grazes the wall or crosses the input's own end cap
+  moves toward the sac. Refuses loudly, with the measured profile, when there
+  is no sac (< 1.5 x its neck) or no neck. `--lumen` cuts a second surface with
+  the same planes; `--planes-from` reuses an earlier crop's planes. The
+  cropped surface carries a segment centreline whose ends leave the caps
+  along their normals. Writes `<out>_crop.json` (landmarks, planes, caps,
+  profile).
+- `segment --lumen-out` / step knob `lumen_out` (+ `lumen_hu`, default 150):
+  the contrast blood lumen = CT >= 150 HU inside the AI aorta mask, largest
+  piece, through the same surface path; labelled as a CT threshold, not AI;
+  detached bright pieces (calcification) are dropped and counted; reports the
+  Dice against the AI mask.
+- `volmesh --curvature-cap` / knob `curvature_cap` (swept, default 0.5
+  unchanged) and a `wall rays: capped / floored` line; the swept wall's
+  summary now carries `lattice` counts (`n_capped`, `n_floored`,
+  thickness range) so a stress step can refuse a capped or floored wall.
+- `aneurysm_tube` synthetic shape: a fusiform sac, a neck and a flared caudal
+  end with an exact radius profile (straight or gently curved).
+- `scripts/m2_gate_table.py`: crops and meshes every public AAA case (Zenodo
+  P01-P20, AortaSeg-60 Anev_02 / Anev_04) into `outputs/m2/gate_table.*`.
+
+- `sac` step and `meshforge sac <ct> --lumen-mask <mask>` CLI: recovers the
+  OUTER aneurysm sac (lumen + intraluminal thrombus + wall) from a contrast CT
+  around a lumen-only mask, such as TotalSegmentator's `aorta` label on a native
+  (non-stented) aneurysm. Rays from the lumen centroid on every axial slice stop
+  at the first sustained fat or air (< -30 HU over 1.5 mm). A sustained run
+  >= 100 HU (another vessel, bone, or an enhancing organ such as the duodenum)
+  stops a ray as unresolved. So do the field-of-view edge and 40 mm without fat.
+  Unresolved and outlier rays are filled from their resolved neighbours, then
+  smoothed around the circumference and along z, never past their upper bounds.
+  The surface carries point fields `ilt_thickness_mm` (thrombus + wall along the
+  ray) and `sac_resolved`. The summary reports the resolved fraction (per slice
+  and overall), every ray's stop reason, maximum diameter (caliper, short axis,
+  area-equivalent) and thickness statistics. Loud refusals: no lumen, a lumen
+  touching the in-plane field-of-view edge, a non-axial grid, fewer than half of
+  the rays finding fat (`min_resolved`). A NIfTI CT is read only inside the
+  region of interest. The CLI writes the surface, the sac mask and a JSON
+  summary, and `--reference-zenodo` scores the sac against the Zenodo AAA
+  reference segmentation (DOI 10.5281/zenodo.19182977, CC BY 4.0).
+  `scripts/validate_sac_zenodo.py` runs that comparison on all 20 cases, and
+  `scripts/sac_overlay.py` draws axial lumen and sac overlays. The demo case is
+  from AortaSeg-60 (DOI 10.5281/zenodo.18147026, CC BY 4.0).
 - `segment` step and `meshforge segment` CLI: a CT (`.nrrd`, `.nii`,
   `.nii.gz`) goes to TotalSegmentator (`total` task, ROI `aorta`, full or
   `--fast`, `mps` or `cpu`), which runs as a separate program from its own

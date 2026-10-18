@@ -151,6 +151,40 @@ that lights up as it completes.
 - `n_theta`, `n_axial`, `n_layers` — swept lattice resolution.
 - `layer_ratio` — geometric grading of the radial layers (1.0 =
   uniform).
+- `curvature_cap` — swept: how far toward the fold radius a wall ray may
+  reach on a concave bend (0.5 default; 0.9 for an aneurysm sac).
+- `sweep` — swept: where the stations come from.
+  - `centreline` (default): rays square to the centreline. On a short,
+    wide, eccentric segment (a cropped sac) the centreline bends tighter
+    than the section radius, neighbouring ray fans cross, and the wall
+    inverts or gets capped/floored whatever the cap.
+  - `planes`: needs exactly two flat end caps, parallel within 2° (a
+    `crop` whose planes both took the chord axis, or any segment cut by two
+    parallel planes). Stations are planes square to the cap normal, evenly
+    spaced from cap to cap — planes never cross, so the stations cannot fold.
+    Each station is the plane's section of the surface (the cap's rim at the
+    two ends), sampled evenly along its length; the nodes then follow the
+    surface from station to station. The wall is offset **in the plane** by
+    t/cos(tilt), so the thickness along the surface normal is still t and the
+    `inlet`/`outlet` faces lie exactly on the caps. Sections need not be
+    star-shaped.
+  - `auto`: the centreline sweep when its wall is clean (0 inverted, 0
+    capped, 0 floored), else the planes when the caps are parallel; the
+    first log note says which and why.
+- `side` — planes: `outward` (default; the surface is the lumen side) or
+  `inward` (the surface is the OUTER wall — a recovered sac's edge is the fat
+  plane — and the wall grows into it). `inner`/`outer` keep their meaning:
+  `inner` is always the lumen side.
+- `max_tilt` — planes: the steepest surface the in-plane offset follows,
+  degrees between the surface normal and the station planes (default 80;
+  at 80° the offset is 5.8 t and the cells' scaled Jacobian is about 0.17).
+  Steeper nodes keep a 5.8 t offset and count as **capped**.
+- `section_smoothing` — planes: Gaussian smoothing of each section along
+  its length before sampling, in length units (default 0 = exact). Use it
+  only for a surface rougher than the wall thickness: notches narrower than
+  2t make the offset cross itself (counted as capped). The log and summary
+  report how far the wall's surface-side nodes then sit from the input
+  surface (`nodes_off_surface max/p95`) and the largest section-area change.
 - **Run volmesh** → log reports cells, `inverted` (MUST be 0),
   `sj_min` (scaled Jacobian, quality floor), volume, and the named
   boundary groups (`inner/outer/inlet/outlet` for tubes) — these
@@ -205,6 +239,17 @@ Outlines the aorta on a CT with **TotalSegmentator** (`total` task, ROI
 - `smoothing` — Gaussian blur of the mask in voxels before the surface
   (default 1, `0` = off).
 - `timeout` — wall-clock limit for TotalSegmentator, seconds (default 1800).
+- `lumen_out` — optional `.vtp` path: also write the **contrast blood
+  lumen**, the CT voxels ≥ `lumen_hu` (default **150 HU**) inside the AI
+  outline, largest connected piece, through the same surface path. This is
+  a **CT threshold inside the AI label, not an AI segmentation**, and the
+  output says so. Calcified plaque is bright too: plaque detached from the
+  lumen is dropped and counted ("dropped N piece(s) / M voxels"); plaque
+  touching the lumen stays in it. The summary also gives the lumen's share
+  of the AI mask and their Dice. Use it when the AI label includes the
+  thrombus (seen on stent-grafted sacs); on a native sac TotalSegmentator
+  v2.18's `aorta` can already be the lumen alone, and the two nearly
+  coincide.
 
 What happens: the CT is copied (NIfTI) or converted (NRRD → RAS NIfTI)
 into a temp folder without spaces, TotalSegmentator runs there as a
@@ -231,6 +276,149 @@ then `TotalSegmentator` on `PATH`, then
 the model weights. meshforge never changes TotalSegmentator's own settings;
 if its usage statistics are on (`~/.totalsegmentator/config.json`), the log
 says so.
+
+### 3.6b sac  (outer aneurysm sac from a CT and a lumen mask)
+On a native (non-stented) abdominal aortic aneurysm, an AI `aorta` label
+often traces only the contrast-filled lumen. Wall-stress work needs the
+outer sac: lumen + intraluminal thrombus (ILT) + wall. `sac` recovers it
+from the CT around the lumen and makes it the session SOURCE.
+- `path` — the CT in HU (`.nrrd`, `.nii`, `.nii.gz`). **Browse…** in the desktop window.
+- `lumen_mask` — the lumen mask on the **same grid** (for example the mask
+  `meshforge segment` writes). **Browse…**
+- `lumen_hu` (150) — mask voxels at or above it are contrast lumen. The rest
+  of the mask stays inside the sac but does not count as lumen.
+- `fat_hu` (-30) — fat or air below this marks the outer edge.
+- `max_thickness_mm` (40) — the longest thrombus + wall searched beyond the lumen.
+- `n_rays` (72) — rays per axial slice.
+- `roi_mm` (150) — height above the lumen's lower end to process. The
+  infrarenal aorta from the bifurcation up is the usual target. `0` = the
+  whole mask.
+- `min_resolved` (0.5) — refuse when fewer rays than this fraction find a fat plane.
+- `smoothing` (1) — Gaussian blur of the sac mask in voxels before the surface.
+
+**How it works.** On every axial slice, rays leave the lumen centroid. Each
+ray walks outward from the lumen edge and stops at the first of four things:
+- fat or air sustained over 1.5 mm. The sac edge is found (*resolved*).
+- a bright run ≥ 100 HU over 3 mm (*bright*). This is another vessel, bone,
+  or an enhancing organ, such as the duodenum crossing in front of the sac.
+  Thrombus is about 20–60 HU. A shorter bright run is wall calcification and
+  is walked through.
+- the scan edge (*fov*).
+- 40 mm without fat (*no_fat*). Unenhanced tissue (IVC, psoas, bowel) touches
+  the sac with no fat plane.
+
+Errors are one-sided: a ray that crosses an abutting organ finds the fat
+behind it. So two kinds of resolved ray are demoted to *outlier*:
+- one far outside a robust fit of thickness around the circle;
+- one in a short run far behind a neighbouring bright stop.
+
+Unresolved rays are filled from their resolved neighbours, by thickness. The
+radius is then smoothed around the circle and along z. It is never let past a
+ray's upper bound: the sac holds no fat, bone or organ. The sac always
+contains the lumen.
+
+**What you get.** A closed surface in RAS millimetres with two point fields:
+- `ilt_thickness_mm` — the lumen-to-sac distance along the axial ray
+  (thrombus + wall), for a thickness map;
+- `sac_resolved` — 1 where the nearest ray actually saw fat, 0 where it was
+  filled in.
+
+The step text and the CLI report the following:
+- the resolved fraction, per slice and overall;
+- the count of every stop reason;
+- the maximum diameter: largest caliper, short axis and area-equivalent;
+- thrombus + wall thickness statistics.
+
+Read the resolved fraction as the method's own uncertainty. A sac edge that
+touches an organ with no fat plane is interpolated, not measured. The
+thickness is an in-plane (axial) distance, so on a tilted segment it reads
+long by 1/cos(tilt).
+
+**Refusals (loud):** an empty lumen, a lumen touching the in-plane edge of the
+scan, slices more than 20° off axial, or too few resolved rays.
+
+**CLI:**
+```bash
+meshforge sac CT.nii.gz --lumen-mask lumen.nii.gz --out outputs/sac/case_sac.vtp \
+    [--reference-zenodo .../Dataset_root/<case>]
+```
+This writes `case_sac.vtp`, `case_sac_mask.nii.gz` (the sac mask on the
+region-of-interest box of the CT grid) and `case_sac.json`. With
+`--reference-zenodo`, the sac is scored against the Zenodo AAA reference
+segmentation (Dice, ASSD, HD95). That is agreement with a reference, not
+accuracy.
+
+Validation on the 20 Zenodo cases (doi 10.5281/zenodo.19182977, CC BY 4.0):
+- 16 accepted, 4 refused (tight ~80 mm crops);
+- median Dice 0.82 vs lumen + thrombus and 0.89 vs lumen + thrombus + wall;
+- median ASSD 3.1 / 2.0 mm.
+
+On clean fat edges, the -30 HU edge sits about 1 mm outside the reference
+wall. To reproduce, run `scripts/validate_sac_zenodo.py`. Overlays come from
+`scripts/sac_overlay.py`.
+
+Demo data: a native AAA from AortaSeg-60 (doi 10.5281/zenodo.18147026, CC BY
+4.0). Run `scripts/prep_aortaseg60.py` on it first.
+
+### 3.6c crop  (aorta → infrarenal aneurysm segment, flat caps)
+Crops the session surface — a closed aorta in **millimetres, +z superior**
+(what `segment` makes; RAS or LPS) — to its infrarenal aneurysm, and makes
+the cropped piece the session surface. Everything is automatic:
+
+1. **Profile.** A smoothed skeleton centreline (run out to the surface at
+   both ends; caudal end = lower z) and, every 1 mm, the equivalent
+   diameter `d = 2·sqrt(area/π)` of the section square to it, median over
+   5 mm. `h` = mm above the caudal end.
+2. **Landmarks.** *Bifurcation*: h = 0, where the aorta label ends or
+   splits. *Flare top*: past the end's own rise, the first local minimum of
+   `d` (0 when `d` climbs straight into the sac). *Sac*: the widest `d` up
+   to 200 mm. *Neck*: the first stretch above the sac that stays
+   non-dilated for ≥ 10 mm, non-dilated meaning `d ≤ max(1.2 × d_ref,
+   d_ref + 2 mm)` with `d_ref` the narrowest `d` within 150 mm above the
+   sac. Renal arteries are not in the aorta label, so the reported neck
+   length is the non-dilated length above the sac.
+3. **Cuts.** Distal: `distal_margin_mm` (default 10) above the flare top.
+   Proximal: `neck_extension_mm` (default 25) above the neck start — the
+   flow/clamp extension — held inside the neck. Each plane is square to the
+   local vessel axis (the line through nearby section centres), or to the
+   segment axis where there is no straight local axis (a dome, an eccentric
+   sac). A cut that opens two loops, grazes the wall, or crosses an end cap
+   the input already had moves 2 mm toward the sac and tries again.
+4. **Caps.** Each opening is closed by an **exactly planar** cap (rim
+   vertices snapped onto the plane, ~1e-13 mm), so the lumen's end-cap
+   anchoring and the wall lattice see truly flat, square ends.
+
+Knobs: `neck_extension_mm`, `distal_margin_mm`; `distal_height_mm` +
+`proximal_height_mm` to place both cuts by hand (mm above the caudal end;
+landmarks are then reported but not enforced); `lumen` + `lumen_out` to cut
+a second surface — the blood lumen from `segment`'s `lumen_out` — with the
+**same two planes**, so outer and lumen share their caps. **Browse…** on
+`lumen` (open) and `lumen_out` (save).
+
+It **refuses loudly**, printing the measured profile (`h mm:d mm` every
+10 mm), when there is **no sac** (the widest section is less than 1.5× its
+neck) or **no neck** (the surface ends before 10 mm of non-dilated aorta
+above the sac). The report lists sac height, sac equivalent and maximum
+diameter, neck start/length/diameter, sac/neck ratio, both cut planes
+(origin, outward normal, cap diameter, planarity, rim crease) and notes.
+
+The cropped surface carries its own **segment centreline**, leaving each cap
+along its normal; `volmesh` and `lumen` use it automatically. On a wide sac
+mesh the wall with `--curvature-cap 0.9` (volmesh knob `curvature_cap`): the
+default 0.5 caps and floors wall rays in the sac (0.3 mm "walls" that read as
+a fake stress hotspot), and the `wall rays` line reports capped/floored
+counts — a stress result on a capped or floored wall is not reportable.
+
+When the crop's segment centreline still folds (a short, eccentric sac that
+kinks into the neck: the crop note gives a fold number above 1), add
+`--sweep auto` (or `planes`): when both planes took the chord axis the caps
+are parallel and the wall is swept on planes parallel to them instead. On a
+recovered sac (`sac`) the surface carries millimetre-scale axial terraces;
+if the plane sweep then reports a few capped nodes, `--section-smoothing 4`
+smooths them out and says how far the nodes moved (Anev_02: ≤ 1.5 mm):
+
+    meshforge volmesh sac_crop.vtp --thickness 1.5 --curvature-cap 0.9 \
+        --sweep auto --section-smoothing 4
 
 ### 3.7 blocks  (2-D profile → multi-block hex, the TrueGrid-style path)
 - `target_size` — in-plane cell size; `thickness`/`n_layers` — extrusion.
@@ -386,9 +574,10 @@ READ-ONLY and checksummed on every load.
 | `import-cad3d` | STEP/IGES/BREP → surface | `meshforge import-cad3d part.step` |
 | `import-image` | volume → iso-surface | `meshforge import-image vol.npy --level 0` |
 | `import-cso` | MeVisLab contours → surface | `meshforge import-cso scan.cso --outputs outputs/mycase` (see [CSO_GUIDE.md](CSO_GUIDE.md)) |
-| `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `meshforge segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
+| `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `meshforge segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--lumen-out lumen.vtp [--lumen-hu 150]`, `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
+| `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `meshforge crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
-| `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` |
+| `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
 | `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
 | `blayers` | external boundary layers | `meshforge blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
 | `deck` | full solver input deck | `meshforge deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
@@ -474,9 +663,17 @@ one variant failing never kills the batch).
   <deck>/…_results.vtu` + `…_solve.json`. CFD: `outputs/cfd/<case>/…`
   (+ per-frame `…_t0000.vtu` with `--series`). Segment: the surface at
   `--out` (default `outputs/segment/<ct name>_aorta.vtp`) with its mask,
-  TotalSegmentator log and summary JSON beside it. The `segment` *step* in
-  the Workbench writes nothing; TotalSegmentator's scratch files live in a
-  temp folder that is deleted.
+  TotalSegmentator log and summary JSON beside it (and the threshold lumen at
+  `--lumen-out`). The `segment` *step* in the Workbench writes only its
+  `lumen_out`; TotalSegmentator's scratch files live in a temp folder that is
+  deleted. Crop: the surface at `--out` (default `outputs/crop/<name>_crop.vtp`),
+  `<out>_crop.json` (landmarks, planes, caps, full diameter profile) and the
+  cut lumen (`--lumen-out`, default `<out>_lumen.vtp`).
+- **Public AAA data used in the M2 gate table** (`outputs/m2/`): Zenodo AAA
+  4D-CTA dataset, doi 10.5281/zenodo.19182977, CC BY 4.0 (the authors'
+  surfaces are a *reference segmentation*, not ground truth); AortaSeg-60,
+  doi 10.5281/zenodo.18147026, CC BY 4.0 (Anev_02 native AAA; Anev_04 is
+  post-EVAR and never a demo case).
 - Work files: wherever you save them (`.mfwork`, JSON).
 - Nothing is ever written next to or over an input (guarded).
 
