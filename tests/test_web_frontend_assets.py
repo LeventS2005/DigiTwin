@@ -143,6 +143,10 @@ _PATH_KNOBS: dict[str, str | None] = {
     # D86: the sac step reads a CT and a lumen mask — both files, both pickers
     "sac.path": "file",
     "sac.lumen_mask": "file",
+    # D88: the AAA wall-stress step reads a crop report (neck diameter) and,
+    # like solve, may name the CalculiX executable
+    "aaa_stress.crop_report": "file",
+    "aaa_stress.ccx": "file",
     # Deliberate omissions — session 41 scoped fix 6 to the fields the
     # walkthrough exercised. These three are real path fields with no picker;
     # promoting them is a one-line BROWSE_KNOBS addition each.

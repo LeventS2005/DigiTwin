@@ -898,6 +898,47 @@ def main(argv: list[str] | None = None) -> int:
     p_solve.add_argument("--timeout", type=float, default=600.0)
     p_solve.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
+    p_aaa = sub.add_parser(
+        "aaa-stress",
+        help="AAA wall stress under blood pressure (INVESTIGATIONAL): stiff-linear "
+        "CalculiX solves on the loaded geometry of a swept hex wall (pressure on the "
+        "lumen side, both ends clamped) at a systolic and a what-if pressure; peak "
+        "wall stress (99th percentile von Mises outside the end zones), max "
+        "principal, wall tension. Refuses (exit 1) a wall with inverted cells, "
+        "capped/floored wall rays or no mesh summary. Writes a results .vtu and a "
+        "summary JSON.",
+    )
+    p_aaa.add_argument(
+        "wall", type=_path_arg,
+        help="swept wall .vtu from 'volmesh' (its <stem>.summary.json beside it), or a "
+        ".mfwork session whose replay ends with that wall",
+    )
+    p_aaa.add_argument("--summary", type=_path_arg, default=None,
+                       help="the wall's volmesh summary JSON (default: <wall stem>.summary.json)")
+    p_aaa.add_argument("--crop-report", type=_path_arg, default=None,
+                       help="crop report JSON (the neck diameter for the end zones, and "
+                       "which cap is distal)")
+    p_aaa.add_argument("--systolic", type=float, default=140.0,
+                       help="systolic pressure, mmHg (default 140)")
+    p_aaa.add_argument("--whatif", type=float, default=120.0,
+                       help="what-if pressure, mmHg (default 120)")
+    p_aaa.add_argument("--E", type=float, default=100.0,
+                       help="wall Young's modulus, MPa (default 100)")
+    p_aaa.add_argument("--nu", type=float, default=0.49,
+                       help="wall Poisson's ratio (default 0.49)")
+    p_aaa.add_argument(
+        "--end-zone", default="neck",
+        help="excluded next to each clamped end: neck (default: one neck diameter "
+        "from the crop report, else each end's own diameter) | bending (3 shell "
+        "bending lengths) | a length in mm",
+    )
+    p_aaa.add_argument("--ccx", default=None, help="CalculiX executable")
+    p_aaa.add_argument("--timeout", type=float, default=600.0,
+                       help="solver limit per solve, seconds")
+    p_aaa.add_argument("--out-dir", type=_path_arg, default=None,
+                       help="results folder (default: <outputs>/aaa_stress/<wall stem>)")
+    p_aaa.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+
     p_cfd = sub.add_parser(
         "cfd",
         help="Run OpenFOAM on a case directory and read U/p back: with "
@@ -1042,6 +1083,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fluent(args)
     if args.command == "solve":
         return _cmd_solve(args)
+    if args.command == "aaa-stress":
+        return _cmd_aaa_stress(args)
     if args.command == "replay":
         return _cmd_replay(args)
     if args.command == "repair":
@@ -2648,6 +2691,73 @@ def _cmd_solve(args: argparse.Namespace) -> int:
     print(result.to_text(), end="")
     print(f"results     : {vtu}")
     print(f"summary     : {summary_path}")
+    return 0
+
+
+def _cmd_aaa_stress(args: argparse.Namespace) -> int:
+    import json
+
+    from meshforge.export import guard_output_path
+    from meshforge.io import file_sha256
+    from meshforge.solve.aaa_metrics import (
+        crop_report_from_journal,
+        read_wall,
+        run_aaa_stress,
+    )
+
+    src: Path = args.wall
+    stem = src.stem
+    out_dir: Path = args.out_dir or (args.outputs / "aaa_stress" / stem)
+    vtu = out_dir / f"{stem}_aaa_stress.vtu"
+    json_path = out_dir / f"{stem}_aaa_stress.json"
+    try:
+        if not src.is_file():
+            raise FileNotFoundError(f"wall input not found: {src}")
+        inputs = [src, args.crop_report]
+        if src.suffix.lower() == ".mfwork":
+            if args.summary is not None:
+                raise ValueError("--summary applies to a wall .vtu, not a .mfwork session")
+            from meshforge.pipeline import load_workfile, replay
+
+            session = load_workfile(src)
+            print(f"replay      : {src.name} ({len(session.journal)} steps)", flush=True)
+            replay(session)
+            wall = session._require(session.volmesh, "volmesh", "a volmesh step in the session")
+            summary = wall.summary()
+            crop = crop_report_from_journal(session.journal)
+        else:
+            summary_path = args.summary or src.with_suffix(".summary.json")
+            inputs.append(summary_path)
+            wall, summary = read_wall(src, summary_path)
+            crop = None
+        if args.crop_report is not None:
+            crop = json.loads(args.crop_report.read_text())
+        for target in (vtu, json_path):
+            guard_output_path(target, input_paths=inputs)
+        sha = {p: file_sha256(p) for p in inputs if p is not None and Path(p).is_file()}
+        print(f"aaa-stress  : {src.name}, {args.systolic:g} and {args.whatif:g} mmHg", flush=True)
+        result = run_aaa_stress(
+            wall, summary, out_dir=out_dir, stem=stem, crop_report=crop,
+            systolic_mmhg=args.systolic, whatif_mmhg=args.whatif, E=args.E, nu=args.nu,
+            end_zone=args.end_zone, ccx=args.ccx, timeout=args.timeout, input_path=src,
+        )
+    except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for p, h in sha.items():
+        if file_sha256(p) != h:
+            print(f"error: input changed on disk during the run: {p}", file=sys.stderr)
+            return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(result.summary, indent=2) + "\n")
+    print(result.to_text(), end="")
+    if result.grid is not None:
+        result.grid.save(vtu)
+        print(f"results     : {vtu}")
+    print(f"summary     : {json_path}")
+    if result.refused:
+        print("error: no wall-stress metric reported (REFUSED, see above)", file=sys.stderr)
+        return 1
     return 0
 
 

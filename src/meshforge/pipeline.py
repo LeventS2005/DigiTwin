@@ -194,6 +194,18 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "ccx": (str, "", "CalculiX executable (empty: MESHFORGE_CCX / PATH / conda env)"),
         "timeout": (float, 600.0, "solver wall-clock limit in seconds"),
     },
+    # D88 (M3): AAA wall stress under blood pressure — stiff-linear solve on
+    # the loaded geometry, peak wall stress, wall tension, a pressure what-if.
+    "aaa_stress": {
+        "systolic_mmhg": (float, 140.0, "systolic blood pressure (mmHg) on the lumen side of the wall"),
+        "whatif_mmhg": (float, 120.0, "what-if blood pressure (mmHg), solved separately"),
+        "E": (float, 100.0, "wall Young's modulus in MPa (stiff-linear on the loaded geometry: the stress barely depends on it)"),
+        "nu": (float, 0.49, "wall Poisson's ratio (near-incompressible tissue)"),
+        "end_zone": (str, "neck", "left out of the metrics next to each clamped end: neck (one neck diameter from the crop report, else each end's own diameter) | bending (3 shell bending lengths) | a length in mm"),
+        "crop_report": (str, "", "crop report JSON file with the neck diameter (empty: this session's crop step, if any)"),
+        "ccx": (str, "", "CalculiX executable (empty: MESHFORGE_CCX / PATH / conda env)"),
+        "timeout": (float, 600.0, "solver wall-clock limit per solve in seconds"),
+    },
     # V30: carve a new boundary patch out of an existing group by a
     # face-centroid coordinate (e.g. the moving lid of a cavity).
     "split_patch": {
@@ -252,6 +264,7 @@ STEP_ORDER: tuple[str, ...] = (
     "replay",
     "screenshot",
     "solve",
+    "aaa_stress",
     "split_patch",
     "cfd",
 )
@@ -893,6 +906,7 @@ class MeshingSession:
         self.volmesh = None
         self.solve = None  # SolveResult from compute_solve (V13)
         self.cfd = None  # CfdResult from compute_cfd (V23)
+        self.aaa_stress = None  # AaaStressResult from compute_aaa_stress (D88)
         self.profile = None  # Profile2D from compute_import_cad (V12)
         # Length unit of the current source, or None when it declares none
         # (STL/VTK/synthetic). Set by each source step; CSO and DICOM are
@@ -2082,6 +2096,73 @@ class MeshingSession:
         self._record("solve", params, result)
         return result
 
+    def compute_aaa_stress(
+        self,
+        *,
+        systolic_mmhg: float = 140.0,
+        whatif_mmhg: float = 120.0,
+        E: float = 100.0,
+        nu: float = 0.49,
+        end_zone: str = "neck",
+        crop_report: str = "",
+        ccx: str = "",
+        timeout: float = 600.0,
+    ) -> StepResult:
+        """D88 (M3): AAA wall stress on the session's swept wall — an
+        INVESTIGATIONAL metric. Stiff-linear CalculiX solves (pressure on
+        ``inner``, ``inlet``/``outlet`` encastre) at ``systolic_mmhg`` and
+        ``whatif_mmhg``; peak wall stress (99th percentile of the
+        integration-point von Mises outside the end zones), max principal,
+        wall tension. A wall with inverted cells or capped/floored wall rays
+        is refused (the metrics are None and the text says why). All work
+        lives in ``solve/aaa_metrics.py``; decks, results and the
+        ``session_aaa_stress.vtu/.json`` go to ``outputs/aaa_stress/session``.
+        """
+        import json
+
+        from meshforge.solve.aaa_metrics import crop_report_from_journal, run_aaa_stress
+
+        vol = self._require(self.volmesh, "volmesh", "compute_volmesh")
+        crop_report, ccx = _clean_path(crop_report), _clean_path(ccx)
+        if crop_report:
+            path = Path(crop_report)
+            if not path.is_file():
+                raise ValueError(f"crop report not found: {crop_report}")
+            report = json.loads(path.read_text())
+        else:
+            report = crop_report_from_journal(self.journal)
+        params = {
+            "systolic_mmhg": float(systolic_mmhg), "whatif_mmhg": float(whatif_mmhg),
+            "E": float(E), "nu": float(nu), "end_zone": str(end_zone),
+            "crop_report": crop_report, "ccx": ccx, "timeout": float(timeout),
+        }
+        out_dir = Path("outputs") / "aaa_stress" / "session"
+        res = run_aaa_stress(
+            vol, vol.summary(), out_dir=out_dir, stem="session", crop_report=report,
+            systolic_mmhg=params["systolic_mmhg"], whatif_mmhg=params["whatif_mmhg"],
+            E=params["E"], nu=params["nu"], end_zone=params["end_zone"],
+            ccx=ccx or None, timeout=params["timeout"], input_path=self.input_path,
+        )
+        self.aaa_stress = res
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "session_aaa_stress.json").write_text(
+            json.dumps(res.summary, indent=2) + "\n"
+        )
+        if res.grid is not None:
+            res.grid.save(out_dir / "session_aaa_stress.vtu")
+        result = StepResult(
+            step="aaa_stress",
+            summary=res.summary,
+            text=res.to_text(),
+            render_hints={
+                "mesh": res.grid if res.grid is not None else vol.grid,
+                "kind": "volume",
+                "label": "wall stress (investigational)",
+            },
+        )
+        self._record("aaa_stress", params, result)
+        return result
+
     def compute_split_patch(
         self,
         *,
@@ -2457,6 +2538,7 @@ class MeshingSession:
         self.volmesh = None
         self.solve = None
         self.cfd = None
+        self.aaa_stress = None
 
     # -- work files (V10) --------------------------------------------------
     def save_workfile(self, path: str | Path) -> Path:
@@ -2494,6 +2576,7 @@ _WORKFILE_STEPS = (
     "blocks",
     "repair",
     "solve",
+    "aaa_stress",
     "blayers",
     "split_patch",
     "cfd",
@@ -2614,6 +2697,8 @@ def replay(
             results.append(session.compute_repair(**params))
         elif name == "solve":
             results.append(session.compute_solve(**params))
+        elif name == "aaa_stress":
+            results.append(session.compute_aaa_stress(**params))
         elif name == "blayers":
             results.append(session.compute_blayers(**params))
         elif name == "split_patch":
