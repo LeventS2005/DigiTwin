@@ -426,6 +426,7 @@ const BROWSE_KNOBS = {
   "crop.lumen_out": "save",
   "sac.path": "file",
   "sac.lumen_mask": "file",
+  "tissue_index.from_summary": "file",
 };
 
 function buildStepPanel(step, knobs) {

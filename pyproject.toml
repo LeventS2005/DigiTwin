@@ -110,6 +110,8 @@ where = ["src"]
 # this gap until V37 packaging.
 [tool.setuptools.package-data]
 "meshforge.web" = ["static/*"]
+# Tissue strength library v0 (CC BY 4.0 derived data + its attribution file).
+"meshforge.data" = ["*.csv", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

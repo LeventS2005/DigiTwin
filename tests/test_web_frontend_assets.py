@@ -143,6 +143,9 @@ _PATH_KNOBS: dict[str, str | None] = {
     # D86: the sac step reads a CT and a lumen mask — both files, both pickers
     "sac.path": "file",
     "sac.lumen_mask": "file",
+    # D89: the tissue index reads PWS from a wall-stress summary JSON — a real
+    # input file, so it gets a picker
+    "tissue_index.from_summary": "file",
     # Deliberate omissions — session 41 scoped fix 6 to the fields the
     # walkthrough exercised. These three are real path fields with no picker;
     # promoting them is a one-line BROWSE_KNOBS addition each.

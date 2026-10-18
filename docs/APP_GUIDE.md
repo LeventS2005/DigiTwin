@@ -447,6 +447,55 @@ DOFs 1–3; NALL valid for frequency), `pin_lateral`, `nlgeom`, `ccx`,
 `timeout`. Results attach to the mesh (U_mag/S_mises/NDTEMP) and the
 log prints |U| max, frequencies, T range, time steps, buckling factors.
 
+### 3.9a tissue_index  (wall stress ÷ lab-measured strength — needs: a peak wall stress)
+An aneurysm bursts when wall stress exceeds wall strength. The scan and the
+solve give the stress. Strength can only be measured by testing tissue in a
+lab. `tissue_index` divides the peak wall stress (PWS) by the measured
+strength of real aneurysm wall and returns a band. **It is an investigational
+index, not a diagnosis.**
+- `pws_mpa`: the peak wall stress in MPa, as Cauchy stress (what the
+  stiff-linear solve on the loaded geometry gives).
+- `from_summary`: instead of `pws_mpa`, a wall-stress summary `.json` that
+  contains a `pws_mpa` value anywhere in it. **Browse…** The file is only
+  read, and its checksum goes into the journal. Several different `pws_mpa`
+  values, or none, are refused.
+- `selection`: which strips supply the strength.
+  - `aaa` (default): the 13 rupture-border strips, i.e. aneurysm wall.
+  - `control`: the 11 non-dilated infrarenal strips from the same aortas.
+  - `all`: both.
+- `method`: `empirical` (default) for quantiles over the strips, or
+  `lognormal` for a lognormal fit.
+
+**The strength library (v0).** It is open data: uniaxial tests of 24 wall
+strips from 7 aneurysms removed at autopsy (USP AAA dataset, see credits
+below). Strength is the Cauchy failure stress, F·λ/A₀ with the tissue taken as
+incompressible, so it is compared like with like against the Cauchy wall
+stress. Two strips reached their highest stress only after the load had
+already peaked and dropped. They enter at that first failure. The band is
+the strength P10/P50/P90, and **index P90 = PWS ÷ strength P10**, the
+weak-wall end.
+
+The output always states n ("open strength data: 7 aneurysms, 13 strips —
+our lab narrows this"). It also gives sensitivities: the other method,
+engineering strength (to show why the measures must match), late peaks at
+their reported maximum, and raw-curve strips only. The controls appear as a
+comparison. Example:
+```bash
+meshforge tissue-index --pws 0.30          # or --from-summary outputs/m3/aaa_stress.json
+# rupture index : P10 / P50 / P90 = 0.231 / 0.461 / 0.974
+```
+
+**Credits.** The strength data come from Gomes VC, da Silva ES, da Silva LF,
+Gomes J, Raghavan ML, Silvestre G, Queiroz A, Marques M, Zyngier SP, Chung
+TK-J, *Dataset on cadaveric human abdominal aorta aneurysm biomechanics
+(uniaxial) and histology*, Mendeley Data v3,
+doi [10.17632/x64srrc39p.3](https://doi.org/10.17632/x64srrc39p.3), CC BY 4.0.
+The packaged table is derived from it: units converted, Cauchy stress
+recomputed, flags added. Credit the authors when you use it. How it was built,
+and its limits, are in `src/meshforge/data/STRENGTH_V0_SOURCES.md`. The main
+limits: autopsy tissue, aortas inflated to rupture before testing, test
+direction not recorded, and a small n.
+
 ### 3.10 cfd  (OpenFOAM — needs: volmesh saved as a foam case, or `case`)
 Knobs: `case`, `solver` (`simpleFoam` steady / `icoFoam` transient),
 `nu`, `inlet` ("front=0,0,1", or a speed "front=150" — §3.10a),
@@ -576,6 +625,7 @@ READ-ONLY and checksummed on every load.
 | `import-cso` | MeVisLab contours → surface | `meshforge import-cso scan.cso --outputs outputs/mycase` (see [CSO_GUIDE.md](CSO_GUIDE.md)) |
 | `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `meshforge segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--lumen-out lumen.vtp [--lumen-hu 150]`, `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
 | `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `meshforge crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
+| `tissue-index` | PWS ÷ lab-measured wall strength, P10/P50/P90 with n (§3.9a) | `meshforge tissue-index --pws 0.30` (or `--from-summary <wall-stress .json with pws_mpa>`; `--selection aaa\|control\|all`, `--method empirical\|lognormal`, `--out band.json`) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
 | `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
 | `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
@@ -674,6 +724,10 @@ one variant failing never kills the batch).
   surfaces are a *reference segmentation*, not ground truth); AortaSeg-60,
   doi 10.5281/zenodo.18147026, CC BY 4.0 (Anev_02 native AAA; Anev_04 is
   post-EVAR and never a demo case).
+- **Tissue strength data** (packaged, `src/meshforge/data/`): USP AAA dataset,
+  Mendeley Data doi 10.17632/x64srrc39p.3, CC BY 4.0 (derived table; credits
+  in §3.9a). `tissue-index --out` writes the band, sensitivities and
+  provenance as JSON wherever you point it.
 - Work files: wherever you save them (`.mfwork`, JSON).
 - Nothing is ever written next to or over an input (guarded).
 

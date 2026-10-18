@@ -225,6 +225,14 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "p_ref_cell": (int, 0, "reference cell index (closed_cavity)"),
         "p_ref_value": (float, 0.0, "reference kinematic pressure (closed_cavity)"),
     },
+    # D89 (M4): rupture-potential index band = peak wall stress / lab-measured
+    # wall strength (tissue library v0, open USP AAA strip tests).
+    "tissue_index": {
+        "pws_mpa": (float, None, "peak wall stress in MPa (Cauchy, from the wall-stress solve); or use from_summary"),
+        "from_summary": (str, "", "wall-stress summary .json file holding a pws_mpa value (instead of pws_mpa)"),
+        "selection": (str, "aaa", "strength strips: aaa (rupture-border aneurysm wall) | control (non-dilated aorta) | all"),
+        "method": (str, "empirical", "band: empirical (strip quantiles) | lognormal (fitted)"),
+    },
 }
 
 # Panel/display order for front-ends (Workbench builds its left pane from this).
@@ -252,6 +260,7 @@ STEP_ORDER: tuple[str, ...] = (
     "replay",
     "screenshot",
     "solve",
+    "tissue_index",
     "split_patch",
     "cfd",
 )
@@ -2305,6 +2314,63 @@ class MeshingSession:
         self._record("cfd", params, result)
         return result
 
+    def compute_tissue_index(
+        self,
+        *,
+        pws_mpa: float | None = None,
+        from_summary: str = "",
+        selection: str = "aaa",
+        method: str = "empirical",
+    ) -> StepResult:
+        """D89 (M4): rupture-potential index band, PWS / wall strength, P10/P50/P90.
+
+        Strength = Cauchy failure stress of the packaged tissue library v0
+        (open USP AAA strip tests, CC BY 4.0), compared like-for-like with the
+        Cauchy wall stress of the solve. Investigational, not a diagnosis.
+        Exactly one PWS source: ``pws_mpa`` or ``from_summary`` (a wall-stress
+        summary JSON with a ``pws_mpa`` key, read only). Session geometry is
+        neither needed nor changed; all logic lives in ``tissue/strength.py``.
+        """
+        from meshforge.tissue.strength import (
+            check_pws,
+            index_band_report,
+            index_band_text,
+            pws_from_summary,
+        )
+
+        from_summary = _clean_path(from_summary)
+        if (pws_mpa is None) == (not from_summary):
+            raise ValueError(
+                "tissue_index needs exactly one peak wall stress source: pws_mpa (MPa) "
+                "or from_summary (a wall-stress summary .json with a pws_mpa key)"
+            )
+        extra: dict[str, Any] = {}
+        if from_summary:
+            pws, where, digest = pws_from_summary(from_summary)
+            pws_source = f"{Path(from_summary).name}: {where}"
+            extra["input_sha256"] = digest
+        else:
+            pws, pws_source = check_pws(pws_mpa), "entered"
+        report = index_band_report(pws, selection=selection, method=method)
+        report["pws_source"] = pws_source
+        result = StepResult(
+            step="tissue_index",
+            summary=report,
+            text=index_band_text(report, pws_source=pws_source),
+        )
+        self._record(
+            "tissue_index",
+            {
+                "pws_mpa": None if from_summary else pws,
+                "from_summary": from_summary,
+                "selection": selection,
+                "method": method,
+            },
+            result,
+            **extra,
+        )
+        return result
+
     def compute_screenshot(self, *, path: str = "") -> StepResult:
         """Offscreen-safe render of the current state (no Qt involved)."""
         path = _clean_path(path)
@@ -2497,6 +2563,7 @@ _WORKFILE_STEPS = (
     "blayers",
     "split_patch",
     "cfd",
+    "tissue_index",
 )
 
 def load_workfile(path: str | Path) -> MeshingSession:
@@ -2620,6 +2687,8 @@ def replay(
             results.append(session.compute_split_patch(**params))
         elif name == "cfd":
             results.append(session.compute_cfd(**params))
+        elif name == "tissue_index":
+            results.append(session.compute_tissue_index(**params))
         else:  # pragma: no cover - load_workfile validates step names
             raise ValueError(f"unknown journal step {name!r}")
     return results

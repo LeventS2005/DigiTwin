@@ -121,6 +121,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Tissue strength library v0 and the rupture-potential index** (M4).
+  `meshforge/data/strength_v0.csv` holds one row per tensile strip of the open
+  USP AAA dataset (Gomes et al., Mendeley Data, doi 10.17632/x64srrc39p.3,
+  CC BY 4.0; attribution in `meshforge/data/STRENGTH_V0_SOURCES.md` and
+  `NOTICE`). There are 24 strips from 7 autopsy aneurysms: 13 from the
+  rupture border and 11 non-dilated controls. Each row gives the failure
+  stress as Cauchy and as engineering stress (MPa), with failure strain,
+  tension and thickness, a stress-measure and unit flag, a late-peak flag,
+  the source file, sheet and cells, and the source sha256.
+  `scripts/build_strength_v0.py` builds the table. It checks every dataset
+  file against its sha256, recomputes Cauchy stress from the raw curves (each
+  value rounds to the reported one, largest difference 0.049 N/cm²), and stops
+  on any unexpected file, unit or column. `--check` proves the shipped files
+  match a fresh build. `meshforge.tissue.strength` loads and validates the
+  library: it refuses an empty file, and any row with a missing or unknown
+  unit or stress measure.
+  - `rupture_index_band` returns the index PWS ÷ strength at P10/P50/P90,
+    with n_strips and n_aneurysms. Wall stress from the solve is Cauchy
+    stress, so it is compared with Cauchy strength, and index P90 = PWS ÷
+    strength P10.
+  - The default is empirical quantiles over the rupture-border strips. The
+    output adds a lognormal fit, engineering strength, the late peaks at
+    their reported maximum and raw-curve strips only as sensitivities, plus
+    the controls as a comparison.
+  - New `tissue_index` step (knobs `pws_mpa` / `from_summary`, `selection`,
+    `method`; journaled and replayed; Browse… on `from_summary`).
+  - New `meshforge tissue-index --pws <MPa> | --from-summary <json>` command,
+    with `--selection`, `--method` and `--out`.
+  - Every result is labelled an investigational index, not a diagnosis.
 - `volmesh --sweep planes|auto` / knob `sweep` (swept backend; default
   `centreline`, unchanged): a **parallel-plane sweep** for a wall between two
   flat parallel end caps — a cropped aneurysm sac, where the centreline's
