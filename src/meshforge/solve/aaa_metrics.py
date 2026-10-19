@@ -481,7 +481,8 @@ def _hex20(wall) -> tuple[np.ndarray, np.ndarray, dict[tuple[int, int], int]]:
 
 def write_wall_deck(wall, out_path: str | Path, *, pressure_mpa: float,
                     E: float = DEFAULT_E_MPA, nu: float = DEFAULT_NU,
-                    input_path: str | Path | None = None) -> Path:
+                    input_path: str | Path | None = None, ilt=None,
+                    E_ilt: float | None = None, nu_ilt: float | None = None) -> Path:
     """The AAA wall-stress CalculiX deck: the swept wall as C3D20R (straight
     mid-edge nodes added), linear elastic, one *STATIC step (nlgeom off),
     pressure on ``inner``, ``inlet`` and ``outlet`` encastre (every node of
@@ -529,15 +530,21 @@ def write_wall_deck(wall, out_path: str | Path, *, pressure_mpa: float,
     for cid, fnodes in zip(inner.cell_ids, inner.face_nodes):
         lines.append(f"{int(cid) + 1}, {_face_label(conn[int(cid)], fnodes, 'hexahedron')}")
     lines.extend(material.lines())
+    lines.append("*SOLID SECTION, ELSET=WALL, MATERIAL=WALL_MAT")
+    load_surface = "INNER_SURF"
+    if ilt is not None:
+        lines.extend(_ilt_lines(ilt, n_nodes=len(pts), n_elements=len(conn20),
+                                E=DEFAULT_E_ILT_MPA if E_ilt is None else E_ilt,
+                                nu=DEFAULT_NU_ILT if nu_ilt is None else nu_ilt))
+        load_surface = "ILT_IN"
     lines += [
-        "*SOLID SECTION, ELSET=WALL, MATERIAL=WALL_MAT",
         "*STEP",
         "*STATIC",
         "*BOUNDARY",
         "INLET, 1, 3",
         "OUTLET, 1, 3",
         "*DSLOAD",
-        f"INNER_SURF, P, {p:.10g}",
+        f"{load_surface}, P, {p:.10g}",
         "*NODE FILE",
         "U",
         "*EL PRINT, ELSET=WALL",
@@ -548,10 +555,58 @@ def write_wall_deck(wall, out_path: str | Path, *, pressure_mpa: float,
     return out
 
 
+def _ilt_lines(ilt, *, n_nodes: int, n_elements: int, E: float, nu: float) -> list[str]:
+    """The thrombus block (D91): C3D10 after the wall's nodes and elements,
+    ILT_IN (lumen faces, the pressure surface), ILT_OUT tied to the wall's
+    INNER_SURF without moving nodes (ADJUST=NO: adjusting inverted thin tets)."""
+    from meshforge.export.deck import Material
+
+    mat = Material.elastic(E, nu, name="ILT_MAT")  # validates E, nu
+    lines = ["*NODE"]
+    lines += [f"{n_nodes + i}, {x:.10g}, {y:.10g}, {z:.10g}"
+              for i, (x, y, z) in enumerate(ilt.points, start=1)]
+    lines.append("*ELEMENT, TYPE=C3D10, ELSET=ILT")
+    for k, row in enumerate(ilt.tets + n_nodes + 1, start=1):
+        lines.append(f"{n_elements + k}, " + ", ".join(str(int(v)) for v in row))
+    for name, faces in (("ILT_IN", ilt.inner_faces), ("ILT_OUT", ilt.outer_faces)):
+        lines.append(f"*SURFACE, NAME={name}, TYPE=ELEMENT")
+        lines += [f"{n_elements + int(t) + 1}, {label}" for t, label in faces]
+    lines.extend(mat.lines())
+    lines += [
+        "*SOLID SECTION, ELSET=ILT, MATERIAL=ILT_MAT",
+        f"*TIE, NAME=ILT_WALL, POSITION TOLERANCE={ILT_TIE_TOLERANCE_MM:g}, ADJUST=NO",
+        "ILT_OUT, INNER_SURF",
+    ]
+    return lines
+
+
+def sac_from_wall(wall):
+    """The closed sac surface the thrombus is tied to: the wall's ``inner``
+    faces (each quad split in two), with its two end openings closed by
+    planar caps."""
+    import pyvista as pv
+
+    quads = np.asarray(wall.boundary["inner"].face_nodes, dtype=np.int64)
+    tris = np.vstack([quads[:, [0, 1, 2]], quads[:, [0, 2, 3]]])
+    surf = pv.PolyData(np.asarray(wall.grid.points, dtype=float),
+                       np.column_stack([np.full(len(tris), 3), tris]).ravel()).clean()
+    closed = surf.fill_holes(1e9).triangulate().clean()
+    if closed.n_open_edges:
+        raise ValueError(
+            f"the wall's inner surface does not close with two planar caps "
+            f"({closed.n_open_edges} open edges)"
+        )
+    # one consistent outward winding: fill_holes caps need not match the
+    # wall faces, and a mixed winding corrupts the enclosed volume
+    return closed.compute_normals(cell_normals=True, point_normals=False,
+                                  consistent_normals=True, auto_orient_normals=True)
+
+
 def solve_pressure(wall, pressure_mpa: float, out_dir: Path, stem: str, *,
                    E: float = DEFAULT_E_MPA, nu: float = DEFAULT_NU,
                    ccx: str | None = None, timeout: float = 600.0,
-                   input_path: str | Path | None = None):
+                   input_path: str | Path | None = None, ilt=None,
+                   E_ilt: float | None = None, nu_ilt: float | None = None):
     """One CalculiX solve of :func:`write_wall_deck`. Returns (ip_stress
     (n_cells, n_ip, 6) in ccx order sxx, syy, szz, sxy, sxz, syz; corner-node
     displacement (n_points, 3) or None; SolveResult)."""
@@ -559,7 +614,7 @@ def solve_pressure(wall, pressure_mpa: float, out_dir: Path, stem: str, *,
     from meshforge.solve.runner import solve_deck
 
     deck = write_wall_deck(wall, Path(out_dir) / stem, pressure_mpa=pressure_mpa, E=E,
-                           nu=nu, input_path=input_path)
+                           nu=nu, input_path=input_path, ilt=ilt, E_ilt=E_ilt, nu_ilt=nu_ilt)
     res = solve_deck(deck, out_dir, ccx=ccx, timeout=timeout, read_elements=False)
     if res.dat_path is None:
         raise RuntimeError(f"ccx wrote no .dat for {deck.name} — no integration-point stress")
@@ -753,6 +808,15 @@ def stress_metrics(fields: StressFields, cols: _Columns, keep: np.ndarray,
 # the whole metric
 
 
+from meshforge.solve.ilt import (  # noqa: E402  (D91 defaults, re-exported)
+    DEFAULT_E_ILT_MPA,
+    DEFAULT_ILT_SIZE_MM,
+    DEFAULT_NU_ILT,
+)
+
+#: slave (thrombus) nodes within this distance of the wall's inner faces are tied
+ILT_TIE_TOLERANCE_MM = 1.5
+
 ASSUMPTIONS = (
     "investigational: not a diagnosis, not a rupture prediction",
     "wall thickness assumed {t} mm, uniform (not measured from the scan)",
@@ -794,6 +858,11 @@ def run_aaa_stress(
     ccx: str | None = None,
     timeout: float = 600.0,
     input_path: str | Path | None = None,
+    lumen=None,
+    sac=None,
+    E_ilt: float = DEFAULT_E_ILT_MPA,
+    nu_ilt: float = DEFAULT_NU_ILT,
+    ilt_size: float = DEFAULT_ILT_SIZE_MM,
 ) -> AaaStressResult:
     """Wall stress at a systolic and a what-if pressure (two real solves),
     PWS / principal / tension outside the end zones, fields on a copy of the
@@ -832,6 +901,7 @@ def run_aaa_stress(
             "integration points outside the end zones, at the systolic pressure; MPa"
         ),
         "pws_pressure_mmhg": float(systolic_mmhg),
+        "thrombus": {"modelled": False},
         "systolic": None, "whatif": None, "whatif_ratio": None,
         "refused": [], "notes": [],
     }
@@ -872,6 +942,30 @@ def run_aaa_stress(
             f"('bending' or a length in mm; it is reported)"
         )
 
+    ilt = None
+    if lumen is not None and not reasons:
+        from meshforge.geometry.crop import planes_from_report
+        from meshforge.solve.ilt import build_ilt_mesh
+
+        if not crop_report or not crop_report.get("planes"):
+            raise ValueError(
+                "modelling the thrombus needs the crop report's two cap planes "
+                "(--crop-report): the lumen and the wall must share them"
+            )
+        if sac is None:
+            # gmsh's 3-D fill hung (no error, no timeout) against a sac rebuilt
+            # from a plane-swept wall's steep shoulder: ask for the real one
+            raise ValueError(
+                "modelling the thrombus needs the sac surface the wall was built from "
+                "(--sac): the thrombus fills the space between it and the lumen"
+            )
+        ilt = build_ilt_mesh(lumen, sac, planes_from_report(crop_report), size=ilt_size)
+        out["thrombus"] = {"modelled": True, "E_mpa": float(E_ilt), "nu": float(nu_ilt),
+                           "element": "C3D10", **ilt.summary()}
+        out["boundary"] = ("pressure on the lumen (thrombus inner faces); thrombus tied to "
+                           "the wall's inner faces; wall 'inlet' and 'outlet' encastre")
+        out["notes"] += ilt.notes
+
     grid = wall.grid.copy()
     conn = np.asarray(grid.cells).reshape(-1, 9)[:, 1:]
     centres = np.asarray(grid.cell_centers().points)
@@ -879,7 +973,7 @@ def run_aaa_stress(
     for key, p, mmhg in (("systolic", p_sys, systolic_mmhg), ("whatif", p_wif, whatif_mmhg)):
         ip, u, res = solve_pressure(
             wall, p, Path(out_dir), f"{stem}_p{mmhg:g}mmHg", E=E, nu=nu, ccx=ccx,
-            timeout=timeout, input_path=input_path,
+            timeout=timeout, input_path=input_path, ilt=ilt, E_ilt=E_ilt, nu_ilt=nu_ilt,
         )
         f = stress_fields(ip, cols, thickness if uniform else None)
         suffix = "" if key == "systolic" else "_whatif"
@@ -989,7 +1083,12 @@ def aaa_stress_text(summ: dict[str, Any]) -> str:
     lines.append(f"runtime     : {summ.get('elapsed_s', 0):.1f} s")
     t = summ["wall"].get("thickness_mm")
     lines.append("assumptions :")
+    thr = summ.get("thrombus") or {}
     for a in ASSUMPTIONS:
+        if a.startswith("no intraluminal thrombus") and thr.get("modelled"):
+            a = (f"intraluminal thrombus modelled: a linear-elastic solid between lumen and "
+                 f"wall (E {thr['E_mpa']:g} MPa, nu {thr['nu']:g}, C3D10), tied to the wall; "
+                 f"the pressure acts on the lumen")
         lines.append(
             "  - " + a.format(t="?" if t is None else f"{float(t):g}", E=m["E_mpa"], nu=m["nu"])
         )

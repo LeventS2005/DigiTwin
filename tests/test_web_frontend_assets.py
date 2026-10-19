@@ -146,6 +146,9 @@ _PATH_KNOBS: dict[str, str | None] = {
     # D88: the AAA wall-stress step reads a crop report (neck diameter) and,
     # like solve, may name the CalculiX executable
     "aaa_stress.crop_report": "file",
+    # D91: the lumen surface that bounds the thrombus solid
+    "aaa_stress.lumen": "file",
+    "aaa_stress.sac": "file",
     "aaa_stress.ccx": "file",
     # D89: the tissue index reads PWS from a wall-stress summary JSON — a real
     # input file, so it gets a picker

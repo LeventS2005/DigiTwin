@@ -951,6 +951,22 @@ def main(argv: list[str] | None = None) -> int:
         "from the crop report, else each end's own diameter) | bending (3 shell "
         "bending lengths) | a length in mm",
     )
+    p_aaa.add_argument(
+        "--lumen", type=_path_arg, default=None,
+        help="the blood-lumen surface cut with the same two planes (e.g. crop --lumen-out): "
+        "models the intraluminal thrombus between it and the wall as a tied solid; needs "
+        "--crop-report",
+    )
+    p_aaa.add_argument(
+        "--sac", type=_path_arg, default=None,
+        help="the surface the wall was built from (the cropped outer sac): the thrombus "
+        "fills the space between it and --lumen; required with --lumen",
+    )
+    p_aaa.add_argument("--E-ilt", type=float, default=5.0,
+                       help="thrombus Young's modulus, MPa (default 5, as in the Zenodo AAA "
+                       "FE model)")
+    p_aaa.add_argument("--ilt-size", type=float, default=3.0,
+                       help="thrombus tet size, mm (default 3)")
     p_aaa.add_argument("--ccx", default=None, help="CalculiX executable")
     p_aaa.add_argument("--timeout", type=float, default=600.0,
                        help="solver limit per solve, seconds")
@@ -2770,7 +2786,7 @@ def _cmd_aaa_stress(args: argparse.Namespace) -> int:
     try:
         if not src.is_file():
             raise FileNotFoundError(f"wall input not found: {src}")
-        inputs = [src, args.crop_report]
+        inputs = [src, args.crop_report, args.lumen, args.sac]
         if src.suffix.lower() == ".mfwork":
             if args.summary is not None:
                 raise ValueError("--summary applies to a wall .vtu, not a .mfwork session")
@@ -2792,11 +2808,20 @@ def _cmd_aaa_stress(args: argparse.Namespace) -> int:
         for target in (vtu, json_path):
             guard_output_path(target, input_paths=inputs)
         sha = {p: file_sha256(p) for p in inputs if p is not None and Path(p).is_file()}
-        print(f"aaa-stress  : {src.name}, {args.systolic:g} and {args.whatif:g} mmHg", flush=True)
+        lumen = sac = None
+        if args.lumen is not None or args.sac is not None:
+            from meshforge.io import load_surface
+
+            lumen = load_surface(args.lumen) if args.lumen is not None else None
+            sac = load_surface(args.sac) if args.sac is not None else None
+        print(f"aaa-stress  : {src.name}, {args.systolic:g} and {args.whatif:g} mmHg"
+              + (f", thrombus between {args.lumen.name} and the wall" if lumen is not None else ""),
+              flush=True)
         result = run_aaa_stress(
             wall, summary, out_dir=out_dir, stem=stem, crop_report=crop,
             systolic_mmhg=args.systolic, whatif_mmhg=args.whatif, E=args.E, nu=args.nu,
             end_zone=args.end_zone, ccx=args.ccx, timeout=args.timeout, input_path=src,
+            lumen=lumen, sac=sac, E_ilt=args.E_ilt, ilt_size=args.ilt_size,
         )
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)

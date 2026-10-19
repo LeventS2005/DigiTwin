@@ -203,6 +203,9 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "nu": (float, 0.49, "wall Poisson's ratio (near-incompressible tissue)"),
         "end_zone": (str, "neck", "left out of the metrics next to each clamped end: neck (one neck diameter from the crop report, else each end's own diameter) | bending (3 shell bending lengths) | a length in mm"),
         "crop_report": (str, "", "crop report JSON file with the neck diameter (empty: this session's crop step, if any)"),
+        "lumen": (str, "", "blood-lumen surface file cut by the same two planes (crop's lumen_out): models the intraluminal thrombus between it and the wall as a tied solid (empty: wall only)"),
+        "sac": (str, "", "the sac surface file the wall was built from (required with lumen): the thrombus fills the space between it and the lumen"),
+        "E_ilt": (float, 5.0, "thrombus Young's modulus in MPa (the Zenodo AAA FE model's value; used with lumen)"),
         "ccx": (str, "", "CalculiX executable (empty: MESHFORGE_CCX / PATH / conda env)"),
         "timeout": (float, 600.0, "solver wall-clock limit per solve in seconds"),
     },
@@ -2114,10 +2117,13 @@ class MeshingSession:
         nu: float = 0.49,
         end_zone: str = "neck",
         crop_report: str = "",
+        lumen: str = "",
+        sac: str = "",
+        E_ilt: float = 5.0,
         ccx: str = "",
         timeout: float = 600.0,
     ) -> StepResult:
-        """D88 (M3): AAA wall stress on the session's swept wall — an
+        """D88 (M3) + D91 (thrombus): AAA wall stress on the session's swept wall — an
         INVESTIGATIONAL metric. Stiff-linear CalculiX solves (pressure on
         ``inner``, ``inlet``/``outlet`` encastre) at ``systolic_mmhg`` and
         ``whatif_mmhg``; peak wall stress (99th percentile of the
@@ -2140,10 +2146,21 @@ class MeshingSession:
             report = json.loads(path.read_text())
         else:
             report = crop_report_from_journal(self.journal)
+        lumen, sac = _clean_path(lumen), _clean_path(sac)
+        lumen_surface = sac_surface = None
+        if lumen or sac:
+            from meshforge.io import load_surface
+
+            for name, path in (("lumen", lumen), ("sac", sac)):
+                if path and not Path(path).is_file():
+                    raise ValueError(f"{name} surface not found: {path}")
+            lumen_surface = load_surface(lumen) if lumen else None
+            sac_surface = load_surface(sac) if sac else None
         params = {
             "systolic_mmhg": float(systolic_mmhg), "whatif_mmhg": float(whatif_mmhg),
             "E": float(E), "nu": float(nu), "end_zone": str(end_zone),
-            "crop_report": crop_report, "ccx": ccx, "timeout": float(timeout),
+            "crop_report": crop_report, "lumen": lumen, "sac": sac, "E_ilt": float(E_ilt),
+            "ccx": ccx, "timeout": float(timeout),
         }
         out_dir = Path("outputs") / "aaa_stress" / "session"
         res = run_aaa_stress(
@@ -2151,6 +2168,7 @@ class MeshingSession:
             systolic_mmhg=params["systolic_mmhg"], whatif_mmhg=params["whatif_mmhg"],
             E=params["E"], nu=params["nu"], end_zone=params["end_zone"],
             ccx=ccx or None, timeout=params["timeout"], input_path=self.input_path,
+            lumen=lumen_surface, sac=sac_surface, E_ilt=params["E_ilt"],
         )
         self.aaa_stress = res
         out_dir.mkdir(parents=True, exist_ok=True)

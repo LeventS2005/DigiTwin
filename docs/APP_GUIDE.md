@@ -503,10 +503,32 @@ AortaSeg-60 Anev_02 crop is: its caps are 50.7 mm apart and its neck is
 capped or floored wall ray (both sweep kinds — planes: tilt + concavity); a
 missing or mismatched mesh summary; too little wall outside the end zones.
 
+**Thrombus** (`--lumen`, step knob `lumen`).
+- **What to give it:** the blood-lumen surface cut by the SAME two planes as
+  the wall's surface (`crop --lumen`), `--sac`, the surface the wall was built from, and `--crop-report`, which carries
+  those planes.
+- **The thrombus solid:** the region between the lumen and the wall's inner
+  surface (rebuilt from the wall itself), filled with quadratic tets (C3D10,
+  `--ilt-size` 3 mm). The lumen is re-cut 0.5 mm inside the caps so the two
+  surfaces never touch.
+- **Coupling and loads:** the thrombus is tied to the wall without moving
+  any node. The blood pressure then acts on the **lumen**, as it does in the
+  body. The thrombus ends are free; the wall carries the clamp.
+- **Material:** `--E-ilt` defaults to 5 MPa (wall 100 MPa, ν 0.49 both). These
+  are the Zenodo AAA dataset's own FE values, so our numbers compare with
+  theirs. Physiological thrombus is softer; the ratio is what matters on
+  loaded geometry.
+- **Checks:** the wall hoop stress matches the two-layer Lamé solution within
+  0.6%, and a near-zero-stiffness thrombus passes the pressure through as
+  if it were absent.
+- **Why it matters:** without it the stress is overstated. On a native AAA,
+  674 vs 278 kPa at 140 mmHg.
+
 **Assumptions it always prints:** investigational; wall thickness assumed
-1.5 mm, uniform; **no intraluminal thrombus modelled, so wall stress is
-overstated where thrombus is present**; stiff-linear on the loaded geometry;
-uniform static pressure, both ends clamped.
+1.5 mm, uniform; the thrombus line (either "modelled: ..." or "**no
+intraluminal thrombus modelled, so wall stress is overstated where thrombus
+is present**"); stiff-linear on the loaded geometry; uniform static
+pressure, both ends clamped.
 
 Output (`outputs/aaa_stress/session/` from the Workbench; the CLI's
 `--out-dir`): `<stem>_aaa_stress.vtu` — point and cell fields `von_mises`,
