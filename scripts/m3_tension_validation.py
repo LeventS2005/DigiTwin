@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -44,7 +45,11 @@ ROOT = Path.cwd()
 ZEN = ROOT / "outputs/data/zenodo_19182977/extracted/Dataset_root"
 GATE = ROOT / "outputs/m2/gate"
 OUT = ROOT / "outputs/m3"
-WORK = OUT / "tension_validation"
+#: MESHFORGE_TENSION_ILT=1: our model includes the thrombus as a tied solid
+#: (D91), like theirs; results go to the *_ilt files beside the wall-only ones
+WITH_ILT = os.environ.get("MESHFORGE_TENSION_ILT") == "1"
+TAG = "_ilt" if WITH_ILT else ""
+WORK = OUT / f"tension_validation{TAG}"
 P_THEIRS_MPA = 0.016  # their *Dsload 16e-03 (MPa) = 120.0 mmHg
 THICKNESS = 1.5
 #: every Zenodo case whose M2 crop used the automatic landmarks and whose gate
@@ -68,7 +73,7 @@ def gate_wall(case: str):
     wall = get_backend("swept").mesh_wall(res.surface, THICKNESS, centerline=cl,
                                           curvature_cap=0.9, sweep="auto",
                                           section_smoothing=0.0)
-    return wall, res.report(), ref.regions["lumen"]
+    return wall, res.report(), ref.regions["lumen"], res
 
 
 def compare(case: str, log) -> list[dict]:
@@ -79,7 +84,7 @@ def compare(case: str, log) -> list[dict]:
     import meshforge.solve.aaa_metrics as am
 
     t0 = time.time()
-    wall, rep, lumen_ref = gate_wall(case)
+    wall, rep, lumen_ref, crop_res = gate_wall(case)
     saved = pv.read(str(GATE / case / "wall.vtu"))
     same = (saved.n_points == wall.grid.n_points
             and float(np.abs(np.asarray(saved.points) - np.asarray(wall.grid.points)).max())
@@ -93,8 +98,15 @@ def compare(case: str, log) -> list[dict]:
                 for v in VARIANTS]
 
     cols = am._columns(wall)
+    ilt = None
+    if WITH_ILT:
+        from meshforge.geometry.crop import planes_from_report
+        from meshforge.solve.ilt import build_ilt_mesh
+
+        ilt = build_ilt_mesh(crop_res.lumen, crop_res.surface, planes_from_report(rep))
+        log(f"{case}: thrombus {len(ilt.tets)} C3D10, {ilt.volume_ml:.1f} mL")
     ip, _, res = am.solve_pressure(wall, P_THEIRS_MPA, WORK / case, f"{case}_16kPa",
-                                   E=am.DEFAULT_E_MPA, nu=am.DEFAULT_NU)
+                                   E=am.DEFAULT_E_MPA, nu=am.DEFAULT_NU, ilt=ilt)
     f = am.stress_fields(ip, cols, THICKNESS)
     t_pts = am._tension_points(cols, f.tension_col, wall.grid.n_points)
     log(f"{case}: solve {res.elapsed:.1f} s")
@@ -162,7 +174,7 @@ def write_tables(rows: list[dict]) -> None:
             "spearman_rho", "peak_offset_mm", "p99_ratio", "p50_ratio", "rho_ratio_vs_ilt",
             "ilt_median_mm", "ours_p99",
             "theirs_p99", "ours_p50", "theirs_p50", "nearest_node_mm_median"]
-    with open(OUT / "tension_validation.csv", "w", newline="") as fh:
+    with open(OUT / f"tension_validation{TAG}.csv", "w", newline="") as fh:
         wr = csv.DictWriter(fh, fieldnames=cols)
         wr.writeheader()
         for r in rows:
@@ -228,7 +240,7 @@ def write_tables(rows: list[dict]) -> None:
         "the compared vertices, between our/their tension and the thrombus thickness under "
         "the vertex (outer wall to their lumen surface, minus the 1.5 mm wall).",
     ]
-    (OUT / "tension_validation.md").write_text("\n".join(md) + "\n")
+    (OUT / f"tension_validation{TAG}.md").write_text("\n".join(md) + "\n")
 
 
 def main(argv: list[str]) -> None:

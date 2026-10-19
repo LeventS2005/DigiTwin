@@ -427,6 +427,8 @@ const BROWSE_KNOBS = {
   "sac.path": "file",
   "sac.lumen_mask": "file",
   "aaa_stress.crop_report": "file",
+  "aaa_stress.lumen": "file",
+  "aaa_stress.sac": "file",
   "aaa_stress.ccx": "file",
   "tissue_index.from_summary": "file",
 };

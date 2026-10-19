@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `aaa-stress --lumen <cropped lumen> --sac <the cropped sac the wall was built from>` (with `--crop-report`): models
+  the intraluminal thrombus as a solid.
+  - **Geometry:** the region between the blood lumen and the wall is filled
+    with quadratic tets (C3D10) and tied to the wall's inner faces.
+  - **Loads and material:** the blood pressure acts on the lumen. The default
+    thrombus modulus is 5 MPa against the wall's 100 MPa, as in the Zenodo
+    AAA dataset's FE model (`--E-ilt`).
+  - **Two-layer cylinder check:** the wall hoop stress matches plane-strain
+    Lamé within 0.6%.
+  - **On a native AAA**, peak wall stress at 140 mmHg drops from 674 kPa
+    (wall only) to 278 kPa, inside the published 220–330 kPa range.
+  - **The assumptions it prints** follow the model ("thrombus modelled" vs
+    "wall stress is overstated").
+
 - `lumen --method surface-tet`, and as the last `auto` fallback: tet-fills
   the cropped surface itself, after a gmsh reparametrize-and-remesh, so it
   needs no centreline rings.
