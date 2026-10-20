@@ -109,6 +109,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The wall tension over-read where a swept wall is thinner than its rays.
+  - **Cause:** the tension was the nominal 1.5 mm × the layer-mean stress
+    whenever every wall ray was 1.5 mm long. A centreline ray that crosses a
+    sac's shoulder at an angle builds a column only 1.5 cos θ thick along the
+    surface normal, and the stress there is higher by the same factor. So the
+    tension read 1.5/h too high: up to 2.6× on the Zenodo AAA case P17 (0.57 mm
+    columns).
+  - **The fix:** the nominal thickness is used only when every column is that
+    thick along the surface normal (within 2%). Otherwise the stress is
+    integrated along each column's measured normal thickness, and
+    `tension_definition` says which rule applied. The peak wall stress (PWS),
+    the strength index and the assumed wall thickness are unchanged.
+  - **Results:** against the Zenodo dataset's published FE result (12 cases,
+    with thrombus), the p99 hotspots of P04 (1.62) and P17 (1.91) read 0.98 and
+    0.95. The medians are rank correlation 0.98, peak offset 0.95 mm, p99 ratio
+    0.98, p50 ratio 0.96 (were 0.95 / 2.8 mm / 1.14 / 1.05). On s1364 the
+    copilot's PWS stays 282.5 / 242.1 kPa; its tension p99 moves −0.07%.
+  - `scripts/m3_tension_validation.py` uses the same rule, and its report no
+    longer says "NO thrombus" when the thrombus is modelled.
 - Where the thrombus was thin, the model put the blood pressure on the WALL
   side of the thrombus and left the wall there unloaded.
   - **Cause:** each thrombus boundary face was labelled lumen (pressure) or

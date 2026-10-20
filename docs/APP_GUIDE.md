@@ -484,9 +484,15 @@ dominated by the clamp):
 - the **peak location** (coordinates, height above the distal cap) and the
   centroid of the top-1% region;
 - **wall tension** (N/mm) p50 / p99 / max: the through-thickness resultant
-  of the in-plane stress (wall thickness × the layer-mean in-plane stress, its
-  larger principal value). On the loaded geometry it does not depend on the
-  assumed thickness (1.2 / 1.5 / 2.0 mm agree within 0.3%), while the PWS
+  of the in-plane stress, its larger principal value. It is the wall
+  thickness × the layer-mean in-plane stress only when every radial column of
+  hexes is that thick along the surface normal (within 2%). Otherwise the
+  stress is integrated along each column's measured normal thickness: a
+  centreline ray that crosses a sac's shoulder at an angle builds a column
+  thinner than the ray, and thickness × stress would over-read there (the
+  summary's `tension_definition` says which rule applied). On the loaded
+  geometry the tension does not depend on the assumed thickness (1.2 / 1.5 /
+  2.0 mm agree within the test's 2%; D88 measured 0.3%), while the PWS
   scales as 1/t;
 - the what-if: PWS at 120 / 140 mmHg (= 0.857 — the solve is linear).
 
@@ -575,17 +581,22 @@ tension regions 9.8 mm, our p99 / their p99 1.42 (p50 1.56). Ours reads
 higher because our wall carries no thrombus: their pressure acts on the
 lumen, inside the thrombus. Across the cases our/their p50 follows the
 thrombus thickness (Spearman 0.90); on the thin-thrombus case P12 it is 1.12
-with ρ 0.89.
+with ρ 0.89. (These wall-only numbers used the earlier nominal-thickness
+tension; recomputed from the same solves with the current rule they read ρ
+0.72, offset 4.0 mm, p99 1.26, p50 1.39.)
 
 **With the thrombus modelled** (`MESHFORGE_TENSION_ILT=1`,
 `outputs/m3/tension_validation_ilt.md`), on the same 12 cases:
-- median ρ 0.95 (0.45–0.98). The low value is P07, a 46.6 mm crop that
-  leaves a 6 mm comparison band; wall-only it is 0.47.
-- top-1% offset 2.8 mm; p99 ratio 1.14; p50 ratio 1.05.
-- Two cases still read a high p99: P04 1.62 and P17 1.91.
-  - P17's is a mid-sac hotspot that is there wall-only too.
-  - P04's is not yet located.
-  - Both are open.
+- median ρ 0.98 (0.83–0.99); the lowest is P07, a 46.6 mm crop that leaves a
+  6 mm comparison band;
+- top-1% offset 0.95 mm; p99 ratio 0.98 (0.93–1.00 in every case); p50
+  ratio 0.96.
+- The p99 hotspots that P04 (1.62) and P17 (1.91) showed before 20 Oct were
+  ours: the validation's gate walls use the centreline sweep, whose 1.5 mm
+  rays cross the sac's shoulders at an angle and build columns only 0.80 /
+  0.57 mm thick along the normal there, and the tension multiplied their
+  stress by the nominal 1.5 mm. Integrated along the measured normal
+  thickness (the rule above) they read 0.98 / 0.95.
 
 Data credits: Zenodo AAA 4D-CTA dataset, doi 10.5281/zenodo.19182977,
 CC BY 4.0 (its surfaces are a *reference segmentation* and its tension maps

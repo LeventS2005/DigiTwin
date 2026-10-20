@@ -21,8 +21,11 @@ is set by geometry and pressure, not by the modulus. Units are N, mm, MPa
 * Wall tension T (N/mm): the through-thickness resultant of the in-plane
   stress over each radial column of hexes (projected on the column's tangent
   plane) — the wall's uniform nominal thickness t x the layer-mean in-plane
-  stress — its larger principal value; mapped to the outer-surface nodes. On
-  loaded geometry it is ~independent of the assumed thickness.
+  stress, or, when any column is not t thick along the surface normal (rays
+  crossing a sac's shoulder at an angle), the stress integrated along each
+  column's measured normal thickness — its larger principal value; mapped to
+  the outer-surface nodes. On loaded geometry it is ~independent of the
+  assumed thickness.
 
 Refusals (fail loudly, rule 6): no metric is reported — the sentinel ``None``
 plus a human-readable reason — when the mesh summary is missing, the wall has
@@ -54,6 +57,13 @@ PWS_PERCENTILE = 99.0
 MIN_EVALUATED_FRACTION = 0.10
 #: end zone "bending": this many shell bending lengths per cap.
 BENDING_LENGTHS = 3.0
+#: the tension is t_nominal x the layer-mean stress only while every radial
+#: column is t_nominal thick along the inner surface's normal, within this
+#: fraction. A swept wall's rays can cross a sac's shoulder at an angle: the
+#: column is then thinner than its ray (Zenodo P17: 0.57 mm under 1.5 mm rays),
+#: its stress ~t/h higher, and t x that stress over-reads the resultant by t/h
+#: (P17's p99 read 1.91 x the reference, 0.95 integrated along the normal).
+UNIFORM_NORMAL_TOL = 0.02
 ELEMENT = "C3D20R"
 METHOD = (
     "stiff-linear on the loaded geometry: linear elastic, small strain (nlgeom off), "
@@ -240,6 +250,19 @@ class _Columns:
 
 def _median_column_thickness(cols: _Columns) -> float:
     return float(np.median(np.bincount(cols.cell_column, weights=cols.h_normal)))
+
+
+def tension_thickness(cols: _Columns, t_nominal: float | None) -> float | None:
+    """The thickness :func:`stress_fields` integrates the tension over:
+    ``t_nominal`` when every radial column is that thick along the inner
+    surface's vertex normals (within ``UNIFORM_NORMAL_TOL``), else None — each
+    column's measured normal thickness. Equal ray lengths are not enough: a
+    ray that leaves the surface at an angle builds a thinner column."""
+    if t_nominal is None:
+        return None
+    h = np.bincount(cols.cell_column, weights=cols.h_normal)
+    off = np.abs(h / float(t_nominal) - 1.0)
+    return float(t_nominal) if bool(np.all(off <= UNIFORM_NORMAL_TOL)) else None
 
 
 def annotate_wall_thickness(wall) -> float | None:
@@ -696,7 +719,8 @@ def stress_fields(ip: np.ndarray, cols: _Columns, thickness: float | None = None
     through-thickness integral of the in-plane stress. With ``thickness`` (the
     wall's nominal, uniform t) h_l = t x the layer's share of the column, i.e.
     N = t x the layer-mean in-plane stress, free of any normal estimate;
-    without it, h_l is measured along the inner surface's vertex normals."""
+    without it, h_l is measured along the inner surface's vertex normals.
+    :func:`tension_thickness` says which applies to a wall."""
     vm = _von_mises(ip)
     p1 = np.linalg.eigvalsh(_tensor(ip))[..., -1]
     mean = _tensor(ip.mean(axis=1))
@@ -943,13 +967,20 @@ def run_aaa_stress(
     uniform = t_nom is not None and t_min is not None and abs(t_nom - t_min) <= 1e-6 * t_nom
     thickness = float(t_nom) if uniform else measured
     out["wall"]["thickness_mm"] = round(thickness, 4)
+    # equal rays (uniform) are not a uniform wall: a ray crossing the sac at an
+    # angle builds a thinner column, so the nominal t holds only if every column
+    # is t thick along the normal
+    t_tension = tension_thickness(cols, thickness) if uniform else None
     out["tension_definition"] = (
         f"t x the layer-mean in-plane stress resultant (t = {thickness:g} mm, the wall's "
         f"uniform nominal thickness), larger principal value; per column of hexes, "
         f"mapped to the outer-surface nodes"
-        if uniform else
+        if t_tension is not None else
         "the in-plane stress integrated along the measured column thickness (inner-surface "
         "vertex normals), larger principal value; mapped to the outer-surface nodes"
+        + ("" if not uniform else
+           f" (the rays are {thickness:g} mm, but not every column is that thick along the "
+           f"surface normal, within {UNIFORM_NORMAL_TOL:.0%})")
     )
     ez = end_zones(wall, end_zone=end_zone, crop_report=crop_report, thickness=thickness,
                    nu=nu, volume=cols.volume)
@@ -1000,7 +1031,7 @@ def run_aaa_stress(
             wall, p, Path(out_dir), f"{stem}_p{mmhg:g}mmHg", E=E, nu=nu, ccx=ccx,
             timeout=timeout, input_path=input_path, ilt=ilt, E_ilt=E_ilt, nu_ilt=nu_ilt,
         )
-        f = stress_fields(ip, cols, thickness if uniform else None)
+        f = stress_fields(ip, cols, t_tension)
         suffix = "" if key == "systolic" else "_whatif"
         vm_cell, p1_cell = f.vm_ip.mean(axis=1), f.p1_ip.mean(axis=1)
         grid.cell_data[f"von_mises{suffix}"] = vm_cell
