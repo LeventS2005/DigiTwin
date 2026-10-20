@@ -94,6 +94,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "timeout": (float, 1800.0, "TotalSegmentator wall-clock limit in seconds"),
         "lumen_out": (str, "", "also write the contrast blood lumen to this .vtp file (CT >= lumen_hu inside the AI outline — a threshold, not AI)"),
         "lumen_hu": (float, 150.0, "HU threshold for the blood lumen (calcification is bright too: detached pieces are dropped)"),
+        "mask_out": (str, "", "also write the AI aorta mask to this .nii.gz file (the sac step's lumen_mask)"),
     },
     # D85 (M2): crop the aorta to its infrarenal aneurysm segment — two cut
     # planes square to the centreline, flat caps, landmark report.
@@ -104,6 +105,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "proximal_height_mm": (float, None, "manual proximal cut, mm above the caudal end"),
         "lumen": (str, "", "blood-lumen surface file to cut with the same two planes"),
         "lumen_out": (str, "", "write the cut lumen surface to this .vtp file"),
+        "parallel_caps": (int, 0, "1 = both cuts square to the chord between them: parallel caps, which the plane-swept wall needs on a bent aorta (landmarks unchanged)"),
     },
     # D86 (M2): outer aneurysm sac (lumen + thrombus + wall) recovered from the
     # CT around a lumen-only mask, by axial rays to the first fat plane.
@@ -903,6 +905,41 @@ def auto_cso_surface(data, *, n_ring: int, voxel_size, cap_ends: bool):
     return voxel, vprov, None, "voxel fallback (loft did not sweep clean)"
 
 
+def _recut_parallel(surface, lumen_mesh, res, rep):
+    """D92: re-cut a crop with both planes square to the chord between the two
+    cut origins (parallel caps). The landmark rules square each cut to its own
+    local axis; on a bent aorta those caps can be 35 deg apart, so the
+    parallel-plane wall sweep cannot apply and the centreline sweep folds."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from meshforge.geometry.crop import CutPlane, crop_with_planes, planes_from_report
+
+    planes = planes_from_report(rep)
+    chord = planes[1].origin - planes[0].origin
+    norm = float(np.linalg.norm(chord))
+    if not norm > 0:
+        raise ValueError("parallel caps: the two cut origins coincide")
+    c = chord / norm
+    tilt = [float(np.degrees(np.arccos(np.clip(abs(pl.normal @ c), -1, 1)))) for pl in planes]
+    new = [CutPlane(name=pl.name, origin=pl.origin, normal=(-c if k == 0 else c), height=pl.height)
+           for k, pl in enumerate(planes)]
+    cut, caps, note = crop_with_planes(surface, new, what="surface")
+    lumen_cut = None
+    if lumen_mesh is not None:
+        lumen_cut, _, lnote = crop_with_planes(lumen_mesh, new, what="lumen")
+    rep = dict(rep)
+    rep["planes"] = {pl.name: pl.to_dict() for pl in new}
+    rep["caps"] = {k: v.to_dict() for k, v in caps.items()}
+    rep["notes"] = list(rep.get("notes", [])) + [
+        f"parallel caps: both cuts squared to the chord between them "
+        f"({norm:.1f} mm; the landmark cuts were {tilt[0]:.1f} / {tilt[1]:.1f} deg off it)",
+        note,
+    ]
+    return SimpleNamespace(surface=cut, lumen=lumen_cut), rep
+
+
 class MeshingSession:
     """Holds pipeline state: surface → centerline → sections → wall → volmesh."""
 
@@ -920,6 +957,10 @@ class MeshingSession:
         self.cfd = None  # CfdResult from compute_cfd (V23)
         self.aaa_stress = None  # AaaStressResult from compute_aaa_stress (D88)
         self.profile = None  # Profile2D from compute_import_cad (V12)
+        # D93: the surface the last crop cut, and what it produced; a crop of
+        # that unchanged output re-crops the source instead
+        self._crop_source = None
+        self._crop_output = None
         # Length unit of the current source, or None when it declares none
         # (STL/VTK/synthetic). Set by each source step; CSO and DICOM are
         # millimetres by definition. Gates the cardiac CFD presets (D80).
@@ -1109,6 +1150,9 @@ class MeshingSession:
         if self.centerline is not None:
             knobs.setdefault("centerline", self.centerline)
         self.volmesh = get_backend(backend).mesh_wall(surface, thickness, **knobs)
+        from meshforge.solve.aaa_metrics import annotate_wall_thickness
+
+        annotate_wall_thickness(self.volmesh)  # D93: what the wall really is, along the normal
         s = self.volmesh.summary()
         q = s["quality"]
         text = (
@@ -1121,7 +1165,10 @@ class MeshingSession:
             text += (
                 f"  wall rays: capped {lat['n_capped']}, floored {lat['n_floored']} of "
                 f"{lat['n_rays']} (curvature_cap {lat['curvature_cap']:g}); thickness "
-                f"{lat['thickness_min']:.4g}..{lat['thickness_max']:.4g}\n"
+                f"{lat['thickness_min']:.4g}..{lat['thickness_max']:.4g}"
+                + (f", along the surface normal median {lat['thickness_normal_median']:.4g}"
+                   if lat.get("thickness_normal_median") is not None else "")
+                + "\n"
             )
             if lat.get("sweep") == "planes":
                 text += (
@@ -1477,6 +1524,7 @@ class MeshingSession:
         timeout: float = 1800.0,
         lumen_out: str = "",
         lumen_hu: float = 150.0,
+        mask_out: str = "",
     ) -> StepResult:
         """D83 (M1): CT (.nrrd/.nii/.nii.gz) -> TotalSegmentator aorta mask ->
         watertight surface as the session source, in RAS millimetres.
@@ -1500,6 +1548,12 @@ class MeshingSession:
             from meshforge.export import guard_output_path
 
             guard_output_path(lumen_out, input_paths=[path])
+        mask_out = _clean_path(mask_out)
+        if mask_out:
+            from meshforge.export import guard_output_path
+
+            guard_output_path(mask_out, input_paths=[path])
+            Path(mask_out).parent.mkdir(parents=True, exist_ok=True)
         seg = segment_ct(
             path,
             device=device,
@@ -1507,6 +1561,7 @@ class MeshingSession:
             smoothing=float(smoothing),
             timeout=float(timeout),
             lumen_hu=float(lumen_hu) if lumen_out else None,
+            keep_mask=mask_out or None,
         )
         if lumen_out:
             Path(lumen_out).parent.mkdir(parents=True, exist_ok=True)
@@ -1562,6 +1617,7 @@ class MeshingSession:
                 "timeout": float(timeout),
                 "lumen_out": lumen_out,
                 "lumen_hu": float(lumen_hu),
+                "mask_out": mask_out,
             },
             result,
             input_sha256=self.input_sha256,
@@ -1577,12 +1633,20 @@ class MeshingSession:
         proximal_height_mm: float | None = None,
         lumen: str = "",
         lumen_out: str = "",
+        parallel_caps: int = 0,
     ) -> StepResult:
         """D85 (M2): crop the session surface (an aorta in millimetres, +z
         superior) to its infrarenal aneurysm segment with two flat caps square
         to the centreline; an optional lumen surface is cut by the SAME planes
-        and written to ``lumen_out``. All work lives in ``geometry/crop.py``."""
+        and written to ``lumen_out``. All work lives in ``geometry/crop.py``.
+
+        A crop of an unchanged crop starts again from the surface the first
+        crop cut (D93): the landmarks need the whole aorta, and cutting a
+        crop trims it further (on s1364 the sac went 134.8 -> 93.7 mL)."""
         surface = self._require_surface()
+        recrop = self._crop_output is not None and surface is self._crop_output
+        if recrop:
+            surface = self._crop_source
         if self.length_unit not in (None, "mm"):
             raise ValueError(
                 f"crop works in millimetres; this surface is in {self.length_unit!r}"
@@ -1613,9 +1677,14 @@ class MeshingSession:
         )
         rep = res.report()
         rep.pop("profile", None)  # every section: in the CLI's JSON, not the journal
+        if parallel_caps:
+            res, rep = _recut_parallel(surface, lumen_mesh, res, rep)
         if self.length_unit is None:
             rep["notes"].append("the surface carries no length unit: millimetres assumed")
+        if recrop:
+            rep["notes"].append("re-cropped from the uncropped surface, not from the previous crop")
         self.surface = res.surface
+        self._crop_source, self._crop_output = surface, res.surface
         self._invalidate_downstream()
         if lumen_out:
             Path(lumen_out).parent.mkdir(parents=True, exist_ok=True)
@@ -1644,6 +1713,7 @@ class MeshingSession:
                 "proximal_height_mm": proximal_height_mm,
                 "lumen": lumen,
                 "lumen_out": lumen_out,
+                "parallel_caps": int(bool(parallel_caps)),
             },
             result,
             input_sha256=self.input_sha256,
@@ -2156,6 +2226,11 @@ class MeshingSession:
                     raise ValueError(f"{name} surface not found: {path}")
             lumen_surface = load_surface(lumen) if lumen else None
             sac_surface = load_surface(sac) if sac else None
+        if lumen_surface is not None and sac_surface is None and report is not None:
+            # D92: after a crop, the session surface IS the cropped sac the
+            # wall was built from - the thrombus fills between it and the lumen
+            sac_surface = self.surface
+            sac = "(the session's cropped surface)"
         params = {
             "systolic_mmhg": float(systolic_mmhg), "whatif_mmhg": float(whatif_mmhg),
             "E": float(E), "nu": float(nu), "end_zone": str(end_zone),

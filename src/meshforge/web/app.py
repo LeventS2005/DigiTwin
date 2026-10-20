@@ -10,6 +10,7 @@ exporter calls) on client-supplied write paths.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -95,10 +96,20 @@ def _capture(holder: "_SessionHolder", result) -> dict[str, Any]:
     return _result_json(result)
 
 
+#: One session, so one compute call at a time (D93). FastAPI runs these sync
+#: handlers in a thread pool; a step and the viewport's GET /geometry ran VTK
+#: on two threads at once, and VTK 9.6.2's Python wrapper map then crashed the
+#: Workbench (vtkPythonUtil::FindObject, on the first demo run). Read-only
+#: polls (/state, /journal) touch no VTK and stay outside the lock.
+_SESSION_LOCK = threading.RLock()
+
+
 def _run(work):
-    """Run ``work`` mapping compute-layer domain errors to a loud HTTP 400."""
+    """Run ``work`` under the session lock, mapping compute-layer domain errors
+    to a loud HTTP 400."""
     try:
-        return work()
+        with _SESSION_LOCK:
+            return work()
     except HTTPException:
         raise
     except _DOMAIN_ERRORS as exc:

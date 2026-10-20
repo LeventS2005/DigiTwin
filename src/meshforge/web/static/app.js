@@ -424,6 +424,7 @@ const BROWSE_KNOBS = {
   "segment.lumen_out": "save",
   "crop.lumen": "file",
   "crop.lumen_out": "save",
+  "segment.mask_out": "save",
   "sac.path": "file",
   "sac.lumen_mask": "file",
   "aaa_stress.crop_report": "file",

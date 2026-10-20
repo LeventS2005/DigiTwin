@@ -254,6 +254,29 @@ def test_session_crop_step_journal_replay_and_lumen(tmp_path):
         s.compute_crop()
 
 
+def test_a_second_crop_recuts_the_uncropped_surface(tmp_path):
+    """D93: the copilot crops, then re-crops with parallel caps. Cutting the
+    first crop again trimmed the s1364 sac from 134.8 to 93.7 mL."""
+    from meshforge.pipeline import MeshingSession, load_workfile, replay
+
+    s = MeshingSession()
+    s.generate_synth("aneurysm_tube")
+    first = s.compute_crop()
+    assert not any("re-cropped" in n for n in first.summary["crop"]["notes"])
+    v1 = s.surface.volume
+    again = s.compute_crop()
+    assert any("re-cropped from the uncropped" in n for n in again.summary["crop"]["notes"])
+    assert s.surface.volume == pytest.approx(v1, rel=1e-9)
+    # replay runs the same two crops and lands on the same surface
+    fresh = load_workfile(s.save_workfile(tmp_path / "recrop.mfwork"))
+    replay(fresh)
+    assert fresh.surface.volume == pytest.approx(v1, rel=1e-9)
+    # a surface replaced since the crop is cropped as it is
+    s.generate_synth("aneurysm_tube")
+    fresh_crop = s.compute_crop()
+    assert not any("re-cropped" in n for n in fresh_crop.summary["crop"]["notes"])
+
+
 def test_volmesh_reports_capped_and_floored_rays(tmp_path):
     from meshforge.meshing import get_backend
     from meshforge.synth import generate

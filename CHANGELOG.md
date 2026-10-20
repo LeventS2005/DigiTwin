@@ -8,17 +8,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `meshforge copilot "<request>" --ct <scan>` (optional extra `copilot`) is
+  an investigational Claude copilot.
+  - **What it runs:** segment → sac → crop → wall mesh with its quality gate →
+    wall stress with thrombus → strength index.
+  - **Recovery:** when a gate fails it reads the error and recovers, for
+    example re-cropping with parallel caps.
+  - **Report:** built only from tool outputs and opening with a "your twin"
+    card: the aorta as module 1 and the data layers as slots. Claude's
+    summary is included only if every number in it matches a tool output
+    (one correction is allowed, otherwise it is withheld).
+  - **Live view:** `--server <url>` runs the steps on a live Workbench so its
+    viewport follows along.
+  - **Model and record:** Claude Opus 5.5 with adaptive thinking and a
+    server-side refusal fallback. Every action lands in the transcript and in
+    a replayable work file.
+- `segment --mask_out` (step knob), `crop --parallel_caps`, and `aaa_stress`
+  using the session's cropped surface as the sac when only `lumen` is given.
+
 - `aaa-stress --lumen <cropped lumen> --sac <the cropped sac the wall was built from>` (with `--crop-report`): models
   the intraluminal thrombus as a solid.
   - **Geometry:** the region between the blood lumen and the wall is filled
     with quadratic tets (C3D10) and tied to the wall's inner faces.
-  - **Loads and material:** the blood pressure acts on the lumen. The default
-    thrombus modulus is 5 MPa against the wall's 100 MPa, as in the Zenodo
-    AAA dataset's FE model (`--E-ilt`).
+  - **Loads and material:** the blood pressure acts on the lumen. The thrombus
+    ends are free. The default thrombus modulus is 5 MPa against the wall's
+    100 MPa, as in the Zenodo AAA dataset's FE model (`--E-ilt`).
   - **Two-layer cylinder check:** the wall hoop stress matches plane-strain
-    Lamé within 0.6%.
+    Lamé within 0.7%.
   - **On a native AAA**, peak wall stress at 140 mmHg drops from 674 kPa
-    (wall only) to 278 kPa, inside the published 220–330 kPa range.
+    (wall only) to 287 kPa, inside the published 220–330 kPa range.
+  - **Against the Zenodo AAA dataset's published FE result** (12 cases, which
+    model thrombus too), the median tension rank correlation is 0.95 and the
+    median p99 ratio 1.14 (wall only: 0.70 and 1.42).
   - **The assumptions it prints** follow the model ("thrombus modelled" vs
     "wall stress is overstated").
 
@@ -88,6 +109,60 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Where the thrombus was thin, the model put the blood pressure on the WALL
+  side of the thrombus and left the wall there unloaded.
+  - **Cause:** each thrombus boundary face was labelled lumen (pressure) or
+    sac (tied to the wall) by the nearest surface VERTEX to its centre. At
+    the 3 mm mesh that point is about 1.7 mm from its own vertices, so under
+    about 1.7 mm of thrombus the labels swapped.
+  - **Effect:** 41% and 45% of the wall area on two Zenodo AAA cases with thin
+    thrombus, 7% on a third; 1–2% on the s1364 demo case.
+  - **The fix:** a face is labelled by the surface it lies ON (the
+    point-to-surface distance of its corners and centre). The thrombus ends
+    on the cap planes and the lumen's re-cut caps are now explicitly free.
+    Before, 48–84% of the cap-plane end faces carried pressure, against the
+    model's own "ends stay free". A face on neither surface or on both is
+    refused. The notes give the pressure / tied / free face counts.
+  - **Results:** against the Zenodo dataset's published FE result, the thin
+    cases now agree (rank correlation 0.13 → 0.91 on one, peak-tension ratio
+    0.23 → 1.13 on the other). The 12-case medians are rho 0.95 and p99
+    ratio 1.14. On s1364 the copilot's peak wall stress reads 282.5 kPa at
+    140 mmHg (was 278.9).
+- The thrombus mesh (`aaa-stress --lumen`) could hang forever with no
+  error. gmsh spun inside its remesh of a cropped sac carrying near-zero
+  edges (one exactly 0 mm); this stopped the s1364 copilot run at the stress
+  step.
+  - **Guard:** every gmsh call now runs in a child process that is stopped
+    after 60 s with a readable error.
+  - **Retries:** the mesh is tried with tiny edges collapsed (0.009 mm), then
+    as given, then two other tolerances. An attempt is kept only if its
+    volume and scaled-Jacobian checks pass, and the notes name the one used.
+  - **Unchanged results:** the hand-built s1364 thrombus mesh is unchanged
+    (19,777 tets).
+- The Workbench could crash (SIGABRT/SIGSEGV in VTK's Python wrapping) when
+  a step and the viewport's geometry request ran at the same time.
+  - **Cause:** FastAPI runs the handlers in a thread pool, and VTK 9.6.2's
+    wrapper map has an upstream bug (VTK commit 0acc7f73, not yet in a
+    release) that concurrent VTK work makes far likelier.
+  - **The fix:** compute and geometry routes now run one at a time under one
+    lock. The `/state` and `/journal` polls stay unlocked.
+  - **Verified:** the copilot's s1364 path crashed a fresh Workbench on its
+    first run; it now ran four times in a row in one Workbench process.
+- The copilot's wall gate passed a wall thinner than it claimed.
+  - **What happened:** on s1364 the centreline sweep built a wall with no bad
+    cells, but 1.30 mm thick along the surface normal, not 1.5 mm (its rays
+    meet the sac's shoulders at an angle). Its peak stress read 382 kPa
+    instead of 279.
+  - **The fix:** `volmesh` now records the thickness measured along the
+    normal (`lattice.thickness_normal_median`; also printed by the CLI). The
+    `mesh_wall` gate fails a wall more than 5% off and tells the copilot to
+    re-crop with parallel caps and use the plane sweep.
+  - **Report:** it shows the measured thickness and a failure's whole first
+    sentence, and shows scan paths by file name only.
+- `crop` on a surface that is the previous crop's unchanged output now
+  re-crops the surface that crop cut. It used to cut the crop again, so the
+  copilot's "re-crop with parallel caps" trimmed the s1364 sac from 134.8
+  to 93.7 mL.
 - Zenodo AAA reference loading refused two of the 20 cases ("end annuli lie
   on 3 z levels"). In each, a single end-ring vertex sits 0.009 or 0.002 mm off
   its plane (float32 rounding). End-plane levels closer than 0.01 mm are now

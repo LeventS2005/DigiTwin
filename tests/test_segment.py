@@ -282,6 +282,7 @@ def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch)
     assert STEP_ORDER.index("segment") == STEP_ORDER.index("import_cso") + 1
     assert set(STEP_KNOBS["segment"]) == {
         "path", "device", "fast", "smoothing", "timeout", "lumen_out", "lumen_hu",  # D85
+        "mask_out",  # D92: the AI mask for the sac step
     }
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     s = MeshingSession()

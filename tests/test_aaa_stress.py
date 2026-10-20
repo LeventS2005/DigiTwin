@@ -191,6 +191,18 @@ def test_refuses_missing_ray_counts_and_a_foreign_summary(tmp_path):
     assert "belongs to a different mesh" in _refused(_cylinder(), other, tmp_path)
 
 
+def test_volmesh_records_the_wall_thickness_along_the_normal():
+    """D93: the copilot's gate reads ``thickness_normal_median`` from the
+    volmesh summary. A centreline sweep's rays meet a sac's shoulders at an
+    angle, so its wall can only come out thinner than the ray length."""
+    cyl = _cylinder()
+    assert _clean_summary(cyl)["lattice"]["thickness_normal_median"] == pytest.approx(1.5, rel=0.01)
+    sac = _fusiform()
+    assert sac.lattice["sweep"] == "centreline"
+    assert sac.lattice["thickness_normal_median"] < 1.5 * 0.999
+    assert am.annotate_wall_thickness(type("Bare", (), {"lattice": None})()) is None
+
+
 def test_cli_refusal_exits_1_and_writes_the_sentinel(tmp_path):
     from meshforge.cli import main
 

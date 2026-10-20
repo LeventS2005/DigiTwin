@@ -238,6 +238,31 @@ class _Columns:
     outer_face: np.ndarray  # (n_columns, 4) outer-face node ids
 
 
+def _median_column_thickness(cols: _Columns) -> float:
+    return float(np.median(np.bincount(cols.cell_column, weights=cols.h_normal)))
+
+
+def annotate_wall_thickness(wall) -> float | None:
+    """Measure a swept wall's thickness along the inner surface's normals
+    (median over its radial columns, mm) and record it in
+    ``wall.lattice["thickness_normal_median"]``: the thickness the stress
+    actually sees. A centreline sweep's rays run square to the centreline,
+    so on a sac's shoulders they leave the surface at an angle, and the
+    wall comes out thinner than its ray length (s1364: 1.30 vs 1.5 mm, read
+    as +37% peak stress; D93). Returns None, with a note, for a mesh without
+    radial columns."""
+    if getattr(wall, "lattice", None) is None:
+        return None
+    try:
+        value = round(_median_column_thickness(_columns(wall)), 4)
+    except (ValueError, KeyError, IndexError) as exc:
+        wall.lattice["thickness_normal_median"] = None
+        wall.lattice["thickness_normal_note"] = f"not measurable: {exc}"
+        return None
+    wall.lattice["thickness_normal_median"] = value
+    return value
+
+
 def _columns(wall) -> _Columns:
     grid = wall.grid
     conn = np.asarray(grid.cells).reshape(-1, 9)[:, 1:]
@@ -912,7 +937,7 @@ def run_aaa_stress(
         return AaaStressResult(out, None, reasons)
 
     cols = _columns(wall)
-    measured = float(np.median(np.bincount(cols.cell_column, weights=cols.h_normal)))
+    measured = _median_column_thickness(cols)
     out["wall"]["thickness_measured_mm"] = round(measured, 4)
     t_min = lat.get("thickness_min")
     uniform = t_nom is not None and t_min is not None and abs(t_nom - t_min) <= 1e-6 * t_nom

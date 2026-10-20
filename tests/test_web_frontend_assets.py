@@ -140,6 +140,7 @@ _PATH_KNOBS: dict[str, str | None] = {
     "segment.lumen_out": "save",
     "crop.lumen": "file",
     "crop.lumen_out": "save",
+    "segment.mask_out": "save",
     # D86: the sac step reads a CT and a lumen mask — both files, both pickers
     "sac.path": "file",
     "sac.lumen_mask": "file",
