@@ -100,7 +100,7 @@ def _capture(holder: "_SessionHolder", result) -> dict[str, Any]:
 #: handlers in a thread pool; a step and the viewport's GET /geometry ran VTK
 #: on two threads at once, and VTK 9.6.2's Python wrapper map then crashed the
 #: Workbench (vtkPythonUtil::FindObject, on the first demo run). Read-only
-#: polls (/state, /journal) touch no VTK and stay outside the lock.
+#: polls (/state, /journal, /twin) touch no VTK and stay outside the lock.
 _SESSION_LOCK = threading.RLock()
 
 
@@ -238,6 +238,16 @@ def create_app() -> FastAPI:
                 )
             },
         }
+
+    # -- twin card (M6): the copilot report's header, as a Workbench panel --
+    # Read-only and VTK-free, so it stays outside the session lock like
+    # /state: the journaled step summaries are replayed through the copilot's
+    # own tool code, so the panel quotes exactly the copilot's numbers.
+    @app.get("/twin")
+    def get_twin():
+        from meshforge.copilot.report import twin_from_journal
+
+        return twin_from_journal(list(holder.session.journal))
 
     # -- cfd inflow picker + presets (D80) --------------------------------
     # Read-only queries: nothing is journaled and the revision is not bumped.

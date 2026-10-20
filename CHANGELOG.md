@@ -8,6 +8,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Demo freeze (M6) for the copilot's twin card and report.
+  - **Workbench twin panel:** the report's "your twin" card, live in the right
+    pane (`GET /twin`). Every slot waits ("not run yet") until its step lands,
+    then fills from the session's own journal, replayed through the copilot's
+    tool code, so it quotes the copilot's exact numbers. A failed wall gate
+    shows mid-run, a new source empties the card, and a re-run crop clears the
+    stress it made stale.
+  - **`report.html` is a real page:** header, twin card (with each slot's
+    numbers), headline tiles, results and pipeline tables, the numbers-guard
+    note, the investigational-index caveat and the data credit. It has no
+    script and no web fetch, prints cleanly and fits a phone. Every string
+    from a tool, Claude or the command line is HTML-escaped. `report.md` is
+    unchanged.
+  - **No local folder on screen:** the Workbench history, summary and log
+    show a path by its file name and `/Users/<name>` as `~`. The copilot's
+    `transcript.json` names the CT by its file name, its printed paths are
+    relative to the working folder, and the report's Reproduce line names the
+    work file only. Replay still reads the work file's real paths.
+  - **Video-figure scripts** (`scripts/m6_*.py`): wall shear stress from an
+    OpenFOAM case, the Raghavan–Vorp law vs the stress step's stiff-linear
+    wall, the s1364 stress stills, the normal-aorta strength bands (USP
+    dataset, doi 10.17632/yfj4wfszbw.4, CC BY 4.0) beside the AAA band, and
+    one command that rebuilds every figure and its index from outputs.
 - `meshforge copilot "<request>" --ct <scan>` (optional extra `copilot`) is
   an investigational Claude copilot.
   - **What it runs:** segment → sac → crop → wall mesh with its quality gate →

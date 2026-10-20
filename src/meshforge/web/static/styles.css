@@ -458,3 +458,42 @@ label.inline input[type="checkbox"] { width: 13px; height: 13px; accent-color: v
   border-color: var(--accent); color: var(--accent-ink);
   background: linear-gradient(#2f5f8c, #27506f);
 }
+
+/* ---- twin card (M6): the copilot report's header as a docked panel ----
+   The body outline is the report's own SVG (classes only, themed here):
+   dim silhouette, heart + kidneys dashed as "next", the aorta unlit until
+   the first slot fills, then lit red — the one saturated fill in the panel. */
+.twin-panel { --twin-red: #ff5d55; }
+.twin { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 10px var(--pad) 2px; }
+.twin-fig { text-align: center; }
+.tw-svg { width: 96px; height: auto; display: block; margin: 0 auto; }
+.tw-body { fill: #30343a; stroke: #59606a; stroke-width: 1.2; stroke-linejoin: round; }
+.tw-next { fill: rgba(139, 144, 152, .14); stroke: #9aa0a8; stroke-width: 1.3; stroke-dasharray: 3 2; }
+.tw-aorta path { fill: none; stroke: #5d636b; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.tw-aorta ellipse { fill: #5d636b; }
+.twin[data-lit="1"] .tw-aorta path { stroke: var(--twin-red); }
+.twin[data-lit="1"] .tw-aorta ellipse { fill: var(--twin-red); }
+.twin[data-lit="1"] .tw-aorta { filter: drop-shadow(0 0 3px rgba(255, 93, 85, .55)); }
+.twin-modules {
+  list-style: none; margin: 6px 0 0; padding: 0;
+  font-size: 10.5px; line-height: 1.55; color: #7d848d; text-align: left; white-space: nowrap;
+}
+.twin-modules .mod.lit { color: var(--twin-red); font-weight: 600; }
+.twin-slots { list-style: none; margin: 0; padding: 0; min-width: 0; }
+.twin-slots .slot {
+  display: grid; grid-template-columns: 12px 1fr; gap: 5px;
+  padding: 4px 0; border-bottom: 1px solid var(--rule);
+}
+.twin-slots .slot:last-child { border-bottom: 0; }
+.slot-dot { color: #5d636b; font-size: 10px; line-height: 17px; }
+.slot.filled .slot-dot { color: var(--twin-red); }
+.slot-body { min-width: 0; display: flex; flex-direction: column; }
+.slot-head { display: flex; align-items: baseline; gap: 6px; }
+.slot-head b { color: #8b9098; font-size: 11px; font-weight: 600; }
+.slot.filled .slot-head b { color: #e3e6ea; }
+.slot-note { margin-left: auto; color: #6f757d; font-size: 10px; text-align: right; }
+.slot.filled .slot-note { color: var(--warn); }
+.slot-detail { color: #6f757d; font-size: 10.5px; line-height: 1.35; }
+.slot-value { color: var(--ink); font: 600 11px/1.45 var(--mono); overflow-wrap: anywhere; }
+.slot.next { opacity: .75; }
+.twin-foot { margin: 4px var(--pad) 0; color: #626870; font-size: 10px; text-align: right; }

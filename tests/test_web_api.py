@@ -54,6 +54,7 @@ def test_compute_routes_are_serialised_but_state_polls_are_not(client, monkeypat
     step.start()
     assert started.wait(20)
     assert client.get("/state").status_code == 200  # not held up by the step
+    assert client.get("/twin").status_code == 200  # nor is the twin panel (M6)
     got: list[int] = []
     geo = threading.Thread(target=lambda: got.append(client.get("/geometry").status_code))
     geo.start()
@@ -241,6 +242,7 @@ def test_frontend_endpoints_all_exist_on_app() -> None:
         "/workfile/save",
         "/workfile/load",
         "/session/reset",
+        "/twin",
     ):
         assert endpoint in js, f"frontend never calls {endpoint}"
         assert endpoint in route_paths, f"{endpoint} is not a real route"
@@ -512,3 +514,87 @@ def test_serve_without_the_web_extra_names_the_fix(monkeypatch) -> None:
     assert "pip install -e '.[web]'" in msg
     assert "trame-vtk" in msg  # the viewport is a separate, conda-forge install
     assert isinstance(exc.value.__cause__, ImportError)  # chained, not swallowed
+
+
+# ---- M6: the twin card panel (the copilot report's header, live) --------
+
+
+def _copilot_journal(pws=(0.282481, 0.242127), whatif_pws=None) -> list[dict]:
+    """A canned session journal with the step summaries' real shapes (the
+    s1364 copilot path, after the gate recovery)."""
+    sys_mpa, wif_mpa = pws
+    idx = lambda p: {"p10": p / 1.299236, "p50": p / 0.6503, "p90": p / 0.3081114}  # noqa: E731
+    ti = lambda p: {"step": "tissue_index", "params": {"pws_mpa": p},  # noqa: E731
+                    "summary": {"index": idx(p), "n_aneurysms": 7, "n_strips": 13,
+                                "strength_mpa": {"p10": 0.308, "p50": 0.65, "p90": 1.299}}}
+    return [
+        {"step": "segment", "params": {"path": "/somewhere/private/s1364/ct.nii.gz"},
+         "summary": {"segment": {"totalseg": {"wall_time_s": 25.4}, "mask_volume_ml": 332.5}}},
+        {"step": "sac", "params": {"path": "/somewhere/private/s1364/ct.nii.gz"},
+         "summary": {"sac": {"max_diameter": {"max_caliper": {"value_mm": 61.75},
+                                              "area_equivalent": {"value_mm": 52.17}},
+                             "sac_volume_ml": 161.8, "resolved_fraction": 0.661,
+                             "thickness_mm": {"all_rays": {"median": 3.17, "max": 25.52}}}}},
+        {"step": "crop", "params": {"parallel_caps": 1},
+         "summary": {"crop": {"landmarks": {"sac_d_equiv_mm": 51.8, "neck_d_equiv_mm": 24.5,
+                                            "sac_neck_ratio": 2.11}}}},
+        {"step": "volmesh", "params": {"sweep": "planes", "thickness": 1.5},
+         "summary": {"n_cells": 7552, "quality": {"n_inverted": 0},
+                     "lattice": {"n_capped": 0, "n_floored": 0, "sweep": "planes",
+                                 "thickness_normal_median": 1.5014}}},
+        {"step": "aaa_stress", "params": {"systolic_mmhg": 140.0, "whatif_mmhg": 120.0},
+         "summary": {"refused": [], "systolic": {"von_mises_p99_mpa": sys_mpa},
+                     "whatif": {"von_mises_p99_mpa": wif_mpa}, "whatif_ratio": {"pws": 0.857},
+                     "thrombus": {"modelled": True}}},
+        ti(sys_mpa), ti(whatif_pws if whatif_pws is not None else wif_mpa),
+    ]
+
+
+def _slots(twin: dict) -> dict[str, dict]:
+    return {s["key"]: s for s in twin["slots"]}
+
+
+def test_twin_waits_before_a_run_then_fills_from_the_session(client: TestClient, tmp_path: Path) -> None:
+    """Before any step every slot waits (no numbers); a loaded journal fills
+    them from its own step outputs (no replay, nothing recomputed); a reset
+    empties the card again."""
+    import json
+
+    before = client.get("/twin")
+    assert before.status_code == 200
+    twin = before.json()
+    assert twin["lit"] is False and twin["scan"] is None and twin["title"] == "Your twin · v0"
+    assert [s["state"] for s in twin["slots"]] == ["pending"] * 6 + ["next"]
+    assert all(not s["values"] for s in twin["slots"])
+    assert [m["name"] for m in twin["modules"]] == ["aorta", "heart", "kidneys"]
+
+    wf = tmp_path / "copilot.mfwork"
+    wf.write_text(json.dumps({"version": 1, "journal": _copilot_journal()}))
+    r = client.post("/workfile/load", json={"path": str(wf), "replay": False})
+    assert r.status_code == 200, r.text
+    twin = client.get("/twin").json()
+    slots = _slots(twin)
+    assert twin["lit"] is True and twin["scan"] == "ct.nii.gz"  # the file name only
+    assert "/somewhere" not in json.dumps(twin)
+    assert slots["shape"]["values"] == ["sac 61.8 mm at its widest", "sac volume 161.8 mL"]
+    assert slots["wall"]["values"][-1] == "wall 1.5 mm · gate PASS"
+    assert slots["stress"]["values"] == ["282.5 kPa peak at 140 mmHg"]
+    assert slots["whatif"]["values"] == ["242.1 kPa at 120 mmHg (-14.3 %)", "index P50 0.37"]
+    assert slots["strength"]["values"] == ["index P50 0.43 (P10 0.22 – P90 0.92) at 140 mmHg"]
+    assert slots["flow"]["state"] == "pending" and slots["growth"]["state"] == "next"
+
+    assert client.post("/session/reset", json={}).status_code == 200
+    assert client.get("/twin").json()["lit"] is False
+
+
+def test_twin_never_fails_the_workbench_on_an_odd_summary(client: TestClient) -> None:
+    """A zero stress (or an index run on another stress) leaves its slot
+    waiting; the panel itself never turns into a 500."""
+    holder = client.app.state.holder
+    holder.session.journal = _copilot_journal(pws=(0.0, 0.0))
+    r = client.get("/twin")
+    assert r.status_code == 200
+    assert _slots(r.json())["stress"]["state"] == "pending"
+    holder.session.journal = _copilot_journal(whatif_pws=0.2)
+    slots = _slots(client.get("/twin").json())
+    assert slots["stress"]["state"] == "filled" and slots["strength"]["state"] == "pending"

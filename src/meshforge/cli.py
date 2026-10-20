@@ -2798,6 +2798,7 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     import time as _time
 
     from meshforge.copilot import HttpBackend, SessionBackend, render_report, run_copilot
+    from meshforge.copilot.report import shown_path, shown_paths
     from meshforge.copilot.tools import PipelineTools
 
     out_dir: Path = args.out_dir or (args.outputs / "copilot" / _time.strftime("%Y%m%d-%H%M%S"))
@@ -2818,7 +2819,7 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     replay = ""
     if isinstance(backend, SessionBackend):
         wf = backend.session.save_workfile(out_dir / "session.mfwork")
-        replay = f"meshforge replay {wf}"
+        replay = f"meshforge replay {shown_path(wf)}"  # no local folder on screen
     md, page = render_report(
         request=args.request, ct_name=args.ct.name if args.ct else "(in the request)",
         credit=args.credit, results=run.results, calls=run.calls,
@@ -2827,17 +2828,20 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     )
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(page)
-    (out_dir / "transcript.json").write_text(json.dumps(
+    # the transcript names the CT (and the run folder) without the local folder
+    # around them; replay reads session.mfwork, which keeps the real paths
+    record = json.loads(json.dumps(
         {"request": request, "model": args.model, "stop": run.stop, "usage": run.usage,
-         "guard": run.guard_note, "calls": run.calls, "transcript": run.transcript},
-        indent=1, default=str) + "\n")
+         "guard": run.guard_note, "calls": run.calls, "transcript": run.transcript}, default=str))
+    (out_dir / "transcript.json").write_text(
+        json.dumps(shown_paths(record, [args.ct, out_dir]), indent=1) + "\n")
     print(f"stop        : {run.stop}; {run.guard_note}")
     print(f"tokens      : {run.usage.get('input_tokens', 0)} in, "
           f"{run.usage.get('output_tokens', 0)} out; {_time.perf_counter() - t0:.0f} s")
     if run.summary_text:
         print("summary     :\n" + run.summary_text)
-    print(f"report      : {out_dir / 'report.html'}")
-    print(f"transcript  : {out_dir / 'transcript.json'}")
+    print(f"report      : {shown_path(out_dir / 'report.html')}")
+    print(f"transcript  : {shown_path(out_dir / 'transcript.json')}")
     if replay:
         print(f"replay      : {replay}")
     return 0 if run.complete else 1

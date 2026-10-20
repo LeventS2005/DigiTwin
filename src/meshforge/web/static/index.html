@@ -100,6 +100,23 @@
 
       <!-- RIGHT: docked session / log / history panels -->
       <section id="pane-right" class="pane" aria-label="log and history">
+        <!-- Twin card (M6): the copilot report's header as a live panel. Filled
+             from GET /twin (the session's own step outputs); every slot waits
+             until its step has run. The body outline is the report's exact SVG. -->
+        <section id="twin-panel" class="dock-panel twin-panel" aria-label="your twin">
+          <h2 class="panel-title">your twin · v0 <span id="twin-scan" class="muted">no scan yet</span></h2>
+          <div id="twin" class="twin" data-lit="0">
+            <div class="twin-fig">
+              <svg class="tw-svg" viewBox="0 0 140 300" role="img" aria-label="body outline: the aorta is module 1; heart and kidneys come next"><circle class="tw-body" cx="70" cy="24" r="16"/><path class="tw-body" d="M76 38 L78 48 Q96 50 106 58 L112 96 L117 150 Q118 160 112 160 L109 152 L104 104 L100 74 L99 112 Q96 136 100 160 L97 226 L95 284 Q95 292 86 292 L80 292 L79 230 L73 170 Q70 166 67 170 L61 230 L60 292 L54 292 Q45 292 45 284 L43 226 L40 160 Q44 136 41 112 L40 74 L36 104 L31 152 L28 160 Q22 160 23 150 L28 96 L34 58 Q44 50 62 48 L64 38 Z"/><path class="tw-next" d="M81 86 C77 79 66 81 66 89 C66 97 75 102 81 108 C87 102 96 97 96 89 C96 81 85 79 81 86 Z"/><ellipse class="tw-next" cx="55" cy="126" rx="5.5" ry="9" transform="rotate(-12 55 126)"/><ellipse class="tw-next" cx="88" cy="123" rx="5.5" ry="9" transform="rotate(12 88 123)"/><g class="tw-aorta"><path d="M71 94 C69 78 71 66 77 66 C82 66 81 74 79 82 C77 92 74 104 74 132 L74 150"/><path d="M74 150 L66 172 M74 150 L82 172"/><ellipse cx="74" cy="140" rx="5.5" ry="9"/></g></svg>
+              <ul id="twin-modules" class="twin-modules">
+                <li class="mod">○ aorta · module 1</li><li class="mod">○ heart · next</li><li class="mod">○ kidneys · next</li>
+              </ul>
+            </div>
+            <ul id="twin-slots" class="twin-slots" aria-live="polite"><!-- from GET /twin --></ul>
+          </div>
+          <p class="twin-foot">investigational index — not a diagnosis</p>
+        </section>
+
         <section class="dock-panel">
           <h2 class="panel-title">session</h2>
           <div class="actions">

@@ -10,6 +10,7 @@ import builtins
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -17,7 +18,18 @@ import pytest
 from meshforge.copilot import agent as ag
 from meshforge.copilot.backend import HttpBackend, StepOutcome
 from meshforge.copilot.guard import check_numbers, numbers_in
-from meshforge.copilot.report import render_report, twin_card_html
+import re
+
+from meshforge.copilot.report import (
+    REPORT_HTML_MARKER,
+    render_report,
+    shown_path,
+    shown_paths,
+    twin_card,
+    tools_from_journal,
+    twin_card_html,
+    twin_from_journal,
+)
 from meshforge.copilot.tools import TOOLS, PipelineTools
 
 
@@ -288,6 +300,255 @@ def test_report_shows_a_scan_path_by_its_file_name_only():
 def test_twin_card_marks_unfilled_slots():
     card = twin_card_html({})
     assert card.count('class="off"') == 7  # nothing run yet: every slot waits
+
+
+
+# --- M6: the twin card in the Workbench, and report.html as a real page ------------
+
+
+class JournalingBackend(FakeBackend):
+    """FakeBackend that also keeps the session's journal: one record per step
+    that ran, with the summary the step returned (MeshingSession._record)."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.journal = []
+
+    def run(self, step, knobs):
+        out = super().run(step, knobs)
+        if out.ok:
+            self.journal.append({"step": step, "params": dict(knobs), "summary": out.summary})
+        return out
+
+
+def _journaled_run(tmp_path):
+    client = FakeClient(_script())
+    tools = PipelineTools(JournalingBackend(), tmp_path / "work")
+    run = ag.run_copilot("Assess this AAA.", tools=tools, client=client, log=lambda m: None)
+    return run, tools.backend.journal
+
+
+def _slot(card, key):
+    return next(s for s in card["slots"] if s["key"] == key)
+
+
+def test_workbench_twin_quotes_exactly_the_copilots_numbers(tmp_path):
+    """The Workbench panel replays the session journal through the copilot's own
+    tool code: same slots, same values as the report's twin card."""
+    run, journal = _journaled_run(tmp_path)
+    wb = twin_from_journal(journal)
+    rep = twin_card(run.results, None, run.calls)
+    assert wb["slots"] == rep["slots"] and wb["lit"] and wb["scan"] == "ct.nii.gz"
+    replayed, _, _ = tools_from_journal(journal)  # the same calls, so the same report
+    assert [(c["tool"], c["input"], c["ok"], c["payload"]) for c in replayed.calls] == \
+        [(c["tool"], c["input"], c["ok"], c["payload"]) for c in run.calls]
+    assert replayed.results == run.results
+    assert _slot(wb, "stress")["values"] == ["278.2 kPa peak at 140 mmHg"]
+    assert _slot(wb, "whatif")["values"] == ["238.5 kPa at 120 mmHg (-14.3 %)", "index P50 0.37"]
+    assert _slot(wb, "strength")["values"] == ["index P50 0.43 (P10 0.21 – P90 0.9) at 140 mmHg"]
+    assert "7 aneurysms / 13 strips" in _slot(wb, "strength")["detail"]
+    assert _slot(wb, "flow")["state"] == "pending" and _slot(wb, "growth")["state"] == "next"
+    # never an invented number: every value line traces to a tool payload
+    values = " ".join(v for s in wb["slots"] for v in s["values"])
+    assert check_numbers(values, [c["payload"] for c in run.calls]) == []
+
+
+def test_workbench_twin_waits_before_a_run_and_never_mixes_stale_results(tmp_path):
+    empty = twin_from_journal([])
+    assert not empty["lit"] and empty["scan"] is None
+    assert [s["state"] for s in empty["slots"]] == ["pending"] * 6 + ["next"]
+    assert all(s["values"] == [] for s in empty["slots"])
+    _, journal = _journaled_run(tmp_path)
+    steps = [r["step"] for r in journal]
+    # mid-run, just after the failed gate: the wall slot says why, stress waits
+    mid = twin_from_journal(journal[: steps.index("volmesh") + 1])
+    assert _slot(mid, "wall")["note"] == "last wall gate FAIL: 1.3 mm along the normal"
+    assert _slot(mid, "stress")["state"] == "pending"
+    # a re-crop after the stress makes the stress, the what-if and the index stale
+    recrop = twin_from_journal(journal + [journal[steps.index("crop")]])
+    assert _slot(recrop, "shape")["state"] == "filled"
+    assert {_slot(recrop, k)["state"] for k in ("stress", "whatif", "strength")} == {"pending"}
+    # a new source empties the card
+    fresh = twin_from_journal(journal + [{"step": "generate_synth", "params": {}, "summary": {}}])
+    assert not fresh["lit"] and fresh["scan"] is None
+
+
+def test_workbench_twin_takes_an_index_only_for_its_own_stress(tmp_path):
+    _, journal = _journaled_run(tmp_path)
+    for rec in journal:
+        if rec["step"] == "tissue_index":
+            rec["params"]["pws_mpa"] *= 1.01  # an index run on some other stress
+    assert _slot(twin_from_journal(journal), "strength")["state"] == "pending"
+
+
+def test_report_html_is_a_real_page_with_traced_numbers(tmp_path):
+    run, _, _ = _run(tmp_path, _script())
+    flow = {"q_lmin": 1.0, "sac_backflow_volume_fraction": 0.1445}
+    credit = "TotalSegmentator dataset s1364 (Wasserthal et al.), CC BY 4.0, doi 10.5281/zenodo.10047292"
+    md, page = render_report(request="Assess this AAA.", ct_name="ct.nii.gz", credit=credit,
+                             results=run.results, calls=run.calls, summary_text=run.summary_text,
+                             guard_note=run.guard_note, model="claude-opus-5-5", flow=flow)
+    assert "## " not in page and "|---|" not in page and "**" not in page  # no raw markdown
+    assert REPORT_HTML_MARKER in page  # only this renderer stamps it
+    assert "<h1>" in page and '<table class="grid">' in page and "<script" not in page.lower()
+    assert "http://" not in page and "https://" not in page  # no external fetch
+    for must in ("Your twin", "aorta: module 1", "needs a second scan", credit, run.guard_note,
+                 "Investigational index</b>: peak wall stress divided by",
+                 "not a diagnosis and not a rupture prediction", "@media print"):
+        assert must in page, must
+    assert '<tr class="fail">' in page  # the failed gate stays on the record
+    assert "14% of the sac volume flows backward" in page
+    # every number in the twin card, the headline tiles and the results traces to a tool
+    sources = [c["payload"] for c in run.calls if c["payload"]]
+    sources.append({"q_lmin": 1.0, "backflow_percent": 14.45})
+
+    def text(fragment):
+        return re.sub(r"<svg.*?</svg>", " ", fragment, flags=re.S)
+
+    shown = text(page.split('<section class="twin')[1].split('<section id="pipeline"')[0])
+    shown = re.sub(r"<[^>]+>", " ", shown)
+    assert "278.2" in shown and "0.43" in shown and "7552" in shown
+    assert check_numbers(shown, sources, allowed_text="aorta: module 1") == []
+
+
+def test_report_html_escapes_text_from_tools_claude_and_the_command_line(tmp_path):
+    run, _, _ = _run(tmp_path, _script())
+    calls = [dict(c) for c in run.calls]
+    calls[2] = {**calls[2], "error": "<img src=x onerror=alert(1)> gate FAILED. More."}
+    _, page = render_report(request="<b>assess</b>", ct_name="<i>ct</i>.nii.gz",
+                            credit="CC BY <u>4.0</u>", results=run.results, calls=calls,
+                            summary_text="The sac is 61.8 mm.\n\n<script>alert(1)</script>",
+                            guard_note="numbers guard: <ok>", model="m")
+    lowered = page.lower()
+    for raw in ("<script", "<img", "<b>assess", "<i>ct", "<u>4.0", "<ok>"):
+        assert raw not in lowered, raw
+    for escaped in ("&lt;script&gt;alert(1)&lt;/script&gt;", "&lt;img src=x onerror=alert(1)&gt;",
+                    "&lt;b&gt;assess&lt;/b&gt;", "&lt;ok&gt;"):
+        assert escaped in page, escaped
+    assert "<p>The sac is 61.8 mm.</p>" in page
+
+
+def test_report_hides_an_absolute_replay_path():
+    md, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
+                             summary_text=None, guard_note="g", model="m",
+                             replay_hint="meshforge replay /Users/someone/My Runs (1)/session.mfwork")
+    assert "`meshforge replay session.mfwork`" in md and "meshforge replay session.mfwork" in page
+    assert "/Users/" not in md + page and "someone" not in md + page
+    md2, _ = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
+                           summary_text=None, guard_note="g", model="m",
+                           replay_hint="meshforge replay outputs/m5/run/session.mfwork")
+    assert "`meshforge replay outputs/m5/run/session.mfwork`" in md2  # relative stays as is
+
+
+
+
+def _figures_script():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "m6_video_figures.py"
+    spec = importlib.util.spec_from_file_location("m6_video_figures", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+OLD_M5_PAGE = ('<!doctype html><html><body><section class="twin"><h2>Your twin · v0</h2></section>'
+               "<div class='md'># Aorta twin — investigational biomechanics report<br>"
+               "**Request:** r<br>## Results<br>| # | tool |</div></body></html>")
+
+
+def test_figure_preview_rerenders_an_old_escaped_markdown_report(tmp_path):
+    """The M5 page also has a twin card; the figures once copied it and showed
+    raw markdown on camera. The preview is re-rendered from the journal."""
+    _, journal = _journaled_run(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "session.mfwork").write_text(json.dumps({"version": 1, "journal": journal}))
+    (run / "report.html").write_text(OLD_M5_PAGE)
+    html = _figures_script().report_preview(run, tmp_path / "preview", None).read_text()
+    assert REPORT_HTML_MARKER in html and "## " not in html and "**" not in html
+    assert "278.2 kPa" in html and "TotalSegmentator dataset s1364 (Wasserthal et al.)" in html
+    # a live copilot run keeps its own page, but only one this renderer wrote
+    (run / "transcript.json").write_text("{}")
+    again = _figures_script().report_preview(run, tmp_path / "p2", None).read_text()
+    assert again != OLD_M5_PAGE and "## " not in again and REPORT_HTML_MARKER in again
+    _, live_page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
+                                 summary_text=None, guard_note="g", model="m")
+    (run / "report.html").write_text(live_page)
+    kept = _figures_script().report_preview(run, tmp_path / "p3", None).read_text()
+    assert kept == live_page
+
+
+# --- M6: no local folder on screen or in the transcript -----------------------------
+
+
+def test_shown_paths_cut_local_folders(tmp_path):
+    ct = "/Users/someone/My Scans (2)/s1364/ct.nii.gz"
+    record = {"request": f"Assess this AAA.\nCT: {ct}",
+              "calls": [{"input": {"ct_path": ct}, "error": "read /home/other/x/lumen.vtp: bad"}],
+              "work": [str(tmp_path / "run" / "lumen.vtp"), "outputs/m5/run/lumen.vtp", 3, None]}
+    out = shown_paths(record, [ct, tmp_path / "run"], cwd=tmp_path)
+    flat = repr(out)
+    assert "/Users/" not in flat and "someone" not in flat and "/home/" not in flat
+    assert out["request"].endswith("CT: ct.nii.gz") and out["calls"][0]["input"]["ct_path"] == "ct.nii.gz"
+    assert out["calls"][0]["error"] == "read ~/x/lumen.vtp: bad"
+    assert out["work"] == ["run/lumen.vtp", "outputs/m5/run/lumen.vtp", 3, None]  # inside cwd: relative
+    assert shown_path(tmp_path / "run" / "report.html", cwd=tmp_path) == "run/report.html"
+    assert shown_path("/elsewhere/run/report.html", cwd=tmp_path) == "report.html"
+    assert shown_path("outputs/x/report.html", cwd=tmp_path) == "outputs/x/report.html"
+
+
+def test_report_hides_a_home_folder_inside_a_tool_error():
+    calls = [{"tool": "segment_aorta", "input": {"ct_path": "/Users/someone/s/ct.nii.gz"}, "ok": False,
+              "seconds": 1.0, "steps": [], "payload": {},
+              "error": "segment failed: FileNotFoundError: no CT at /Users/someone/s/ct.nii.gz. More."}]
+    md, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=calls,
+                             summary_text=None, guard_note="g", model="m")
+    assert "no CT at ~/s/ct.nii.gz" in md and "no CT at ~/s/ct.nii.gz" in page
+    assert "someone" not in md + page
+
+
+def test_copilot_cli_prints_and_records_no_local_folder(tmp_path, monkeypatch, capsys):
+    """The CLI prints the report/transcript/replay paths relative to the cwd
+    (or by file name) and writes a transcript that names the CT by its file
+    name; the work file it replays from is not touched."""
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+
+    ct = "/Users/someone/scans/s1364/ct.nii.gz"
+
+    class FakeSessionBackend:
+        name = "in-process session"
+
+        def __init__(self):
+            self.session = NS(save_workfile=lambda p: (Path(p).write_text("{}"), Path(p))[1])
+
+    def fake_run(request, *, tools, model, effort, max_turns, log):
+        assert request.endswith(f"CT: {ct}")  # Claude still gets the real path
+        return ag.CopilotRun(
+            request=request, model=model, stop="done", summary_text=None, guard_note="g",
+            calls=[{"tool": "segment_aorta", "input": {"ct_path": ct}, "ok": False, "seconds": 0.1,
+                    "steps": ["segment"], "payload": {}, "error": f"segment failed: no file {ct}"}],
+            results={}, transcript=[{"role": "user", "content": request}], usage={})
+
+    monkeypatch.setattr(cp, "run_copilot", fake_run)
+    monkeypatch.setattr(cp, "SessionBackend", FakeSessionBackend)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    for out_dir, shown in ((cwd / "run", "run/"), (tmp_path / "elsewhere", "")):
+        rc = main(["copilot", "Assess this AAA.", "--ct", ct, "--out-dir", str(out_dir)])
+        printed = capsys.readouterr().out
+        assert rc == 1  # no strength index in the fake run
+        assert f"report      : {shown}report.html" in printed
+        assert f"transcript  : {shown}transcript.json" in printed
+        assert f"replay      : meshforge replay {shown}session.mfwork" in printed
+        assert str(tmp_path) not in printed and "/Users/" not in printed
+        record = (out_dir / "transcript.json").read_text()
+        assert "someone" not in record and str(tmp_path) not in record
+        assert json.loads(record)["calls"][0]["input"]["ct_path"] == "ct.nii.gz"
+        for name in ("report.md", "report.html"):
+            assert "someone" not in (out_dir / name).read_text()
 
 
 # --- HTTP backend --------------------------------------------------------------
