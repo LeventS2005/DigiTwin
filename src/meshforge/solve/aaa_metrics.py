@@ -811,6 +811,19 @@ def end_zones(wall, *, end_zone: str = "neck", crop_report: dict | None = None,
     return EndZones(excluded, caps, frac, notes)
 
 
+def pws_region_thickness(cols: _Columns, hot: np.ndarray, ip_w: np.ndarray) -> dict[str, float]:
+    """The wall under the PWS: the measured normal thickness (inner vertex
+    normals, per radial column) of the integration points ``hot`` (n_cells,
+    n_ip) at or above the 99th percentile; volume-weighted median and the
+    minimum, mm. A thin patch carries a stress ~t/h too high and can set the
+    PWS while the wall's median thickness passes (Zenodo P04: median -3.3 %,
+    a 0.77 mm patch over 1.6 % of the area; D94)."""
+    h = np.bincount(cols.cell_column, weights=cols.h_normal)[cols.cell_column]
+    h_ip = np.broadcast_to(h[:, None], hot.shape)[hot]
+    return {"median": round(weighted_percentile(h_ip, ip_w[hot], 50.0), 4),
+            "min": round(float(h_ip.min()), 4)}
+
+
 def stress_metrics(fields: StressFields, cols: _Columns, keep: np.ndarray,
                    centres: np.ndarray, distal) -> dict[str, Any]:
     """PWS and the other numbers of one solve, over the cells in ``keep``."""
@@ -844,6 +857,7 @@ def stress_metrics(fields: StressFields, cols: _Columns, keep: np.ndarray,
             "top1pct_centroid_mm": [round(float(v), 3) for v in hot_c],
             "top1pct_height_above_distal_cap_mm": height(hot_c),
             "top1pct_cells": int(hot_cells.size),
+            "top1pct_wall_thickness_mm": pws_region_thickness(cols, hot, ip_w),
         },
         "tension_n_per_mm": {
             "p50": round(weighted_percentile(tk, ta, 50.0), 6),
@@ -1123,6 +1137,12 @@ def aaa_stress_text(summ: dict[str, Any]) -> str:
             f"centroid {pk['top1pct_height_above_distal_cap_mm']:.1f} mm above it "
             f"({pk['top1pct_cells']} cells)"
         )
+        hw = pk.get("top1pct_wall_thickness_mm")
+        if hw:
+            lines.append(
+                f"{'':<12}  wall under the top-1% region: median {hw['median']:.3f} mm, min "
+                f"{hw['min']:.3f} mm along the surface normal"
+            )
         lines.append(
             f"{'':<12}  wall tension p50 {tn['p50']:.3f}, p99 {tn['p99']:.3f}, max "
             f"{tn['max']:.3f} N/mm; solve {b['solve_s']:.1f} s"

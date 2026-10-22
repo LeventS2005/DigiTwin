@@ -742,7 +742,7 @@ the pipeline to Claude (Opus 5.5). It has five tools, each one or two of the ste
 | `segment_aorta` | `segment` (`lumen_out`, `mask_out`) + `sac` | AI time, sac diameters, thrombus + wall thickness, how much of the sac edge was measured |
 | `crop_aneurysm` | `crop` (`lumen`, `parallel_caps`) | sac and neck diameters |
 | `mesh_wall` | `volmesh` 1.5 mm, `curvature_cap` 0.9, `sweep` | the quality gate: inverted / capped / floored, and the thickness measured along the surface normal (within 5% of 1.5 mm) |
-| `wall_stress` | `aaa_stress` with the thrombus (`lumen`) | PWS at both pressures, % change |
+| `wall_stress` | `aaa_stress` with the thrombus (`lumen`) | PWS at both pressures, % change; the gate again under the peak: the wall under the PWS's top 1% must also be within 5% of 1.5 mm, or the call fails with the same hint |
 | `strength_index` | `tissue_index` at both pressures | index P10/P50/P90, strength band, n aneurysms / strips |
 
 How it behaves:

@@ -305,6 +305,50 @@ def test_pws_ignores_stress_inside_the_end_zones():
     assert 20.0 <= m["peak"]["height_above_distal_cap_mm"] <= 80.0
 
 
+def _p04_like_wall():
+    """The cylinder with a patch pulled in along its rays to 0.77 mm: 12 full
+    columns, 1.65 % of the area, plus a tapered rim; the median stays 1.5 mm
+    (Zenodo P04: a 0.77 mm patch over 1.6 %, median -3.3 %; D94)."""
+    base = _cylinder()
+    root = am._columns(base).node_root
+    pts = np.asarray(base.grid.points, dtype=float).copy()
+    r0 = pts[root]
+    th = np.degrees(np.arctan2(r0[:, 1], r0[:, 0]))
+    patch = (np.abs(np.abs(th) - 180.0) < 31.0) & (np.abs(r0[:, 2] - 50.0) < 8.0)
+    pts[patch] = r0[patch] + (pts[patch] - r0[patch]) * (0.77 / 1.5)
+    grid = base.grid.copy()
+    grid.points = pts
+    return am.wall_from_grid(grid)
+
+
+def test_pws_region_thickness_is_the_wall_under_the_top_1pct():
+    """D96: on a P04-like wall the median gate passes, but the stress ~1/h sets
+    the PWS on the thin patch, and the summary says how thick the wall is there;
+    on the uniform wall it reads 1.5 mm."""
+    for wall, h_expect, pws_expect in ((_cylinder(), 1.5, 0.21), (_p04_like_wall(), 0.77, 0.37)):
+        cols = am._columns(wall)
+        h = np.bincount(cols.cell_column, weights=cols.h_normal)
+        assert np.median(h) == pytest.approx(1.5, rel=1e-3)  # the median gate cannot tell
+        ez = am.end_zones(wall, end_zone="20", thickness=1.5, volume=cols.volume)
+        c = np.asarray(wall.grid.cell_centers().points)
+        # the hoop stress a fixed resultant puts in h, +-5 % around the tube (no ties);
+        # the patch sits where the base stress is lowest
+        s = 0.2 * (1.0 + 0.05 * np.cos(np.arctan2(c[:, 1], c[:, 0]))) * 1.5 / h[cols.cell_column]
+        ip = np.zeros((wall.grid.n_cells, 8, 6))
+        ip[..., 0] = s[:, None]
+        m = am.stress_metrics(am.stress_fields(ip, cols), cols, ~ez.excluded, c, ez.distal)
+        hw = m["peak"]["top1pct_wall_thickness_mm"]
+        assert hw["median"] == pytest.approx(h_expect, rel=0.01)
+        assert hw["min"] <= hw["median"] and hw["min"] == pytest.approx(h.min(), rel=0.01)
+        assert m["von_mises_p99_mpa"] == pytest.approx(pws_expect, rel=0.03)
+    text = am.aaa_stress_text({"wall": {"n_cells": 1, "inverted": 0, "capped": 0, "floored": 0,
+                                        "sweep": "centreline", "thickness_mm": 1.5},
+                               "method": "m", "material": {"E_mpa": 1, "nu": 0.49}, "boundary": "b",
+                               "refused": [], "pressures_mmhg": {"systolic": 140, "whatif": 120},
+                               "systolic": {"pressure_mmhg": 140, "solve_s": 1.0, **m}})
+    assert "wall under the top-1% region: median 0.770 mm" in text
+
+
 def test_tension_is_the_through_thickness_resultant():
     """Uniform hoop stress s on a 1.5 mm wall: T = s * 1.5 on every column,
     and the node field carries it to both surfaces."""

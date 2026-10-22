@@ -57,10 +57,13 @@ class FakeBackend:
 
     name = "fake"
 
-    def __init__(self, planes_thickness=1.5014, centreline_thickness=1.3013):
+    def __init__(self, planes_thickness=1.5014, centreline_thickness=1.3013, pws_thickness=None):
         self.steps = []
         self.parallel = False
         self.thickness = {"planes": planes_thickness, "centreline": centreline_thickness}
+        # sweep -> the wall under the PWS's top 1 % (default: the wall's median; None = unreported)
+        self.pws_thickness = pws_thickness or {}
+        self.sweep = None
 
     def run(self, step, knobs):
         self.steps.append((step, dict(knobs)))
@@ -83,13 +86,17 @@ class FakeBackend:
             if sweep == "planes" and not self.parallel:
                 return StepOutcome(False, {}, "", "ValueError: the end caps are 35.20 deg from "
                                    "parallel (the plane sweep needs <= 2); crop with parallel caps")
+            self.sweep = sweep
             return StepOutcome(True, {"n_cells": 7552, "quality": {"n_inverted": 0},
                                       "lattice": {"n_capped": 0, "n_floored": 0, "sweep": sweep,
                                                   "thickness_normal_median": self.thickness[sweep]}},
                                "")
         if step == "aaa_stress":
-            return StepOutcome(True, {"refused": [], "systolic": {"von_mises_p99_mpa": 0.278243},
-                                      "whatif": {"von_mises_p99_mpa": 0.238494},
+            h = self.pws_thickness.get(self.sweep, self.thickness[self.sweep])
+            pk = {} if h is None else {"top1pct_wall_thickness_mm": {"median": h, "min": 0.92 * h}}
+            return StepOutcome(True, {"refused": [],
+                                      "systolic": {"von_mises_p99_mpa": 0.278243, "peak": pk},
+                                      "whatif": {"von_mises_p99_mpa": 0.238494, "peak": pk},
                                       "whatif_ratio": {"pws": 0.857143},
                                       "thrombus": {"modelled": True}}, "")
         if step == "tissue_index":
@@ -206,6 +213,164 @@ def test_an_unmeasured_wall_thickness_fails_the_gate(tmp_path):
     tools.run("crop_aneurysm", {"parallel_caps": True})
     r = tools.run("mesh_wall", {"sweep": "planes"})
     assert not r.ok and "could not be measured" in r.error
+
+
+# --- D96: the gate under the peak ----------------------------------------------
+
+#: Zenodo P04 (D94): the wall's median is -3.3 %, so the median gate passes, but
+#: the peak sits on 0.80 mm columns and its tension read 1.62 x the reference
+P04_LIKE = {"centreline_thickness": 1.45, "pws_thickness": {"centreline": 0.80}}
+STRESS = ("wall_stress", {"systolic_mmhg": 140, "whatif_mmhg": 120})
+
+
+def _meshed(tmp_path, parallel, sweep, **kw):
+    tools = PipelineTools(FakeBackend(**kw), tmp_path)
+    tools.run("segment_aorta", {"ct_path": "ct.nii.gz"})
+    tools.run("crop_aneurysm", {"parallel_caps": parallel})
+    return tools, tools.run("mesh_wall", {"sweep": sweep})
+
+
+def test_the_gate_refuses_a_peak_on_a_locally_thin_wall(tmp_path):
+    tools, mesh = _meshed(tmp_path, False, "auto", **P04_LIKE)
+    assert mesh.ok and mesh.payload["wall_thickness_off_percent"] == -3.3
+    r = tools.run(*STRESS)
+    assert not r.ok and not tools.gate_passed and tools.pws == {}
+    assert r.payload == {"pws_wall_thickness_mm": 0.8, "pws_wall_thickness_off_percent": -46.7,
+                         "pws_wall_thickness_min_mm": 0.74, "sweep_used": "centreline",
+                         "gate": "FAIL"}  # and no stress number
+    assert ("quality gate FAILED under the peak: the peak wall stress sits on wall 0.80 mm thick "
+            "along the surface normal (median of its top-1% region; thinnest 0.74 mm), -47% off "
+            "the 1.5 mm it should be (limit 5%)") in r.error
+    assert "parallel_caps=true" in r.error and "sweep 'planes'" in r.error
+    # no stress and no index until the wall is meshed again
+    assert "no wall has passed" in tools.run(*STRESS).error
+    assert "run wall_stress first" in tools.run("strength_index", {}).error
+
+
+def test_a_thin_patch_under_a_plane_swept_peak_gets_no_false_recovery_hint(tmp_path):
+    tools, _ = _meshed(tmp_path, True, "planes", pws_thickness={"planes": 1.2})
+    r = tools.run(*STRESS)
+    assert not r.ok and "No setting is known" in r.error and "parallel_caps" not in r.error
+
+
+def test_the_gate_under_the_peak_limit_and_payload(tmp_path):
+    for h, passes in ((1.5 * 1.049, True), (1.5 * 0.951, True),
+                      (1.5 * 1.051, False), (1.5 * 0.949, False)):
+        tools, _ = _meshed(tmp_path, True, "planes", pws_thickness={"planes": h})
+        assert tools.run(*STRESS).ok is passes, h
+    # the demo's wall: s1364's plane sweep, 1.501 mm under the peak (D94)
+    tools, _ = _meshed(tmp_path, True, "planes")
+    r = tools.run(*STRESS)
+    assert r.ok and tools.gate_passed and r.payload["pws_systolic_kpa"] == 278.2
+    assert r.payload["pws_wall_thickness_mm"] == 1.5
+    assert r.payload["pws_wall_thickness_off_percent"] == 0.1
+
+
+def test_the_gate_under_the_peak_checks_both_pressures():
+    from meshforge.copilot.tools import pws_wall_check
+
+    ok = {"top1pct_wall_thickness_mm": {"median": 1.5, "min": 1.4}}
+    thin = {"top1pct_wall_thickness_mm": {"median": 0.8, "min": 0.7}}
+    for sys_pk, wif_pk, which in ((thin, ok, "systolic"), (ok, thin, "whatif")):
+        fields, err = pws_wall_check({"systolic": {"peak": sys_pk}, "whatif": {"peak": wif_pk}},
+                                     "planes")
+        assert "on wall 0.80 mm thick" in err and fields["gate"] == "FAIL", which
+    fields, err = pws_wall_check({"systolic": {"peak": ok}, "whatif": {"peak": ok}}, "planes")
+    assert err == "" and fields == {"pws_wall_thickness_mm": 1.5, "pws_wall_thickness_off_percent": 0.0}
+
+
+def test_an_unreported_thickness_under_the_peak_fails_loudly(tmp_path):
+    tools, _ = _meshed(tmp_path, True, "planes", pws_thickness={"planes": None})
+    r = tools.run(*STRESS)
+    assert not r.ok and "not reported" in r.error and not tools.gate_passed and tools.pws == {}
+
+
+P04_SUMMARY = (
+    "The first wall passed its overall thickness check, but its peak stress sat on wall only "
+    "0.8 mm thick, so it was rebuilt after re-cropping with parallel caps. The peak wall stress "
+    "is 278.2 kPa at 140 mmHg and 238.5 kPa at 120 mmHg - an investigational result."
+)
+
+
+def test_full_run_recovers_from_a_thin_patch_under_the_peak(tmp_path):
+    seq = [("segment_aorta", {"ct_path": "ct.nii.gz"}), ("crop_aneurysm", {"parallel_caps": False}),
+           ("mesh_wall", {"sweep": "auto"}), STRESS, ("crop_aneurysm", {"parallel_caps": True}),
+           ("mesh_wall", {"sweep": "planes"}), STRESS, ("strength_index", {})]
+    client = FakeClient([_resp(_use(n, a, i)) for i, (n, a) in enumerate(seq)]
+                        + [_resp(_text(P04_SUMMARY), stop="end_turn")])
+    tools = PipelineTools(FakeBackend(**P04_LIKE), tmp_path / "work")
+    run = ag.run_copilot("Assess this AAA.", tools=tools, client=client, log=lambda m: None)
+    assert run.stop == "done" and run.complete
+    assert [c["tool"] for c in run.calls if not c["ok"]] == ["wall_stress"]
+    assert run.results["mesh_wall"]["sweep_used"] == "planes"
+    assert run.results["wall_stress"]["pws_wall_thickness_mm"] == 1.5
+    assert run.summary_text == P04_SUMMARY and "traced" in run.guard_note
+    md, _ = render_report(request="r", ct_name="ct.nii.gz", credit="CC BY 4.0", results=run.results,
+                          calls=run.calls, summary_text=run.summary_text,
+                          guard_note=run.guard_note, model="claude-opus-5-5")
+    assert ("FAILED → quality gate FAILED under the peak: the peak wall stress sits on wall "
+            "0.80 mm thick") in md
+
+
+# a new crop or a new mesh is a new wall: the old wall's stress goes with it
+
+
+def test_a_re_crop_drops_the_old_walls_stress(tmp_path):
+    tools, _ = _meshed(tmp_path, True, "planes")
+    assert tools.run(*STRESS).ok and tools.pws
+    assert tools.run("crop_aneurysm", {"parallel_caps": False}).ok
+    assert not tools.gate_passed and tools.pws == {}
+    assert tools.run("strength_index", {}).error == "run wall_stress first"
+    mesh = tools.run("mesh_wall", {"sweep": "auto"})  # the 1.30 mm centreline wall
+    assert not mesh.ok and mesh.payload["gate"] == "FAIL"
+    assert tools.run("strength_index", {}).error == "run wall_stress first"
+    assert tools.run(*STRESS).error == "no wall has passed the quality gate yet"
+    assert [s for s, _ in tools.backend.steps].count("tissue_index") == 0
+
+
+def test_a_new_wall_that_passes_still_needs_its_own_stress(tmp_path):
+    tools, _ = _meshed(tmp_path, True, "planes")
+    assert tools.run(*STRESS).ok
+    assert tools.run("crop_aneurysm", {"parallel_caps": True}).ok and tools.pws == {}
+    assert tools.run("mesh_wall", {"sweep": "planes"}).ok and tools.gate_passed
+    assert tools.run("strength_index", {}).error == "run wall_stress first"
+    assert tools.run(*STRESS).ok and tools.run("strength_index", {}).ok
+
+
+def test_a_re_mesh_drops_the_old_walls_stress(tmp_path):
+    for sweep, passes in (("planes", True), ("auto", False)):
+        tools, _ = _meshed(tmp_path, True, "planes")
+        assert tools.run(*STRESS).ok
+        assert tools.run("mesh_wall", {"sweep": sweep}).ok is passes and tools.pws == {}
+        assert tools.run("strength_index", {}).error == "run wall_stress first", sweep
+
+
+RESTRESS_SUMMARY = (
+    "The aneurysm was re-cropped and its wall meshed again, so the index waited for that "
+    "wall's own stress. The peak wall stress is 278.2 kPa at 140 mmHg and 238.5 kPa at "
+    "120 mmHg. The investigational index is 0.43 at P50, from open strength data on 7 "
+    "aneurysms and 13 strips - an investigational index, not a diagnosis."
+)
+
+
+def test_full_run_stresses_a_re_cropped_wall_before_its_index(tmp_path):
+    seq = [("segment_aorta", {"ct_path": "ct.nii.gz"}), ("crop_aneurysm", {"parallel_caps": True}),
+           ("mesh_wall", {"sweep": "planes"}), STRESS, ("crop_aneurysm", {"parallel_caps": True}),
+           ("mesh_wall", {"sweep": "planes"}), ("strength_index", {}), STRESS,
+           ("strength_index", {})]
+    client = FakeClient([_resp(_use(n, a, i)) for i, (n, a) in enumerate(seq)]
+                        + [_resp(_text(RESTRESS_SUMMARY), stop="end_turn")])
+    tools = PipelineTools(FakeBackend(), tmp_path / "work")
+    run = ag.run_copilot("Assess this AAA.", tools=tools, client=client, log=lambda m: None)
+    assert run.stop == "done" and run.complete
+    failed = [(c["tool"], c["error"]) for c in run.calls if not c["ok"]]
+    assert failed == [("strength_index", "run wall_stress first")]
+    steps = [s for s, _ in tools.backend.steps]  # the index ran once, on the new wall's stress
+    assert steps.count("tissue_index") == 2
+    assert steps[-3:] == ["aaa_stress", "tissue_index", "tissue_index"]
+    assert run.results["wall_stress"]["pws_systolic_kpa"] == 278.2
+    assert run.results["strength_index"]["systolic_140mmhg"]["index_p50"] == 0.43
+    assert run.summary_text == RESTRESS_SUMMARY and "traced" in run.guard_note
 
 
 def test_guard_traces_numbers_from_a_failed_gate(tmp_path):

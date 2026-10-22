@@ -65,7 +65,9 @@ TOOLS: list[dict[str, Any]] = [
         "Wall stress under blood pressure (CalculiX finite elements, stiff-linear on the "
         "imaged geometry, intraluminal thrombus modelled) at a systolic and a what-if "
         "pressure. Returns the peak wall stress (99th percentile) at both. Needs a wall "
-        "that passed the gate.",
+        "that passed the gate. The gate is checked again under the peak: if the peak sits on "
+        "wall more than 5% off 1.5 mm thick along the surface normal, the call fails with an "
+        "error that says what to change.",
         {
             "systolic_mmhg": {"type": "number", "description": "e.g. 140"},
             "whatif_mmhg": {"type": "number", "description": "e.g. 120"},
@@ -106,6 +108,46 @@ def _g(d: Any, *path, default=None):
 
 def _r(x, nd=1):
     return None if x is None else round(float(x), nd)
+
+
+def _thickness_hint(sweep) -> str:
+    """What the copilot can change when the wall is not 1.5 mm along the normal."""
+    if sweep == "planes":
+        return " No setting is known to fix a plane-swept wall."
+    return (f" The {sweep} sweep's rays leave the sac's shoulders at an angle. Re-crop with "
+            f"parallel_caps=true and mesh again with sweep 'planes'.")
+
+
+def pws_wall_check(summary: dict, sweep) -> tuple[dict[str, Any], str]:
+    """The gate's local half (D96), after the stress step. The median gate sees
+    the whole wall, so a thin patch can pass it and still carry the peak (Zenodo
+    P04: median -3.3 %, the peak on 0.80 mm columns). The wall under the PWS
+    region (median of its top 1 %) must be within ``THICKNESS_TOLERANCE`` of
+    nominal too, at both pressures. Returns (payload fields, error); an empty
+    error clears the stress."""
+    out: dict[str, Any] = {}
+    for key in ("systolic", "whatif"):
+        h = _g(summary, key, "peak", "top1pct_wall_thickness_mm") or {}
+        med, low = h.get("median"), h.get("min")
+        if med is None or low is None:
+            return ({"sweep_used": sweep, "gate": "FAIL"},
+                    f"quality gate FAILED: the wall's thickness under the peak wall stress "
+                    f"({key}) was not reported, so a peak on a locally thin wall cannot be "
+                    f"ruled out and the stress is not reportable.")
+        off = float(med) / WALL_THICKNESS_MM - 1.0
+        fields = {"pws_wall_thickness_mm": _r(med, 2),
+                  "pws_wall_thickness_off_percent": _r(100.0 * off)}
+        if abs(off) > THICKNESS_TOLERANCE:
+            return ({**fields, "pws_wall_thickness_min_mm": _r(low, 2), "sweep_used": sweep,
+                     "gate": "FAIL"},
+                    f"quality gate FAILED under the peak: the peak wall stress sits on wall "
+                    f"{med:.2f} mm thick along the surface normal (median of its top-1% region; "
+                    f"thinnest {low:.2f} mm), {100 * off:+.0f}% off the {WALL_THICKNESS_MM:g} mm "
+                    f"it should be (limit {100 * THICKNESS_TOLERANCE:.0f}%), so it would be "
+                    f"misstated. The whole wall's median passed: this is a local patch."
+                    + _thickness_hint(sweep))
+        out = out or fields  # the systolic one is the PWS's
+    return out, ""
 
 
 class PipelineTools:
@@ -190,7 +232,7 @@ class PipelineTools:
                                    "parallel_caps": int(bool(parallel_caps))}, steps)
         if not crop.ok:
             return ToolResult(False, {}, 0, steps, f"crop failed: {crop.error}")
-        self.gate_passed = False
+        self.gate_passed, self.pws = False, {}  # a new crop is a new wall: no gate, no stress yet
         lm = _g(crop.summary, "crop", "landmarks") or {}
         payload = {
             "sac_diameter_mm": _r(lm.get("sac_d_equiv_mm")),
@@ -202,10 +244,10 @@ class PipelineTools:
 
     def _t_mesh_wall(self, sweep: str) -> ToolResult:
         steps: list[str] = []
+        self.gate_passed, self.pws = False, {}  # a new wall: no gate, no stress yet
         vol = self._step("volmesh", {"thickness": WALL_THICKNESS_MM, "curvature_cap": 0.9,
                                      "sweep": sweep}, steps)
         if not vol.ok:
-            self.gate_passed = False
             return ToolResult(False, {}, 0, steps, f"wall mesh failed: {vol.error}")
         s = vol.summary
         inverted = int(_g(s, "quality", "n_inverted", default=_g(s, "n_inverted", default=-1)))
@@ -245,14 +287,7 @@ class PipelineTools:
             what = (f"quality gate FAILED: the wall is {measured:.2f} mm thick along the surface "
                     f"normal, {100 * off:+.0f}% off the {WALL_THICKNESS_MM:g} mm it should be "
                     f"(limit {100 * THICKNESS_TOLERANCE:.0f}%), so its stress would be misstated.")
-            if payload["sweep_used"] == "planes":
-                return ToolResult(False, payload, 0, steps,
-                                  what + " No setting is known to fix a plane-swept wall.")
-            return ToolResult(
-                False, payload, 0, steps,
-                what + f" The {payload['sweep_used']} sweep's rays leave the sac's shoulders at "
-                f"an angle. Re-crop with parallel_caps=true and mesh again with sweep 'planes'.",
-            )
+            return ToolResult(False, payload, 0, steps, what + _thickness_hint(payload["sweep_used"]))
         return ToolResult(True, payload, 0, steps)
 
     def _t_wall_stress(self, systolic_mmhg: float, whatif_mmhg: float) -> ToolResult:
@@ -267,6 +302,10 @@ class PipelineTools:
         s = st.summary
         if s.get("refused"):
             return ToolResult(False, {}, 0, steps, "wall stress REFUSED: " + "; ".join(s["refused"]))
+        local, err = pws_wall_check(s, _g(self.results, "mesh_wall", "sweep_used"))
+        if err:  # the wall fails its gate after all: no PWS, mesh again
+            self.gate_passed, self.pws = False, {}
+            return ToolResult(False, local, 0, steps, err)
         sys_mpa = _g(s, "systolic", "von_mises_p99_mpa")
         wif_mpa = _g(s, "whatif", "von_mises_p99_mpa")
         self.pws = {"systolic": float(sys_mpa), "whatif": float(wif_mpa),
@@ -280,6 +319,7 @@ class PipelineTools:
             "pws_change_percent": _r(100.0 * (wif_mpa / sys_mpa - 1.0)),
             "thrombus_modelled": bool(_g(s, "thrombus", "modelled")),
             "wall_thickness_mm": WALL_THICKNESS_MM,
+            **local,
         }
         return ToolResult(True, payload, 0, steps)
 

@@ -109,6 +109,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The copilot's wall gate let a peak stress sit on a locally thin wall.
+  - **Cause:** the gate checked only the MEDIAN wall thickness along the
+    surface normal. On the Zenodo AAA case P04 the median is 3.3% thin
+    (pass), but the peak wall stress sits on a thin patch (0.83 mm under its
+    top 1%, thinnest 0.77 mm; 1.6% of the wall is under 0.9 mm), where the
+    stress reads about 1.5/h too high.
+  - **The fix:** `wall_stress` checks the gate again under the peak. The
+    median normal thickness under the PWS's top 1% (outside the end zones,
+    at both pressures) must be within the same 5% of 1.5 mm. Otherwise the
+    call fails with no stress, the index waits, and the error gives the same
+    hint as the wall gate (parallel caps and the plane sweep). `aaa-stress`
+    reports it as `peak.top1pct_wall_thickness_mm` (median, min).
+  - **Results:** s1364's plane-swept wall is 1.50 mm under the peak, so the
+    demo is unchanged: PWS 282.5 / 242.1 kPa. Of the 12 Zenodo validation
+    walls (centreline sweep), 6 pass the median gate and 3 pass both: P04,
+    P06, P09 and P10 put the peak on 0.83–1.42 mm. On P04 the copilot now
+    fails the centreline wall under the peak, follows the hint, and reports
+    328.9 kPa on a plane-swept wall that is 1.50 mm under the peak; the old
+    gate would have passed a wall reading about 39% higher.
+  - **Also:** a re-crop or a re-mesh now drops the old wall's stress, so
+    `strength_index` waits for `wall_stress` on the new wall. Before, it
+    could still index the previous wall's PWS.
 - The wall tension over-read where a swept wall is thinner than its rays.
   - **Cause:** the tension was the nominal 1.5 mm × the layer-mean stress
     whenever every wall ray was 1.5 mm long. A centreline ray that crosses a
