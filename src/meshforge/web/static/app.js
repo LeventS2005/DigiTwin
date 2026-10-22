@@ -2,7 +2,7 @@
 //
 // Rule 4: NO meshing/geometry/solve logic here. This module only calls the
 // increment-1 JSON API and renders its responses. Endpoints used:
-//   GET  /schema  /catalog  /journal  /state  /cfd/presets
+//   GET  /schema  /catalog  /journal  /state  /twin  /cfd/presets
 //   POST /source/synth  /source/load  /step/<name>
 //   POST /workfile/save  /workfile/load  /session/reset
 //   POST /cfd/pick  /cfd/inflow   (D80 flow-ends picker, read-only)
@@ -35,18 +35,34 @@ function detailOf(data, res) {
   return `HTTP ${res.status} ${res.statusText}`;
 }
 
+// ---- on-screen paths (M6) ---------------------------------------------
+// The Workbench is recorded for the demo: a local folder (and the user name
+// in it) must not reach the screen. Display only — the journal, work files
+// and requests keep the real paths. An absolute path value is shown by its
+// file name; any other text has its /Users/<name> (or /home/<name>) prefix
+// shown as "~".
+const ABS_PATH = /^(\/|~\/|[A-Za-z]:[\\/])/;
+const HOME_PREFIX = /\/(?:Users|home)\/[^\/\s"']+/g;
+function shownText(text) {
+  return String(text).replace(HOME_PREFIX, "~");
+}
+function shownJson(obj, indent) {
+  return shownText(JSON.stringify(obj, (k, v) =>
+    typeof v === "string" && ABS_PATH.test(v) ? shortPath(v) : v, indent));
+}
+
 // ---- log + summary -----------------------------------------------------
 function log(text, isErr) {
   const el = $("#log");
   const line = document.createElement("span");
   if (isErr) line.className = "err";
-  line.textContent = (isErr ? "ERROR: " : "") + text.replace(/\s+$/, "") + "\n";
+  line.textContent = (isErr ? "ERROR: " : "") + shownText(text).replace(/\s+$/, "") + "\n";
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
 }
 function showSummary(result) {
   if (result && result.summary !== undefined) {
-    $("#summary-view").textContent = JSON.stringify(result.summary, null, 2);
+    $("#summary-view").textContent = shownJson(result.summary, 2);
   }
 }
 
@@ -56,6 +72,7 @@ async function afterStep(result) {
   showSummary(result);
   await refreshHistory();
   await refreshState();
+  await refreshTwin();
   viewportField = null; // a new artifact -> let the server pick the default field
   await refreshViewport(true);
   // Any new mesh or source invalidates a picked inflow end; a cfd run keeps it
@@ -270,6 +287,68 @@ function stopPlay() {
   $("#vp-play").textContent = "▶";
 }
 
+// ---- twin card (M6) -----------------------------------------------------
+// The copilot report's header as a live panel. GET /twin builds it from the
+// session's journaled step outputs on the server; this only paints it. Every
+// string goes in through textContent (no HTML from the server is trusted).
+async function refreshTwin() {
+  let twin;
+  try {
+    twin = await apiGet("/twin");
+  } catch (err) {
+    return; // a twin hiccup must not spam the log; the next refresh retries
+  }
+  renderTwin(twin);
+}
+
+function renderTwin(twin) {
+  $("#twin").dataset.lit = twin.lit ? "1" : "0";
+  $("#twin-scan").textContent = twin.scan || "no scan yet";
+  const mods = $("#twin-modules");
+  mods.innerHTML = "";
+  for (const m of twin.modules || []) {
+    const li = document.createElement("li");
+    li.className = "mod" + (m.lit ? " lit" : "");
+    li.textContent = `${m.lit ? "●" : "○"} ${m.name} · ${m.state}`;
+    mods.appendChild(li);
+  }
+  const list = $("#twin-slots");
+  list.innerHTML = "";
+  for (const s of twin.slots || []) {
+    const li = document.createElement("li");
+    li.className = `slot ${s.state}`;
+    li.dataset.slot = s.key;
+    const dot = document.createElement("span");
+    dot.className = "slot-dot";
+    dot.textContent = s.state === "filled" ? "●" : s.state === "next" ? "◌" : "○";
+    const body = document.createElement("div");
+    body.className = "slot-body";
+    const head = document.createElement("div");
+    head.className = "slot-head";
+    const label = document.createElement("b");
+    label.textContent = s.label;
+    head.appendChild(label);
+    if (s.note) {
+      const note = document.createElement("span");
+      note.className = "slot-note";
+      note.textContent = s.note;
+      head.appendChild(note);
+    }
+    const detail = document.createElement("span");
+    detail.className = "slot-detail";
+    detail.textContent = s.detail;
+    body.append(head, detail);
+    for (const v of s.values || []) {
+      const val = document.createElement("span");
+      val.className = "slot-value";
+      val.textContent = v;
+      body.appendChild(val);
+    }
+    li.append(dot, body);
+    list.appendChild(li);
+  }
+}
+
 // ---- history + state ---------------------------------------------------
 async function refreshHistory() {
   const { journal } = await apiGet("/journal");
@@ -278,8 +357,8 @@ async function refreshHistory() {
   for (const rec of journal) {
     const tr = document.createElement("tr");
     tr.appendChild(cell(rec.step, false, "step"));
-    tr.appendChild(cell(JSON.stringify(rec.params || {}), true));
-    tr.appendChild(cell(JSON.stringify(rec.summary || {}), true));
+    tr.appendChild(cell(shownJson(rec.params || {}), true));
+    tr.appendChild(cell(shownJson(rec.summary || {}), true));
     tbody.appendChild(tr);
   }
 }
@@ -331,6 +410,7 @@ function startAutoRefresh() {
         log("session changed — resyncing view");
         await refreshHistory();
         await refreshState(); // also updates lastRev
+        await refreshTwin();
         viewportField = null;
         await refreshViewport(true);
         resetFlowPicker();
@@ -788,6 +868,7 @@ async function loadWorkfile() {
   if (res.results && res.results.length) showSummary(res.results[res.results.length - 1]);
   await refreshHistory();
   await refreshState();
+  await refreshTwin();
   viewportField = null;
   await refreshViewport(true);
   resetFlowPicker();
@@ -802,6 +883,7 @@ async function resetSession() {
   resetFlowPicker();
   await refreshHistory();
   await refreshState();
+  await refreshTwin();
   await refreshPresets();
 }
 
@@ -919,6 +1001,7 @@ async function init() {
   await refreshPresets();
   await refreshHistory();
   await refreshState();
+  await refreshTwin(); // pending slots before a run; filled if a session is in progress
   await refreshViewport(true); // paints if a session was already in progress
   startAutoRefresh(); // keep the view current on external session changes
   log("Workbench ready." + (viewportUp ? "" : " (3-D viewport unavailable)"));

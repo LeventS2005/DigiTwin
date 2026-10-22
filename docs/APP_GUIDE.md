@@ -96,10 +96,15 @@ Layout — three panes:
   couple of seconds, so when another client (a second tab, the desktop
   window, or a script driving the same server) changes the session, the
   view re-syncs itself — no manual ⌘R needed.
-- **Right — log & history:** the **log**, the **history** table (the
-  journal — it mirrors exactly what a `.mfwork` file replays; failed steps
-  never enter it), and the **Save / Load work file** + **Reset session**
-  actions.
+- **Right — twin, log & history:** on top, the **your twin · v0** panel
+  (the copilot report's twin card, live — see §3.9c), then the **log**, the
+  **history** table (the journal — it mirrors exactly what a `.mfwork` file
+  replays; failed steps never enter it), and the **Save / Load work file** +
+  **Reset session** actions.
+- **No local folder on screen:** the history, the summary line and the log
+  show an absolute path by its file name and a `/Users/<name>` prefix as
+  `~` (display only — the journal and work files keep the real paths), so a
+  recording never shows a user name.
 
 The top bar shows the session **state**: the input path and an artifact
 chip per step (`surface`, `centerline`, `wall`, `volmesh`, `solve`, …)
@@ -753,15 +758,36 @@ How it behaves:
   - **On the s1364 demo scan:** the default wall has no bad cells but is
     1.30 mm thick along the surface normal, 13% thin, because the centreline
     sweep's rays meet the sac's shoulders at an angle. Its stress would read
-    382 kPa instead of 279. The gate fails it, and the copilot re-crops with
-    parallel caps and meshes with the plane sweep (1.50 mm, PASS).
+    about 37% high (382 vs 279 kPa when measured, D93). The gate fails it,
+    and the copilot re-crops with parallel caps and meshes with the plane
+    sweep (1.50 mm, PASS).
   - **Another failure:** "caps 35° from parallel" when the plane sweep is
     asked for on the default crop.
 - **The report** (`report.html`/`.md`) is built from the tool outputs alone.
+  `report.html` is a real page (no script, no web fetch, prints cleanly,
+  one column on a phone): header, twin card, headline tiles (PWS, what-if,
+  investigational index), results and pipeline tables (a failed gate stays
+  in red), the summary with its numbers-guard note, the caveats and the data
+  credit. Every string from a tool, Claude or the command line is
+  HTML-escaped. The Reproduce line names the work file only (no folder).
   - **Twin card:** a body outline with the aorta lit as module 1 and heart and
     kidneys "next". Its data-layer slots are shape, wall + thrombus, stress,
     strength (with n), flow (from `--flow-metrics`), BP what-if, and growth,
-    which waits for a second scan.
+    which waits for a second scan. Each filled slot shows its tool numbers
+    (e.g. "282.5 kPa peak at 140 mmHg"). The `--flow-metrics` file (numbers
+    only, checked before the run starts) is journaled in the session as a
+    `flow_metrics` record before the report is written, in-process or over
+    `--server`, so `session.mfwork` keeps it.
+  - **The same card in the Workbench** (right pane, `GET /twin`): every slot
+    reads "not run yet" until its step lands, then fills from the session's
+    own journal, replayed through the copilot's tool code, so it quotes the
+    copilot's exact numbers. Mid-run it shows a failed gate ("last wall gate
+    FAIL: 1.3 mm along the normal"). A new source empties it; a re-run crop
+    clears the stress and index it made stale. Flow fills from the session's
+    `flow_metrics` record (the copilot posts its `--flow-metrics` to
+    `POST /twin/flow`), so the panel prints the report's exact flow lines; the
+    record belongs to the scan, so a re-crop keeps it and a new source or
+    segment empties it.
   - **Claude's prose:** included only if every number in it matches a tool
     output; one correction is allowed, otherwise it is withheld and the
     report says so.

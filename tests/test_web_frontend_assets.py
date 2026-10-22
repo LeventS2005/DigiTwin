@@ -331,3 +331,55 @@ def _slice_between(source: str, start_marker: str, end_marker: str) -> str:
     except ValueError:
         end = len(source)
     return source[start:end]
+
+
+# ---- M6: the twin card panel ---------------------------------------------
+
+
+def test_twin_outline_is_the_reports_own_svg(index_html: str) -> None:
+    # one body outline for the report header and the Workbench panel
+    from meshforge.copilot.report import BODY_SVG
+
+    assert BODY_SVG in index_html
+    for cls in ("tw-body", "tw-next", "tw-aorta"):
+        assert f'class="{cls}"' in BODY_SVG
+
+
+def test_twin_panel_paints_server_data_as_text_only(app_js: str, index_html: str) -> None:
+    for slot in ('id="twin"', 'id="twin-slots"', 'id="twin-modules"', 'id="twin-scan"'):
+        assert slot in index_html, slot
+    body = _function_body(app_js, "function renderTwin")
+    # innerHTML only ever clears a list; every server string goes through textContent
+    assert re.findall(r'innerHTML\s*=\s*([^;]+);', body) == ['""', '""']
+    assert body.count(".textContent =") >= 5
+    assert 'dataset.lit = twin.lit ? "1" : "0"' in body
+    refresh = _function_body(app_js, "async function refreshTwin")
+    assert 'apiGet("/twin")' in refresh and "renderTwin(twin)" in refresh
+
+
+def test_twin_panel_refreshes_on_every_session_change(app_js: str) -> None:
+    # a step, another client's change (the copilot over HTTP), a work-file
+    # load, a reset, and the first paint all repaint the twin
+    for fn in ("async function afterStep", "function startAutoRefresh",
+               "async function loadWorkfile", "async function resetSession",
+               "async function init()"):
+        assert "await refreshTwin()" in _function_body(app_js, fn), fn
+
+
+def test_twin_lit_state_is_styled(styles_css: str) -> None:
+    assert '.twin[data-lit="1"] .tw-aorta path' in styles_css
+    assert ".slot.filled .slot-dot" in styles_css and ".slot.next" in styles_css
+
+
+
+def test_no_local_folder_reaches_the_screen(app_js: str) -> None:
+    """M6: the Workbench is recorded. History, summary and log show an
+    absolute path value by its file name and any /Users/<name> as "~";
+    display only (the journal keeps the real paths)."""
+    shown = _function_body(app_js, "function shownJson")
+    assert "ABS_PATH.test(v) ? shortPath(v) : v" in shown and "shownText(" in shown
+    assert "shownText(text)" in _function_body(app_js, "function log")
+    assert "shownJson(result.summary, 2)" in _function_body(app_js, "function showSummary")
+    history = _function_body(app_js, "async function refreshHistory")
+    assert "shownJson(rec.params" in history and "shownJson(rec.summary" in history
+    assert "JSON.stringify" not in history

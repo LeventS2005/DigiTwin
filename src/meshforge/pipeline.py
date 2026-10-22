@@ -2657,6 +2657,25 @@ class MeshingSession:
 
         return cardiac_presets(self.length_unit)
 
+    # -- M6: attached flow metrics (journaled, never computed) ----------------
+    def attach_flow_metrics(self, metrics: dict[str, Any]) -> StepResult:
+        """Journal pre-computed steady-CFD metrics of this scan's lumen (the
+        copilot's ``--flow-metrics``) as their own ``flow_metrics`` record, so
+        the twin card's blood-flow slot reads them from the session. Nothing
+        is computed and no mesh is touched; a replay re-records the same
+        numbers. The metrics must pass :func:`check_flow_metrics`."""
+        metrics = check_flow_metrics(metrics)
+        listed = ", ".join(f"{k} {v:g}" for k, v in metrics.items())
+        result = StepResult(
+            step="flow_metrics",
+            summary={"metrics": dict(metrics),
+                     "note": "pre-computed CFD metrics, attached; nothing was computed"},
+            text=f"flow metrics: {len(metrics)} pre-computed CFD value(s) attached, "
+            f"nothing computed ({listed})\n",
+        )
+        self._record("flow_metrics", {"metrics": dict(metrics)}, result)
+        return result
+
     def _flow_section(self, vol, *, through_flow: bool):
         """D82: the centreline section a CFD result is viewed on, or None.
 
@@ -2716,6 +2735,55 @@ class MeshingSession:
         return path
 
 
+#: M6: the twin card's flow lines read these two; an attached set must name one
+FLOW_METRICS_SHOWN = ("sac_backflow_volume_fraction", "q_lmin")
+FLOW_METRICS_MAX = 32
+
+
+def check_flow_metrics(metrics: Any) -> dict[str, int | float]:
+    """``metrics`` as a plain dict if it is a set of flow metrics a session may
+    carry, else a loud ValueError: 1 to 32 entries, plain-name keys (letters,
+    digits, ``_``; at most 64 characters), finite numbers only (no bool,
+    string, list or null; at most 1e12 in size), naming at least one metric
+    the twin card shows, with the backflow a fraction in [0, 1] and the
+    inflow positive."""
+    import math
+    import re
+
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError("flow metrics must be a non-empty JSON object of numbers")
+    if len(metrics) > FLOW_METRICS_MAX:
+        raise ValueError(f"flow metrics: {len(metrics)} entries, at most {FLOW_METRICS_MAX}")
+    out: dict[str, int | float] = {}
+    for key, value in metrics.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key):
+            raise ValueError(
+                f"flow metrics: key {str(key)[:40]!r} is not a plain name "
+                "(letters, digits, _; at most 64 characters)"
+            )
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"flow metrics: {key} must be a number, got {type(value).__name__}")
+        try:
+            finite = math.isfinite(float(value)) and abs(float(value)) <= 1e12
+        except OverflowError:
+            finite = False
+        if not finite:
+            raise ValueError(f"flow metrics: {key} must be a finite number (at most 1e12 in size)")
+        out[key] = value
+    if not any(k in out for k in FLOW_METRICS_SHOWN):
+        raise ValueError(
+            f"flow metrics: none of the twin card's metrics ({', '.join(FLOW_METRICS_SHOWN)})"
+        )
+    backflow = out.get("sac_backflow_volume_fraction")
+    if backflow is not None and not 0.0 <= backflow <= 1.0:
+        raise ValueError(
+            f"flow metrics: sac_backflow_volume_fraction is a fraction in [0, 1], got {backflow}"
+        )
+    if "q_lmin" in out and not out["q_lmin"] > 0.0:
+        raise ValueError(f"flow metrics: q_lmin must be positive, got {out['q_lmin']}")
+    return out
+
+
 _WORKFILE_STEPS = (
     "load",
     "generate_synth",
@@ -2740,6 +2808,7 @@ _WORKFILE_STEPS = (
     "split_patch",
     "cfd",
     "tissue_index",
+    "flow_metrics",
 )
 
 def load_workfile(path: str | Path) -> MeshingSession:
@@ -2773,6 +2842,11 @@ def load_workfile(path: str | Path) -> MeshingSession:
                 f"corrupted work file: journal[{i}] needs a known step "
                 f"({'/'.join(_WORKFILE_STEPS)}) and a params mapping"
             )
+        if rec["step"] == "flow_metrics":
+            try:
+                check_flow_metrics(rec["params"].get("metrics"))
+            except ValueError as exc:
+                raise ValueError(f"corrupted work file: journal[{i}] {exc}") from exc
     session = MeshingSession()
     session.journal = data["journal"]
     return session
@@ -2867,6 +2941,8 @@ def replay(
             results.append(session.compute_cfd(**params))
         elif name == "tissue_index":
             results.append(session.compute_tissue_index(**params))
+        elif name == "flow_metrics":  # attached numbers: re-recorded, never recomputed
+            results.append(session.attach_flow_metrics(**params))
         else:  # pragma: no cover - load_workfile validates step names
             raise ValueError(f"unknown journal step {name!r}")
     return results

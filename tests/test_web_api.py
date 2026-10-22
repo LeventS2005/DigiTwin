@@ -54,6 +54,7 @@ def test_compute_routes_are_serialised_but_state_polls_are_not(client, monkeypat
     step.start()
     assert started.wait(20)
     assert client.get("/state").status_code == 200  # not held up by the step
+    assert client.get("/twin").status_code == 200  # nor is the twin panel (M6)
     got: list[int] = []
     geo = threading.Thread(target=lambda: got.append(client.get("/geometry").status_code))
     geo.start()
@@ -241,6 +242,7 @@ def test_frontend_endpoints_all_exist_on_app() -> None:
         "/workfile/save",
         "/workfile/load",
         "/session/reset",
+        "/twin",
     ):
         assert endpoint in js, f"frontend never calls {endpoint}"
         assert endpoint in route_paths, f"{endpoint} is not a real route"
@@ -512,3 +514,235 @@ def test_serve_without_the_web_extra_names_the_fix(monkeypatch) -> None:
     assert "pip install -e '.[web]'" in msg
     assert "trame-vtk" in msg  # the viewport is a separate, conda-forge install
     assert isinstance(exc.value.__cause__, ImportError)  # chained, not swallowed
+
+
+# ---- M6: the twin card panel (the copilot report's header, live) --------
+
+
+def _copilot_journal(pws=(0.282481, 0.242127), whatif_pws=None) -> list[dict]:
+    """A canned session journal with the step summaries' real shapes (the
+    s1364 copilot path, after the gate recovery)."""
+    sys_mpa, wif_mpa = pws
+    idx = lambda p: {"p10": p / 1.299236, "p50": p / 0.6503, "p90": p / 0.3081114}  # noqa: E731
+    ti = lambda p: {"step": "tissue_index", "params": {"pws_mpa": p},  # noqa: E731
+                    "summary": {"index": idx(p), "n_aneurysms": 7, "n_strips": 13,
+                                "strength_mpa": {"p10": 0.308, "p50": 0.65, "p90": 1.299}}}
+    return [
+        {"step": "segment", "params": {"path": "/somewhere/private/s1364/ct.nii.gz"},
+         "summary": {"segment": {"totalseg": {"wall_time_s": 25.4}, "mask_volume_ml": 332.5}}},
+        {"step": "sac", "params": {"path": "/somewhere/private/s1364/ct.nii.gz"},
+         "summary": {"sac": {"max_diameter": {"max_caliper": {"value_mm": 61.75},
+                                              "area_equivalent": {"value_mm": 52.17}},
+                             "sac_volume_ml": 161.8, "resolved_fraction": 0.661,
+                             "thickness_mm": {"all_rays": {"median": 3.17, "max": 25.52}}}}},
+        {"step": "crop", "params": {"parallel_caps": 1},
+         "summary": {"crop": {"landmarks": {"sac_d_equiv_mm": 51.8, "neck_d_equiv_mm": 24.5,
+                                            "sac_neck_ratio": 2.11}}}},
+        {"step": "volmesh", "params": {"sweep": "planes", "thickness": 1.5},
+         "summary": {"n_cells": 7552, "quality": {"n_inverted": 0},
+                     "lattice": {"n_capped": 0, "n_floored": 0, "sweep": "planes",
+                                 "thickness_normal_median": 1.5014}}},
+        {"step": "aaa_stress", "params": {"systolic_mmhg": 140.0, "whatif_mmhg": 120.0},
+         "summary": {"refused": [], "systolic": {"von_mises_p99_mpa": sys_mpa},
+                     "whatif": {"von_mises_p99_mpa": wif_mpa}, "whatif_ratio": {"pws": 0.857},
+                     "thrombus": {"modelled": True}}},
+        ti(sys_mpa), ti(whatif_pws if whatif_pws is not None else wif_mpa),
+    ]
+
+
+def _slots(twin: dict) -> dict[str, dict]:
+    return {s["key"]: s for s in twin["slots"]}
+
+
+def test_twin_waits_before_a_run_then_fills_from_the_session(client: TestClient, tmp_path: Path) -> None:
+    """Before any step every slot waits (no numbers); a loaded journal fills
+    them from its own step outputs (no replay, nothing recomputed); a reset
+    empties the card again."""
+    import json
+
+    before = client.get("/twin")
+    assert before.status_code == 200
+    twin = before.json()
+    assert twin["lit"] is False and twin["scan"] is None and twin["title"] == "Your twin · v0"
+    assert [s["state"] for s in twin["slots"]] == ["pending"] * 6 + ["next"]
+    assert all(not s["values"] for s in twin["slots"])
+    assert [m["name"] for m in twin["modules"]] == ["aorta", "heart", "kidneys"]
+
+    wf = tmp_path / "copilot.mfwork"
+    wf.write_text(json.dumps({"version": 1, "journal": _copilot_journal()}))
+    r = client.post("/workfile/load", json={"path": str(wf), "replay": False})
+    assert r.status_code == 200, r.text
+    twin = client.get("/twin").json()
+    slots = _slots(twin)
+    assert twin["lit"] is True and twin["scan"] == "ct.nii.gz"  # the file name only
+    assert "/somewhere" not in json.dumps(twin)
+    assert slots["shape"]["values"] == ["sac 61.8 mm at its widest", "sac volume 161.8 mL"]
+    assert slots["wall"]["values"][-1] == "wall 1.5 mm · gate PASS"
+    assert slots["stress"]["values"] == ["282.5 kPa peak at 140 mmHg"]
+    assert slots["whatif"]["values"] == ["242.1 kPa at 120 mmHg (-14.3 %)", "index P50 0.37"]
+    assert slots["strength"]["values"] == ["index P50 0.43 (P10 0.22 – P90 0.92) at 140 mmHg"]
+    assert slots["flow"]["state"] == "pending" and slots["growth"]["state"] == "next"
+
+    assert client.post("/session/reset", json={}).status_code == 200
+    assert client.get("/twin").json()["lit"] is False
+
+
+def test_twin_never_fails_the_workbench_on_an_odd_summary(client: TestClient) -> None:
+    """A zero stress (or an index run on another stress) leaves its slot
+    waiting; the panel itself never turns into a 500."""
+    holder = client.app.state.holder
+    holder.session.journal = _copilot_journal(pws=(0.0, 0.0))
+    r = client.get("/twin")
+    assert r.status_code == 200
+    assert _slots(r.json())["stress"]["state"] == "pending"
+    holder.session.journal = _copilot_journal(whatif_pws=0.2)
+    slots = _slots(client.get("/twin").json())
+    assert slots["stress"]["state"] == "filled" and slots["strength"]["state"] == "pending"
+
+
+# ---- D97: the copilot's flow metrics, journaled in the session ------------
+
+S1364_FLOW = {"q_lmin": 1.0, "umax_mm_s": 123.74993133544922,
+              "sac_backflow_volume_fraction": 0.14450368879518044,
+              "sac_mean_speed_mm_s": 29.72977666215793, "neck_mean_speed_mm_s": 57.14323100196482}
+FLOW_LINES = ["14% of the sac volume flows backward", "inflow 1 L/min"]
+
+
+def test_twin_flow_route_fills_the_panel_with_the_reports_lines(client: TestClient, tmp_path: Path) -> None:
+    """POST /twin/flow journals the metrics as their own record (nothing is
+    computed) and bumps the revision, so the panel repaints with the exact
+    lines the copilot's report prints for the same metrics."""
+    import json
+
+    from meshforge.copilot.report import render_report, tools_from_journal, twin_card
+
+    wf = tmp_path / "copilot.mfwork"
+    wf.write_text(json.dumps({"version": 1, "journal": _copilot_journal()}))
+    assert client.post("/workfile/load", json={"path": str(wf), "replay": False}).status_code == 200
+    assert _slots(client.get("/twin").json())["flow"]["note"] == "not run here"
+    rev = client.get("/state").json()["rev"]
+
+    r = client.post("/twin/flow", json={"metrics": S1364_FLOW})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["step"] == "flow_metrics" and body["summary"]["metrics"] == S1364_FLOW
+    assert "nothing computed" in body["text"]
+    assert client.get("/state").json()["rev"] > rev  # the panel's repaint signal
+    journal = client.get("/journal").json()["journal"]
+    assert journal[-1]["step"] == "flow_metrics" and journal[-1]["params"] == {"metrics": S1364_FLOW}
+
+    twin = client.get("/twin").json()
+    flow = _slots(twin)["flow"]
+    assert flow["state"] == "filled" and flow["values"] == FLOW_LINES and flow["note"] == ""
+    tools, _, _ = tools_from_journal(_copilot_journal())
+    assert twin["slots"] == twin_card(tools.results, S1364_FLOW, tools.calls)["slots"]
+    _, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results=tools.results,
+                            calls=tools.calls, summary_text=None, guard_note="g", model="m",
+                            flow=S1364_FLOW)
+    for line in FLOW_LINES:
+        assert line in page
+    assert client.get("/state").json()["artifacts"]["cfd"] is False  # nothing was run
+
+
+@pytest.mark.parametrize("body", [
+    {"metrics": {"q_lmin": "1.0"}},  # numbers only, never coerced
+    {"metrics": {"q_lmin": True}},
+    {"metrics": {"q_lmin": None, "sac_backflow_volume_fraction": 0.1}},
+    {"metrics": {"q_lmin": [1.0]}},
+    {"metrics": {}},
+    {"metrics": {"umax_mm_s": 123.7}},  # none of the card's metrics
+    {"metrics": {"sac_backflow_volume_fraction": 14.45}},  # a percent, not a fraction
+    {"metrics": {"q_lmin": -1.0}},
+    {"metrics": {"q_lmin": 1.0, "../x": 2.0}},
+    {"metrics": {"q_lmin": 1.0, **{f"m{i}": 1.0 for i in range(40)}}},  # bounded size
+    {"metrics": [1.0, 0.14]},
+    {"q_lmin": 1.0},
+    {},
+])
+def test_twin_flow_refuses_a_malformed_payload_and_changes_nothing(client: TestClient, body) -> None:
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    before = (client.get("/journal").json(), client.get("/state").json()["rev"])
+    r = client.post("/twin/flow", json=body)
+    assert 400 <= r.status_code < 500, r.text
+    assert (client.get("/journal").json(), client.get("/state").json()["rev"]) == before
+    assert _slots(client.get("/twin").json())["flow"]["state"] == "pending"
+
+
+def test_twin_flow_refuses_a_non_finite_number(client: TestClient) -> None:
+    r = client.post("/twin/flow", content=b'{"metrics": {"q_lmin": NaN}}',
+                    headers={"Content-Type": "application/json"})
+    assert 400 <= r.status_code < 500 and client.get("/journal").json()["journal"] == []
+
+
+def test_twin_flow_survives_a_workfile_round_trip_with_replay_on_and_off(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """The work file keeps the record; a replay re-records it (no-op, nothing
+    recomputed, no crash); a load without replay shows it straight away."""
+    import json
+
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    assert client.post("/twin/flow", json={"metrics": S1364_FLOW}).status_code == 200
+    wf = tmp_path / "flow.mfwork"
+    assert client.post("/workfile/save", json={"path": str(wf)}).status_code == 200
+    saved = json.loads(wf.read_text())["journal"]
+    assert [rec["step"] for rec in saved] == ["generate_synth", "flow_metrics"]
+
+    for replay in (True, False):
+        assert client.post("/session/reset", json={}).status_code == 200
+        assert _slots(client.get("/twin").json())["flow"]["state"] == "pending"
+        r = client.post("/workfile/load", json={"path": str(wf), "replay": replay})
+        assert r.status_code == 200, r.text
+        res = r.json()
+        assert [rec["step"] for rec in res["journal"]] == ["generate_synth", "flow_metrics"]
+        assert res["journal"][-1]["params"] == {"metrics": S1364_FLOW}
+        if replay:
+            assert [x["step"] for x in res["results"]] == ["generate_synth", "flow_metrics"]
+            assert "nothing computed" in res["results"][-1]["text"]
+            assert client.get("/state").json()["artifacts"]["surface"] is True
+        else:
+            assert res["results"] == []
+        assert _slots(client.get("/twin").json())["flow"]["values"] == FLOW_LINES
+
+    # a work file whose record the session would refuse fails loudly on load
+    bad = tmp_path / "bad.mfwork"
+    saved[-1]["params"]["metrics"]["q_lmin"] = "1"
+    bad.write_text(json.dumps({"version": 1, "journal": saved}))
+    for replay in (True, False):
+        r = client.post("/workfile/load", json={"path": str(bad), "replay": replay})
+        assert r.status_code == 400 and "q_lmin must be a number" in r.json()["detail"]
+
+
+def test_twin_flow_is_serialised_like_every_journal_writer(client, monkeypatch) -> None:
+    """Mirror of the compute-vs-poll test: POST /twin/flow writes the journal,
+    so it waits for a running step; GET /twin (read-only) does not."""
+    import threading
+
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    session = client.app.state.holder.session
+    started, release = threading.Event(), threading.Event()
+    real = session.compute_centerline
+
+    def slow(**kw):
+        started.set()
+        assert release.wait(20)
+        return real(**kw)
+
+    monkeypatch.setattr(session, "compute_centerline", slow)
+    step = threading.Thread(target=lambda: client.post("/step/centerline", json={}))
+    step.start()
+    assert started.wait(20)
+    got: list[int] = []
+    flow = threading.Thread(
+        target=lambda: got.append(client.post("/twin/flow", json={"metrics": S1364_FLOW}).status_code)
+    )
+    flow.start()
+    flow.join(1.0)
+    assert flow.is_alive() and not got  # waits for the step to finish
+    assert client.get("/twin").status_code == 200  # the poll is not held up
+    assert [rec["step"] for rec in session.journal] == ["generate_synth"]
+    release.set()
+    step.join(20)
+    flow.join(20)
+    assert got == [200]
+    assert [rec["step"] for rec in session.journal] == ["generate_synth", "centerline", "flow_metrics"]

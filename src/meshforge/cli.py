@@ -936,7 +936,9 @@ def main(argv: list[str] | None = None) -> int:
     p_cop.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
     p_cop.add_argument("--max-turns", type=int, default=24)
     p_cop.add_argument("--flow-metrics", type=_path_arg, default=None,
-                       help="a pre-computed CFD metrics JSON to fill the twin card's flow slot")
+                       help="a pre-computed CFD metrics JSON (numbers only) to fill the twin "
+                       "card's flow slot; journaled in the session, so the Workbench panel shows "
+                       "it too")
     p_cop.add_argument("--out-dir", type=_path_arg, default=None,
                        help="run folder (default: <outputs>/copilot/<timestamp>)")
     p_cop.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
@@ -2798,8 +2800,19 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     import time as _time
 
     from meshforge.copilot import HttpBackend, SessionBackend, render_report, run_copilot
+    from meshforge.copilot.report import shown_path, shown_paths
     from meshforge.copilot.tools import PipelineTools
+    from meshforge.pipeline import check_flow_metrics
 
+    flow = None
+    if args.flow_metrics is not None:  # checked before any API call is spent
+        try:
+            flow = check_flow_metrics(json.loads(args.flow_metrics.read_text()))
+        except (OSError, ValueError) as exc:
+            # an OSError's own text repeats the full path; its reason does not
+            why = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else exc
+            print(f"error: --flow-metrics {args.flow_metrics.name}: {why}", file=sys.stderr)
+            return 1
     out_dir: Path = args.out_dir or (args.outputs / "copilot" / _time.strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     request = args.request + (f"\nCT: {args.ct}" if args.ct is not None else "")
@@ -2814,11 +2827,26 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    flow = json.loads(args.flow_metrics.read_text()) if args.flow_metrics else None
+    flow_error = ""
+    if flow is not None:
+        # the session journals the metrics as its own flow_metrics record
+        # BEFORE the report is written (and before session.mfwork is saved),
+        # so the Workbench panel and the report print the same flow lines
+        try:
+            attached = backend.attach_flow_metrics(flow)
+            flow_error = "" if attached.ok else attached.error
+        except RuntimeError as exc:  # the Workbench is gone
+            flow_error = str(exc)
+        if flow_error:
+            print(f"error: the flow metrics are not in the session (its twin panel will not "
+                  f"show them): {flow_error}", file=sys.stderr)
+        else:
+            print(f"flow        : {len(flow)} pre-computed CFD metrics journaled in the session",
+                  flush=True)
     replay = ""
     if isinstance(backend, SessionBackend):
         wf = backend.session.save_workfile(out_dir / "session.mfwork")
-        replay = f"meshforge replay {wf}"
+        replay = f"meshforge replay {shown_path(wf)}"  # no local folder on screen
     md, page = render_report(
         request=args.request, ct_name=args.ct.name if args.ct else "(in the request)",
         credit=args.credit, results=run.results, calls=run.calls,
@@ -2827,20 +2855,23 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     )
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(page)
-    (out_dir / "transcript.json").write_text(json.dumps(
+    # the transcript names the CT (and the run folder) without the local folder
+    # around them; replay reads session.mfwork, which keeps the real paths
+    record = json.loads(json.dumps(
         {"request": request, "model": args.model, "stop": run.stop, "usage": run.usage,
-         "guard": run.guard_note, "calls": run.calls, "transcript": run.transcript},
-        indent=1, default=str) + "\n")
+         "guard": run.guard_note, "calls": run.calls, "transcript": run.transcript}, default=str))
+    (out_dir / "transcript.json").write_text(
+        json.dumps(shown_paths(record, [args.ct, out_dir]), indent=1) + "\n")
     print(f"stop        : {run.stop}; {run.guard_note}")
     print(f"tokens      : {run.usage.get('input_tokens', 0)} in, "
           f"{run.usage.get('output_tokens', 0)} out; {_time.perf_counter() - t0:.0f} s")
     if run.summary_text:
         print("summary     :\n" + run.summary_text)
-    print(f"report      : {out_dir / 'report.html'}")
-    print(f"transcript  : {out_dir / 'transcript.json'}")
+    print(f"report      : {shown_path(out_dir / 'report.html')}")
+    print(f"transcript  : {shown_path(out_dir / 'transcript.json')}")
     if replay:
         print(f"replay      : {replay}")
-    return 0 if run.complete else 1
+    return 0 if run.complete and not flow_error else 1
 
 
 def _cmd_aaa_stress(args: argparse.Namespace) -> int:
