@@ -543,11 +543,16 @@ def _copilot_journal(pws=(0.282481, 0.242127), whatif_pws=None) -> list[dict]:
                      "lattice": {"n_capped": 0, "n_floored": 0, "sweep": "planes",
                                  "thickness_normal_median": 1.5014}}},
         {"step": "aaa_stress", "params": {"systolic_mmhg": 140.0, "whatif_mmhg": 120.0},
-         "summary": {"refused": [], "systolic": {"von_mises_p99_mpa": sys_mpa},
-                     "whatif": {"von_mises_p99_mpa": wif_mpa}, "whatif_ratio": {"pws": 0.857},
-                     "thrombus": {"modelled": True}}},
+         "summary": {"refused": [], "systolic": {"von_mises_p99_mpa": sys_mpa, "peak": PEAK_OK},
+                     "whatif": {"von_mises_p99_mpa": wif_mpa, "peak": PEAK_OK},
+                     "whatif_ratio": {"pws": 0.857}, "thrombus": {"modelled": True}}},
         ti(sys_mpa), ti(whatif_pws if whatif_pws is not None else wif_mpa),
     ]
+
+
+#: D96: a real aaa_stress summary reports the wall under the peak (median, min of
+#: its top-1% region) per pressure; the twin replay runs the same gate as the copilot
+PEAK_OK = {"top1pct_wall_thickness_mm": {"median": 1.5, "min": 1.4}}
 
 
 def _slots(twin: dict) -> dict[str, dict]:
