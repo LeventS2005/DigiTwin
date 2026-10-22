@@ -77,6 +77,12 @@ class InflowBody(BaseModel):
     nu: float
 
 
+class FlowMetricsBody(BaseModel):
+    # any JSON values: the session's own check refuses non-numbers loudly
+    # (pydantic would quietly turn "1.0" or true into a float)
+    metrics: dict[str, Any]
+
+
 def _result_json(result) -> dict[str, Any]:
     """StepResult -> JSON. ``render_hints`` (the pyvista meshes) are **omitted**
     from the step body on purpose — the mesh travels to the viewport over the
@@ -248,6 +254,17 @@ def create_app() -> FastAPI:
         from meshforge.copilot.report import twin_from_journal
 
         return twin_from_journal(list(holder.session.journal))
+
+    # The copilot's --flow-metrics over --server: the session journals the
+    # pre-computed CFD numbers as their own flow_metrics record (nothing is
+    # computed, no VTK), so GET /twin and the report print the same flow
+    # lines. A journal write: it takes the session lock and bumps the
+    # revision like every step, so the panel repaints on its next poll.
+    @app.post("/twin/flow")
+    def twin_flow(body: FlowMetricsBody):
+        return _run(
+            lambda: _capture(holder, holder.session.attach_flow_metrics(body.metrics))
+        )
 
     # -- cfd inflow picker + presets (D80) --------------------------------
     # Read-only queries: nothing is journaled and the revision is not bumped.

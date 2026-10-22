@@ -15,6 +15,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     tool code, so it quotes the copilot's exact numbers. A failed wall gate
     shows mid-run, a new source empties the card, and a re-run crop clears the
     stress it made stale.
+  - **Blood flow in the panel:** the copilot's `--flow-metrics` are journaled
+    in the session as their own `flow_metrics` record (numbers only, nothing
+    computed; over `--server` through the new `POST /twin/flow`), so the
+    panel and the report print the same flow lines. The work file keeps the
+    record, a replay re-records it, and a re-crop keeps it.
   - **`report.html` is a real page:** header, twin card (with each slot's
     numbers), headline tiles, results and pipeline tables, the numbers-guard
     note, the investigational-index caveat and the data credit. It has no

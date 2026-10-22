@@ -40,6 +40,16 @@ class SessionBackend:
             return StepOutcome(False, {}, "", f"{type(exc).__name__}: {exc}")
         return StepOutcome(True, res.summary, res.text)
 
+    def attach_flow_metrics(self, metrics: dict[str, Any]) -> StepOutcome:
+        """Journal pre-computed flow metrics in the session as its own
+        ``flow_metrics`` record (computes nothing), so the saved work file
+        keeps them and the twin card reads them from the journal."""
+        try:
+            res = self.session.attach_flow_metrics(metrics)
+        except ValueError as exc:
+            return StepOutcome(False, {}, "", f"{type(exc).__name__}: {exc}")
+        return StepOutcome(True, res.summary, res.text)
+
 
 class HttpBackend:
     """Runs steps on a running Workbench (``meshforge web``/``desktop``) via
@@ -52,9 +62,18 @@ class HttpBackend:
         self.name = f"Workbench at {self.base_url}"
 
     def run(self, step: str, knobs: dict[str, Any]) -> StepOutcome:
+        return self._post(f"/step/{step}", knobs)
+
+    def attach_flow_metrics(self, metrics: dict[str, Any]) -> StepOutcome:
+        """``POST /twin/flow``: the Workbench's session journals the metrics
+        as its own ``flow_metrics`` record, so its twin panel shows them; a
+        malformed set comes back as HTTP 400/422 with the reason."""
+        return self._post("/twin/flow", {"metrics": metrics})
+
+    def _post(self, path: str, body: dict[str, Any]) -> StepOutcome:
         req = urllib.request.Request(
-            f"{self.base_url}/step/{step}",
-            data=json.dumps(knobs).encode(),
+            f"{self.base_url}{path}",
+            data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

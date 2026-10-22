@@ -936,7 +936,9 @@ def main(argv: list[str] | None = None) -> int:
     p_cop.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
     p_cop.add_argument("--max-turns", type=int, default=24)
     p_cop.add_argument("--flow-metrics", type=_path_arg, default=None,
-                       help="a pre-computed CFD metrics JSON to fill the twin card's flow slot")
+                       help="a pre-computed CFD metrics JSON (numbers only) to fill the twin "
+                       "card's flow slot; journaled in the session, so the Workbench panel shows "
+                       "it too")
     p_cop.add_argument("--out-dir", type=_path_arg, default=None,
                        help="run folder (default: <outputs>/copilot/<timestamp>)")
     p_cop.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
@@ -2800,7 +2802,17 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     from meshforge.copilot import HttpBackend, SessionBackend, render_report, run_copilot
     from meshforge.copilot.report import shown_path, shown_paths
     from meshforge.copilot.tools import PipelineTools
+    from meshforge.pipeline import check_flow_metrics
 
+    flow = None
+    if args.flow_metrics is not None:  # checked before any API call is spent
+        try:
+            flow = check_flow_metrics(json.loads(args.flow_metrics.read_text()))
+        except (OSError, ValueError) as exc:
+            # an OSError's own text repeats the full path; its reason does not
+            why = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else exc
+            print(f"error: --flow-metrics {args.flow_metrics.name}: {why}", file=sys.stderr)
+            return 1
     out_dir: Path = args.out_dir or (args.outputs / "copilot" / _time.strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     request = args.request + (f"\nCT: {args.ct}" if args.ct is not None else "")
@@ -2815,7 +2827,22 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    flow = json.loads(args.flow_metrics.read_text()) if args.flow_metrics else None
+    flow_error = ""
+    if flow is not None:
+        # the session journals the metrics as its own flow_metrics record
+        # BEFORE the report is written (and before session.mfwork is saved),
+        # so the Workbench panel and the report print the same flow lines
+        try:
+            attached = backend.attach_flow_metrics(flow)
+            flow_error = "" if attached.ok else attached.error
+        except RuntimeError as exc:  # the Workbench is gone
+            flow_error = str(exc)
+        if flow_error:
+            print(f"error: the flow metrics are not in the session (its twin panel will not "
+                  f"show them): {flow_error}", file=sys.stderr)
+        else:
+            print(f"flow        : {len(flow)} pre-computed CFD metrics journaled in the session",
+                  flush=True)
     replay = ""
     if isinstance(backend, SessionBackend):
         wf = backend.session.save_workfile(out_dir / "session.mfwork")
@@ -2844,7 +2871,7 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     print(f"transcript  : {shown_path(out_dir / 'transcript.json')}")
     if replay:
         print(f"replay      : {replay}")
-    return 0 if run.complete else 1
+    return 0 if run.complete and not flow_error else 1
 
 
 def _cmd_aaa_stress(args: argparse.Namespace) -> int:

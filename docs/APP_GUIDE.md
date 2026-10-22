@@ -763,14 +763,20 @@ How it behaves:
     kidneys "next". Its data-layer slots are shape, wall + thrombus, stress,
     strength (with n), flow (from `--flow-metrics`), BP what-if, and growth,
     which waits for a second scan. Each filled slot shows its tool numbers
-    (e.g. "282.5 kPa peak at 140 mmHg").
+    (e.g. "282.5 kPa peak at 140 mmHg"). The `--flow-metrics` file (numbers
+    only, checked before the run starts) is journaled in the session as a
+    `flow_metrics` record before the report is written, in-process or over
+    `--server`, so `session.mfwork` keeps it.
   - **The same card in the Workbench** (right pane, `GET /twin`): every slot
     reads "not run yet" until its step lands, then fills from the session's
     own journal, replayed through the copilot's tool code, so it quotes the
     copilot's exact numbers. Mid-run it shows a failed gate ("last wall gate
     FAIL: 1.3 mm along the normal"). A new source empties it; a re-run crop
-    clears the stress and index it made stale. Flow fills only if the session
-    itself ran `cfd` (the `--flow-metrics` file feeds the report only).
+    clears the stress and index it made stale. Flow fills from the session's
+    `flow_metrics` record (the copilot posts its `--flow-metrics` to
+    `POST /twin/flow`), so the panel prints the report's exact flow lines; the
+    record belongs to the scan, so a re-crop keeps it and a new source or
+    segment empties it.
   - **Claude's prose:** included only if every number in it matches a tool
     output; one correction is allowed, otherwise it is withheld and the
     report says so.

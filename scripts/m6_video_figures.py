@@ -15,7 +15,9 @@ Parts (each is skipped, with a note, when its input is missing):
   it (top, full page, phone width, print PDF);
 * Workbench twin panel before / with the run (``--workbench``: a RUNNING
   Workbench, e.g. ``meshforge web --port 8139``; this script starts no
-  server): session reset → capture, work file loaded with replay off →
+  server): session reset → capture, work file loaded with replay off and
+  the ``--flow-metrics`` attached (``POST /twin/flow``, as the copilot does
+  with ``--server``; skipped if the work file already carries them) →
   capture, the panel cropped from each;
 * WSS map (``scripts/m6_wss_map.py``; the case must already hold the
   ``wallShearStress`` field — OpenFOAM is a heavy job, run it separately);
@@ -91,7 +93,7 @@ def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
     from meshforge.copilot.report import render_report, tools_from_journal
 
     journal = json.loads((run / "session.mfwork").read_text())["journal"]
-    tools, _, scan = tools_from_journal(journal)
+    tools, journal_flow, scan = tools_from_journal(journal)
     log = run / "run.log"
     if log.is_file():
         secs = [float(m.group(1)) for m in re.finditer(r"^\w+\s+(?:ok|FAILED)\s+([\d.]+) s", log.read_text(), re.M)]
@@ -102,7 +104,8 @@ def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
         request="(scripted dry run, natural path, no Claude)", ct_name=scan or "ct", credit=S1364_CREDIT,
         results=tools.results, calls=tools.calls, summary_text=None,
         guard_note="scripted dry run: no Claude summary", model="(none)",
-        flow=json.loads(flow_metrics.read_text()) if flow_metrics and flow_metrics.is_file() else None,
+        flow=(json.loads(flow_metrics.read_text()) if flow_metrics and flow_metrics.is_file()
+              else journal_flow or None),
         replay_hint="meshforge replay session.mfwork")
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(html)
@@ -162,15 +165,22 @@ def _panel(img, scale: float):
     return img[top:bottom, x0:]
 
 
-def workbench(url: str, run: Path, out: Path, profile: Path) -> list[str]:
+def workbench(url: str, run: Path, out: Path, profile: Path, flow_metrics: Path | None = None) -> list[str]:
+    """01 (empty session) and 02 (the run's work file, replay off, plus the flow metrics the copilot
+    attaches with ``--flow-metrics``, unless the work file already carries a ``flow_metrics`` record)."""
     import matplotlib.image as mpimg
 
+    wf = (run / "session.mfwork").resolve()
+    attach = (flow_metrics is not None and flow_metrics.is_file()
+              and not any(r.get("step") == "flow_metrics" for r in json.loads(wf.read_text())["journal"]))
     made = []
     for state, name in (("before", "01_twin_card_workbench_before"), ("run", "02_twin_card_workbench_s1364")):
         if state == "before":
             _post(f"{url}/session/reset", {})
         else:
-            _post(f"{url}/workfile/load", {"path": str((run / "session.mfwork").resolve()), "replay": False})
+            _post(f"{url}/workfile/load", {"path": str(wf), "replay": False})
+            if attach:  # a 400 (a set the session refuses) stops the build loudly
+                _post(f"{url}/twin/flow", {"metrics": json.loads(flow_metrics.read_text())})
         full = out / f"{name}_fullwindow.png"
         chrome(full, f"{url}/app/", "1600,1000", 2, profile)
         mpimg.imsave(out / f"{name}.png", _panel(mpimg.imread(full), 2))
@@ -252,7 +262,9 @@ def main(argv=None) -> int:
     ap.add_argument("--stress", type=Path, required=True, help="the run's aaa_stress summary .json (.vtu beside it)")
     ap.add_argument("--out", type=Path, default=Path("outputs/m6/figures"))
     ap.add_argument("--workbench", default=None, help="a running Workbench, e.g. http://127.0.0.1:8139")
-    ap.add_argument("--flow-metrics", type=Path, default=Path("outputs/m4/cfd/s1364_flow_metrics.json"))
+    ap.add_argument("--flow-metrics", type=Path, default=Path("outputs/m4/cfd/s1364_flow_metrics.json"),
+                    help="pre-computed CFD metrics: the report preview's flow slot, and attached to the "
+                    "Workbench session before the 02 capture (a missing file skips both)")
     ap.add_argument("--flow-png", type=Path, default=Path("outputs/m4/cfd/s1364_flow.png"))
     ap.add_argument("--wss-case", type=Path, default=Path("outputs/m6/wss/s1364_case"))
     ap.add_argument("--dilated-mm", default="28.15", help="the crop's non-dilated threshold (WSS split)")
@@ -293,12 +305,14 @@ def _build(a, out: Path, work: Path, profile: Path) -> int:
     else:
         skipped.append("report captures: no headless Chrome at " + CHROME)
     if a.workbench and have_chrome:
-        for f in workbench(a.workbench.rstrip("/"), a.run, out, profile):
+        flow_note = (f" + flow metrics `{a.flow_metrics.name}` attached (POST /twin/flow)"
+                     if a.flow_metrics.is_file() else "")
+        for f in workbench(a.workbench.rstrip("/"), a.run, out, profile, a.flow_metrics):
             before = "before" in f
             made[f] = ("Workbench twin panel " + ("before a run (every slot waits)" if before else
                        "filled from the run's journal") + (" — whole window" if "fullwindow" in f else "")
                        + f" | {a.workbench} " + ("after a session reset" if before else
-                       f"+ work file `{a.run.name}/session.mfwork` loaded with replay off"))
+                       f"+ work file `{a.run.name}/session.mfwork` loaded with replay off{flow_note}"))
     else:
         skipped.append("Workbench twin panel: pass --workbench <url of a running Workbench>")
     if (a.wss_case / "constant").is_dir():

@@ -588,3 +588,176 @@ def test_http_backend_posts_steps_and_reports_400s():
 def test_http_backend_unreachable_is_loud():
     with pytest.raises(RuntimeError, match="not reachable"):
         HttpBackend("http://127.0.0.1:9", timeout=2).run("crop", {})
+
+
+# --- D97: the attached flow metrics live in the session (twin panel == report) -------
+
+
+S1364_FLOW = {"q_lmin": 1.0, "umax_mm_s": 123.74993133544922,
+              "sac_backflow_volume_fraction": 0.14450368879518044,
+              "sac_mean_speed_mm_s": 29.72977666215793, "neck_mean_speed_mm_s": 57.14323100196482}
+FLOW_LINES = ["14% of the sac volume flows backward", "inflow 1 L/min"]
+
+
+def _flow_record(metrics=S1364_FLOW):
+    """The record the session itself journals (MeshingSession.attach_flow_metrics)."""
+    from meshforge.pipeline import MeshingSession
+
+    session = MeshingSession()
+    session.attach_flow_metrics(dict(metrics))
+    return session.journal[-1]
+
+
+def test_attached_flow_metrics_fill_the_twin_exactly_as_the_report(tmp_path):
+    run, journal = _journaled_run(tmp_path)
+    rec = _flow_record()
+    assert rec["step"] == "flow_metrics" and rec["params"] == {"metrics": S1364_FLOW}
+    assert _slot(twin_from_journal(journal), "flow")["note"] == "not run here"
+    wb = twin_from_journal(journal + [rec])
+    rep = twin_card(run.results, S1364_FLOW, run.calls)
+    assert wb["slots"] == rep["slots"]  # every slot, flow included, byte for byte
+    flow = _slot(wb, "flow")
+    assert flow["state"] == "filled" and flow["values"] == FLOW_LINES and flow["note"] == ""
+    _, got, _ = tools_from_journal(journal + [rec])
+    assert got == S1364_FLOW
+    md, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results=run.results,
+                             calls=run.calls, summary_text=None, guard_note="g", model="m",
+                             flow=S1364_FLOW)
+    assert twin_card_html(run.results, S1364_FLOW, run.calls) in page
+    for line in FLOW_LINES:
+        assert line in page
+    # an attached record between the two index runs splits no batch
+    i = [r["step"] for r in journal].index("tissue_index") + 1
+    assert twin_from_journal(journal[:i] + [rec] + journal[i:])["slots"] == rep["slots"]
+
+
+def test_attached_flow_survives_a_recrop_and_a_new_scan_clears_it(tmp_path):
+    _, journal = _journaled_run(tmp_path)
+    steps = [r["step"] for r in journal]
+    rec = _flow_record()
+    # a property of the scan's lumen, not of the crop: a re-crop keeps it
+    recrop = twin_from_journal(journal + [rec, journal[steps.index("crop")]])
+    assert _slot(recrop, "flow")["values"] == FLOW_LINES
+    assert _slot(recrop, "stress")["state"] == "pending"  # the stale stress still goes
+    # so do a re-run wall and a session CFD run (no AAA metrics in its summary)
+    again = journal + [rec, journal[steps.index("volmesh")], {"step": "cfd", "params": {}, "summary": {}}]
+    assert _slot(twin_from_journal(again), "flow")["values"] == FLOW_LINES
+    # a new segment (or any new source) empties the card, flow included
+    for new in (journal[steps.index("segment")], {"step": "generate_synth", "params": {}, "summary": {}}):
+        card = twin_from_journal(journal + [rec, new])
+        assert _slot(card, "flow")["state"] == "pending" and _slot(card, "flow")["note"] == "not run here"
+        assert not card["lit"]
+    # a hand-edited record that the session would refuse changes nothing, and never raises
+    bad = {"step": "flow_metrics", "params": {"metrics": {"q_lmin": "1"}}, "summary": {}}
+    assert _slot(twin_from_journal(journal + [bad]), "flow")["note"] == "not run here"
+    assert _slot(twin_from_journal(journal + [rec, bad]), "flow")["values"] == FLOW_LINES
+
+
+def test_copilot_cli_journals_the_flow_metrics_before_the_report(tmp_path, monkeypatch, capsys):
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+    from meshforge.copilot.backend import SessionBackend
+
+    made = []
+
+    class RecordingBackend(SessionBackend):
+        def __init__(self):
+            super().__init__()
+            made.append(self)
+
+    def fake_run(request, *, tools, model, effort, max_turns, log):
+        return ag.CopilotRun(request=request, model=model, stop="done", summary_text=None,
+                             guard_note="g", calls=[], results={}, transcript=[], usage={})
+
+    real_render = cp.render_report
+
+    def render_after_attach(**kw):
+        assert made[0].session.journal[-1]["step"] == "flow_metrics"  # journaled first
+        return real_render(**kw)
+
+    monkeypatch.setattr(cp, "run_copilot", fake_run)
+    monkeypatch.setattr(cp, "SessionBackend", RecordingBackend)
+    monkeypatch.setattr(cp, "render_report", render_after_attach)
+    monkeypatch.chdir(tmp_path)
+    fm = tmp_path / "s1364_flow_metrics.json"
+    fm.write_text(json.dumps(S1364_FLOW, indent=1))
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-metrics", str(fm),
+               "--out-dir", "run"])
+    printed = capsys.readouterr().out
+    assert rc == 1  # the fake run never finishes; the flow attach itself is fine
+    assert "flow        : 5 pre-computed CFD metrics journaled in the session" in printed
+    saved = json.loads((tmp_path / "run" / "session.mfwork").read_text())["journal"]
+    assert saved[-1]["step"] == "flow_metrics" and saved[-1]["params"]["metrics"] == S1364_FLOW
+    page = (tmp_path / "run" / "report.html").read_text()
+    panel = _slot(twin_from_journal(saved), "flow")
+    assert panel == _slot(twin_card({}, S1364_FLOW), "flow") and panel["values"] == FLOW_LINES
+    for line in FLOW_LINES:
+        assert line in page
+
+
+def test_copilot_cli_refuses_a_bad_flow_metrics_file_before_any_call(tmp_path, monkeypatch, capsys):
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+
+    def never(*a, **kw):
+        raise AssertionError("the copilot ran on a bad --flow-metrics file")
+
+    monkeypatch.setattr(cp, "run_copilot", never)
+    bad = tmp_path / "flow.json"
+    for content, why in ((json.dumps({"q_lmin": "1.0"}), "q_lmin must be a number"),
+                         (json.dumps({"sac_backflow_volume_fraction": 14.45}), "fraction in [0, 1]"),
+                         ("{not json", "Expecting property name")):
+        bad.write_text(content)
+        rc = main(["copilot", "r", "--flow-metrics", str(bad), "--out-dir", str(tmp_path / "run")])
+        err = capsys.readouterr().err
+        assert rc == 1 and f"error: --flow-metrics flow.json: " in err and why in err
+    rc = main(["copilot", "r", "--flow-metrics", str(tmp_path / "gone.json"),
+               "--out-dir", str(tmp_path / "run")])
+    err = capsys.readouterr().err
+    assert rc == 1 and "gone.json: No such file or directory" in err and str(tmp_path) not in err
+    assert not (tmp_path / "run").exists()  # no run folder for a refused start
+
+
+class _FlowHandler(BaseHTTPRequestHandler):
+    seen: list = []
+
+    def do_POST(self):  # noqa: N802 - http.server API
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        type(self).seen.append((self.path, body))
+        if self.path == "/twin/flow" and isinstance(body.get("metrics", {}).get("q_lmin"), float):
+            out, code = {"step": "flow_metrics", "summary": {"metrics": body["metrics"]},
+                         "text": "flow metrics: attached"}, 200
+        else:
+            out, code = {"detail": "flow metrics: q_lmin must be a number, got str"}, 400
+        data = json.dumps(out).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+def test_http_backend_attaches_flow_metrics_over_the_twin_route():
+    srv = HTTPServer(("127.0.0.1", 0), _FlowHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        b = HttpBackend(f"http://127.0.0.1:{srv.server_port}")
+        ok = b.attach_flow_metrics(S1364_FLOW)
+        assert ok.ok and ok.summary == {"metrics": S1364_FLOW}
+        assert _FlowHandler.seen[-1] == ("/twin/flow", {"metrics": S1364_FLOW})
+        bad = b.attach_flow_metrics({"q_lmin": "1"})
+        assert not bad.ok and "HTTP 400" in bad.error and "must be a number" in bad.error
+    finally:
+        srv.shutdown()
+
+
+def test_session_backend_attach_is_loud_on_a_bad_set():
+    from meshforge.copilot.backend import SessionBackend
+
+    b = SessionBackend()
+    out = b.attach_flow_metrics({"umax_mm_s": 12.0})
+    assert not out.ok and "none of the twin card's metrics" in out.error and b.session.journal == []
+    assert b.attach_flow_metrics(S1364_FLOW).ok and b.session.journal[-1]["step"] == "flow_metrics"

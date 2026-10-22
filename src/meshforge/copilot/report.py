@@ -8,7 +8,10 @@ summary Claude writes is included only if it passed the numbers guard.
 
 The same card is the Workbench's twin panel (M6): :func:`twin_from_journal`
 replays a session's journaled step summaries through the copilot's own tool
-code, so the panel shows exactly the numbers the copilot would quote.
+code, so the panel shows exactly the numbers the copilot would quote. The
+flow slot reads the session's attached ``flow_metrics`` record (the
+copilot's ``--flow-metrics``, journaled by the session), so the panel and
+the report print the same flow lines too.
 """
 
 from __future__ import annotations
@@ -221,10 +224,30 @@ def twin_from_journal(journal: list[dict]) -> dict[str, Any]:
     return card
 
 
+def _attached_flow(metrics: Any) -> dict | None:
+    """A ``flow_metrics`` record's numbers, or None when they would not pass
+    the session's own check (a hand-edited journal leaves the slot as it
+    was, never a 500)."""
+    from meshforge.pipeline import check_flow_metrics
+
+    try:
+        return check_flow_metrics(metrics)
+    except ValueError:
+        return None
+
+
 def tools_from_journal(journal: list[dict]) -> tuple[PipelineTools, dict | None, str | None]:
     """Replay a session's journal through the copilot's tool code: (the tools
-    with their ``results`` and ``calls``, a flow marker if the session ran
-    CFD, the scan's file name). The calls carry no timings (0.0 s)."""
+    with their ``results`` and ``calls``, the flow metrics, the scan's file
+    name). The calls carry no timings (0.0 s).
+
+    The flow metrics are the last attached ``flow_metrics`` record's (the
+    copilot's ``--flow-metrics``, so the panel and the report print the same
+    lines), else ``{}`` if the session itself ran CFD, else None. They belong
+    to the scan's lumen, not to the crop: a re-run crop, wall or stress keeps
+    them, a new source or segment empties them with the rest of the card,
+    and a later session CFD run (no AAA metrics in its summary) does not
+    blank them."""
     # nothing is written: the tools only pass paths to the journal backend,
     # but PipelineTools wants an existing work folder
     def fresh() -> PipelineTools:
@@ -249,7 +272,7 @@ def tools_from_journal(journal: list[dict]) -> tuple[PipelineTools, dict | None,
 
     for rec in journal:
         step, params = rec.get("step"), rec.get("params") or {}
-        if step != "tissue_index":
+        if step not in ("tissue_index", "flow_metrics"):  # attached numbers split no batch
             flush()
         if step in _SOURCE_STEPS or str(step).startswith("import_") or step == "segment":
             tools, seg_rec, flow, scan = fresh(), None, None, None
@@ -269,7 +292,10 @@ def tools_from_journal(journal: list[dict]) -> tuple[PipelineTools, dict | None,
         elif step == "tissue_index":
             batch.append(rec)
         elif step == "cfd":
-            flow = {}  # a CFD run in this session; its summary has no AAA flow metrics
+            if flow is None:  # a CFD run in this session; its summary has no AAA flow metrics
+                flow = {}
+        elif step == "flow_metrics":
+            flow = _attached_flow(params.get("metrics")) or flow
     flush()
     return tools, flow, scan
 
