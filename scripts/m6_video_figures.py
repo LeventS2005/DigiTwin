@@ -24,7 +24,10 @@ Parts (each is skipped, with a note, when its input is missing):
 * Raghavan–Vorp vs linear chart and the stress stills, from ``--stress``
   (an ``aaa_stress`` summary .json with its .vtu beside it);
 * CT overlays (``scripts/sac_overlay.py``), the normal-aorta strength chart
-  (``scripts/m6_normal_strength.py``), and the CFD flow picture (copied).
+  (``scripts/m6_normal_strength.py``), and the CFD flow picture (copied);
+* the per-case validation chart (``scripts/m6_validation_chart.py``), from
+  ``--validation-rows`` (the with-thrombus tension validation's ``rows.json``:
+  our wall tension vs the dataset's published FE on the 12 public AAA cases).
 
 Run from the repository root, isolated (this checkout's src/ goes first):
 
@@ -199,6 +202,7 @@ def write_index(out: Path, made: dict[str, str], skipped: list[str], src: dict[s
     from meshforge.copilot.report import tools_from_journal
 
     stress, wss, rv, normal = (_j(src[k]) for k in ("stress", "wss", "rv", "normal"))
+    val = _j(src["validation"]) if "10_validation_12cases.png" in made else None  # only when this build made it
     res = {}
     if (src["run"] / "session.mfwork").is_file():
         res = tools_from_journal(json.loads((src["run"] / "session.mfwork").read_text())["journal"])[0].results
@@ -248,6 +252,16 @@ def write_index(out: Path, made: dict[str, str], skipped: list[str], src: dict[s
         lines.append(f"\n{normal['normal_source']}. Demo index {normal['demo_index']}."
                      + (f" TXT method check on the AAA reports: {chk['n_strips']} strips within "
                         f"{chk['max_abs_rel_diff_percent']} % of the library." if chk else ""))
+    if val:
+        d, band = val["medians_3dp"], round(100 * val["band"]["half_width"])
+        lines += ["", f"## Validation (`{src['validation'].name}`)", "",
+                  f"{val['caption']}. Medians over {val['n_cases']} cases: rank correlation {d['spearman_rho']}, p99 tension "
+                  f"ratio ours / theirs {d['p99_ratio']} ({val['median_p99_off_percent']}), p50 ratio {d['p50_ratio']} "
+                  f"({val['median_p50_off_percent']}); {val['p99_cases_within_band']} of {val['n_cases']} cases within "
+                  f"{band} % at p99 (largest {val['p99_max_abs_deviation_percent']} %). Rows `{val['rows_file']}` "
+                  f"(sha256 {val['rows_sha256'][:12]}), variant `{val['variant']}`: {val['variant_meaning']}. Their "
+                  "surfaces are a reference segmentation and their tension is the published FE result; the chart "
+                  "compares tension, it does not measure accuracy."]
     if skipped:
         lines += ["", "## Skipped", ""] + [f"- {s}" for s in skipped]
     (out / "INDEX.md").write_text("\n".join(lines) + "\n")
@@ -274,6 +288,8 @@ def main(argv=None) -> int:
     ap.add_argument("--usp-normal", type=Path, default=Path("outputs/data/usp_normal"))
     ap.add_argument("--usp-manifest", type=Path, default=Path("outputs/m6/usp_normal_manifest.json"))
     ap.add_argument("--usp-aaa", type=Path, default=Path("outputs/data/usp_aaa_x64srrc39p_v3"))
+    ap.add_argument("--validation-rows", type=Path, default=Path("outputs/m3/tension_validation_ilt/rows.json"),
+                    help="the with-thrombus tension validation's per-case rows (a missing file skips the validation chart)")
     a = ap.parse_args(argv)
 
     out, work = a.out, a.out.parent
@@ -353,12 +369,24 @@ def _build(a, out: Path, work: Path, profile: Path) -> int:
                                                  "scripts/m6_normal_strength.py")
     else:
         skipped.append("normal-aorta strength: no download manifest")
+    if a.validation_rows.is_file():
+        py("m6_validation_chart.py", str(a.validation_rows), str(out / "10_validation_12cases"))
+        v = _j(out / "10_validation_12cases.json")
+        d = v["medians_3dp"]
+        made["10_validation_12cases.png"] = (
+            f"per-case validation: our wall tension vs the dataset's published FE on {v['n_cases']} public AAA cases "
+            f"(thrombus modelled); medians: rank correlation {d['spearman_rho']}, p99 ratio {d['p99_ratio']}, "
+            f"p50 ratio {d['p50_ratio']} | scripts/m6_validation_chart.py on "
+            f"{a.validation_rows.parent.name}/{a.validation_rows.name}")
+    else:
+        skipped.append(f"validation chart: no rows file at {a.validation_rows}")
     if a.flow_png.is_file():
         shutil.copy2(a.flow_png, out / "08_flow_s1364.png")
         made["08_flow_s1364.png"] = f"steady CFD flow (M4) | copy of {a.flow_png}"
     write_index(out, dict(sorted(made.items())), skipped,
                 {"run": a.run, "stress": a.stress, "wss": work / "wss" / "s1364_wss.json",
-                 "rv": work / "rv_vs_linear.json", "normal": work / "normal_strength.json"})
+                 "rv": work / "rv_vs_linear.json", "normal": work / "normal_strength.json",
+                 "validation": out / "10_validation_12cases.json"})
     print(f"{len(made)} figures in {out}; skipped: {skipped or 'none'}")
     return 0
 
