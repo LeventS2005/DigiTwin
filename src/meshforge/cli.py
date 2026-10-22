@@ -917,6 +917,30 @@ def main(argv: list[str] | None = None) -> int:
     p_solve.add_argument("--timeout", type=float, default=600.0)
     p_solve.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
+    p_cop = sub.add_parser(
+        "copilot",
+        help="Claude copilot (investigational): a plain-language request runs segment -> sac "
+        "-> crop -> wall mesh (quality gate) -> wall stress -> strength index, recovering from a "
+        "failed gate; writes a deterministic report with the twin card, the transcript and a "
+        "replayable work file. Needs the Anthropic SDK and an API key in the environment.",
+    )
+    p_cop.add_argument("request", help="what to do, in plain language")
+    p_cop.add_argument("--ct", type=_path_arg, default=None,
+                       help="the CT file (.nii.gz/.nrrd); appended to the request")
+    p_cop.add_argument("--credit", default="public CC-BY scan",
+                       help="the scan's source and licence, printed in the report")
+    p_cop.add_argument("--server", default=None,
+                       help="run the steps on a live Workbench (e.g. http://127.0.0.1:8765) so "
+                       "its viewport follows along; default: in-process")
+    p_cop.add_argument("--model", default="claude-opus-5-5")
+    p_cop.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
+    p_cop.add_argument("--max-turns", type=int, default=24)
+    p_cop.add_argument("--flow-metrics", type=_path_arg, default=None,
+                       help="a pre-computed CFD metrics JSON to fill the twin card's flow slot")
+    p_cop.add_argument("--out-dir", type=_path_arg, default=None,
+                       help="run folder (default: <outputs>/copilot/<timestamp>)")
+    p_cop.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+
     p_aaa = sub.add_parser(
         "aaa-stress",
         help="AAA wall stress under blood pressure (INVESTIGATIONAL): stiff-linear "
@@ -1120,6 +1144,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fluent(args)
     if args.command == "solve":
         return _cmd_solve(args)
+    if args.command == "copilot":
+        return _cmd_copilot(args)
     if args.command == "aaa-stress":
         return _cmd_aaa_stress(args)
     if args.command == "replay":
@@ -2767,6 +2793,56 @@ def _cmd_solve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_copilot(args: argparse.Namespace) -> int:
+    import json
+    import time as _time
+
+    from meshforge.copilot import HttpBackend, SessionBackend, render_report, run_copilot
+    from meshforge.copilot.tools import PipelineTools
+
+    out_dir: Path = args.out_dir or (args.outputs / "copilot" / _time.strftime("%Y%m%d-%H%M%S"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    request = args.request + (f"\nCT: {args.ct}" if args.ct is not None else "")
+    backend = HttpBackend(args.server) if args.server else SessionBackend()
+    tools = PipelineTools(backend, out_dir / "work")
+    print(f"copilot     : {args.model} (effort {args.effort}) on the {backend.name}", flush=True)
+    t0 = _time.perf_counter()
+    try:
+        run = run_copilot(request, tools=tools, model=args.model, effort=args.effort,
+                          max_turns=args.max_turns,
+                          log=lambda m: print(m, flush=True))
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    flow = json.loads(args.flow_metrics.read_text()) if args.flow_metrics else None
+    replay = ""
+    if isinstance(backend, SessionBackend):
+        wf = backend.session.save_workfile(out_dir / "session.mfwork")
+        replay = f"meshforge replay {wf}"
+    md, page = render_report(
+        request=args.request, ct_name=args.ct.name if args.ct else "(in the request)",
+        credit=args.credit, results=run.results, calls=run.calls,
+        summary_text=run.summary_text, guard_note=run.guard_note, model=args.model,
+        flow=flow, replay_hint=replay,
+    )
+    (out_dir / "report.md").write_text(md)
+    (out_dir / "report.html").write_text(page)
+    (out_dir / "transcript.json").write_text(json.dumps(
+        {"request": request, "model": args.model, "stop": run.stop, "usage": run.usage,
+         "guard": run.guard_note, "calls": run.calls, "transcript": run.transcript},
+        indent=1, default=str) + "\n")
+    print(f"stop        : {run.stop}; {run.guard_note}")
+    print(f"tokens      : {run.usage.get('input_tokens', 0)} in, "
+          f"{run.usage.get('output_tokens', 0)} out; {_time.perf_counter() - t0:.0f} s")
+    if run.summary_text:
+        print("summary     :\n" + run.summary_text)
+    print(f"report      : {out_dir / 'report.html'}")
+    print(f"transcript  : {out_dir / 'transcript.json'}")
+    if replay:
+        print(f"replay      : {replay}")
+    return 0 if run.complete else 1
+
+
 def _cmd_aaa_stress(args: argparse.Namespace) -> int:
     import json
 
@@ -2954,6 +3030,9 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
         print(f"error: input changed on disk during meshing: {surface_path}", file=sys.stderr)
         return 1
 
+    from meshforge.solve.aaa_metrics import annotate_wall_thickness
+
+    annotate_wall_thickness(wall)  # D93: the thickness along the surface normal
     out.parent.mkdir(parents=True, exist_ok=True)
     wall.grid.save(out)
     summary = wall.summary()
@@ -2976,6 +3055,9 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
             f"{lat['n_rays']} (curvature_cap {lat['curvature_cap']:g}); thickness "
             f"{lat['thickness_min']:.4g}..{lat['thickness_max']:.4g}"
         )
+        if lat.get("thickness_normal_median") is not None:
+            print(f"wall normal : median thickness {lat['thickness_normal_median']:.4g} along the "
+                  f"surface normal")
         if lat.get("sweep") == "planes":
             print(
                 f"plane sweep : side={lat['side']}  capped_tilt={lat['n_capped_tilt']}  "

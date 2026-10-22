@@ -33,6 +33,38 @@ def _drive_to_volmesh(client: TestClient) -> None:
     assert client.post("/step/wall", json={}).status_code == 200
 
 
+def test_compute_routes_are_serialised_but_state_polls_are_not(client, monkeypatch) -> None:
+    """D93: a step and the viewport's GET /geometry ran VTK on two threads at
+    once and VTK 9.6.2's wrapper map crashed the Workbench. Compute routes
+    share one lock; the /state poll the UI runs every second does not."""
+    import threading
+
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    session = client.app.state.holder.session
+    started, release = threading.Event(), threading.Event()
+    real = session.compute_centerline
+
+    def slow(**kw):
+        started.set()
+        assert release.wait(20)
+        return real(**kw)
+
+    monkeypatch.setattr(session, "compute_centerline", slow)
+    step = threading.Thread(target=lambda: client.post("/step/centerline", json={}))
+    step.start()
+    assert started.wait(20)
+    assert client.get("/state").status_code == 200  # not held up by the step
+    got: list[int] = []
+    geo = threading.Thread(target=lambda: got.append(client.get("/geometry").status_code))
+    geo.start()
+    geo.join(1.0)
+    assert geo.is_alive() and not got  # waits for the step to finish
+    release.set()
+    step.join(20)
+    geo.join(20)
+    assert got == [200]
+
+
 def test_full_pipeline_over_http(client: TestClient) -> None:
     _drive_to_volmesh(client)
     r = client.post("/step/volmesh", json={"n_axial": 30})

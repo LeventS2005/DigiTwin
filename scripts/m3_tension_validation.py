@@ -11,9 +11,14 @@ Ours, per case, on the same wall geometry: the M2 gate wall — R_lumen_ilt
 (the wall / thrombus interface, WallSurface patch 4) cropped by the D85
 landmarks and given a 1.5 mm swept hex wall outward (sweep auto, cap 0.9);
 rebuilt here with the gate's own calls and checked point-identical to
-``outputs/m2/gate/<case>/wall.vtu``. Then the D88 solve at 0.016 MPa on the
-wall's inner surface, both caps encastre, NO thrombus — so ours should read
-higher where their thrombus carries load.
+``outputs/m2/gate/<case>/wall.vtu``. Then the D88 solve at 0.016 MPa, both
+caps encastre: by default on the wall's inner surface with NO thrombus (so
+ours should read higher where their thrombus carries load); with
+``MESHFORGE_TENSION_ILT=1`` the thrombus is a tied solid (D91, E 5 MPa) and
+the pressure acts on its lumen faces, as in theirs. The tension follows the
+product's rule (``aaa_metrics.tension_thickness``): integrated along each
+column's measured normal thickness unless every column is 1.5 mm thick along
+the surface normal.
 
 Comparison set: their tension vertices inside our crop and outside our end
 zones (one neck diameter from each of our caps, the PWS rule; the CSV also
@@ -107,9 +112,18 @@ def compare(case: str, log) -> list[dict]:
         log(f"{case}: thrombus {len(ilt.tets)} C3D10, {ilt.volume_ml:.1f} mL")
     ip, _, res = am.solve_pressure(wall, P_THEIRS_MPA, WORK / case, f"{case}_16kPa",
                                    E=am.DEFAULT_E_MPA, nu=am.DEFAULT_NU, ilt=ilt)
-    f = am.stress_fields(ip, cols, THICKNESS)
+    # the product's rule (run_aaa_stress): t x the layer-mean stress only if every
+    # column is t thick along the normal, else integrated along each column's
+    # measured normal thickness (a centreline ray crossing a shoulder at an angle
+    # builds a thinner column; P17: 0.57 mm)
+    t_tension = am.tension_thickness(cols, THICKNESS)
+    f = am.stress_fields(ip, cols, t_tension)
     t_pts = am._tension_points(cols, f.tension_col, wall.grid.n_points)
-    log(f"{case}: solve {res.elapsed:.1f} s")
+    h_col = np.bincount(cols.cell_column, weights=cols.h_normal)
+    log(f"{case}: solve {res.elapsed:.1f} s; tension over "
+        + (f"the nominal {THICKNESS:g} mm" if t_tension is not None else
+           f"the measured normal thickness (columns p1/p50 {np.percentile(h_col, 1):.2f}/"
+           f"{np.median(h_col):.2f} mm, min {h_col.min():.2f})"))
 
     outer_nodes = np.unique(wall.boundary["outer"].face_nodes)
     opts = np.asarray(wall.grid.points)[outer_nodes]
@@ -184,8 +198,15 @@ def write_tables(rows: list[dict]) -> None:
         vals = [r[key] for r in rows if r["variant"] == variant and r.get("status") == "ok"]
         return (float(np.median(vals)), len(vals)) if vals else (None, 0)
 
+    ours_load = (
+        "the intraluminal thrombus as a tied C3D10 solid (D91: sac - lumen, E 5 MPa, nu 0.49, "
+        "its ends free), 16 kPa on the thrombus' lumen faces"
+        if WITH_ILT else
+        "16 kPa on the wall's inner surface, NO thrombus"
+    )
     md = [
-        "# M3 tension validation (D88): ours vs the dataset's published FE result",
+        "# M3 tension validation (D88" + (", with thrombus D91" if WITH_ILT else "")
+        + "): ours vs the dataset's published FE result",
         "",
         "Data: Zenodo AAA 4D-CTA dataset, doi 10.5281/zenodo.19182977, CC BY 4.0. Its "
         "surfaces are a reference segmentation and its `tension.vtp` maps are the "
@@ -194,9 +215,11 @@ def write_tables(rows: list[dict]) -> None:
         "Theirs: wall (1.5 mm, E 100 MPa) + intraluminal thrombus (E 5 MPa), nu 0.49, "
         "C3D10H, linear, caps encastre, 16 kPa on the thrombus' lumen surface. Ours: the "
         "M2 gate wall (R_lumen_ilt cropped by the D85 landmarks, 1.5 mm hex wall outward = "
-        "their wall), C3D20R, E 100 MPa, nu 0.49, linear, our crop caps encastre, 16 kPa "
-        "on the wall's inner surface, NO thrombus. Each of their outer-wall vertices inside "
-        "our crop takes the tension of our nearest outer node.",
+        "their wall), C3D20R, E 100 MPa, nu 0.49, linear, our crop caps encastre, "
+        f"{ours_load}. Our tension: the in-plane stress integrated along each column's "
+        "measured thickness normal to the surface (the product's rule; t x the layer-mean "
+        "stress only when every column is 1.5 mm thick along the normal). Each of their "
+        "outer-wall vertices inside our crop takes the tension of our nearest outer node.",
         "",
         "Cases: every Zenodo case with automatic crop landmarks and a passing gate wall "
         f"({len(CASES)}), chosen by that rule before any result.",
@@ -233,10 +256,15 @@ def write_tables(rows: list[dict]) -> None:
         "are clamped at THEIR ends, ours at our crop planes, so vertices near our caps are "
         "not like for like.",
         "",
-        "Expected direction: ours reads higher where their thrombus carries part of the "
-        "pressure load (we model none); the ratio is not a calibration. Their pressure acts "
-        "on the lumen, so their wall carries about P x the lumen radius; ours carries P x "
-        "the wall's inner radius. rho(ratio, thrombus) is the Spearman correlation, over "
+        ("Expected direction: about 1, both models carry the thrombus; the ratio is not a "
+         "calibration. Our thrombus is the crop's sac minus its lumen, remeshed at 3 mm, "
+         "with free ends; theirs is clamped at their own ends."
+         if WITH_ILT else
+         "Expected direction: ours reads higher where their thrombus carries part of the "
+         "pressure load (we model none); the ratio is not a calibration. Their pressure acts "
+         "on the lumen, so their wall carries about P x the lumen radius; ours carries P x "
+         "the wall's inner radius.")
+        + " rho(ratio, thrombus) is the Spearman correlation, over "
         "the compared vertices, between our/their tension and the thrombus thickness under "
         "the vertex (outer wall to their lumen surface, minus the 1.5 mm wall).",
     ]

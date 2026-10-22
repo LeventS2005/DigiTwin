@@ -51,6 +51,11 @@ image = [
     "pydicom>=3,<4",
     "nibabel>=5,<6",
 ]
+# D92 Claude copilot (`meshforge copilot`). Lazy-imported: nothing else needs
+# it; without it the copilot says how to install it.
+copilot = [
+    "anthropic>=1.15,<2",
+]
 # V35 local web app (roadmap v7). Pure-Python/wheel deps -> pip is fine (the
 # conda-forge rule is only for compiled GUI/web binaries). Lazy-imported so
 # the CLI/GUI don't pay for them. The trame/vtk.js viewport (increment 3)

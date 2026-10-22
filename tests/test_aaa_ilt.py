@@ -73,6 +73,191 @@ def test_thrombus_mesh_refuses_a_lumen_outside_the_sac():
         build_ilt_mesh(lumen, sac, planes_from_report(_report(sac)))
 
 
+THIN_SHIFT = 3.2  # lumen r 6 off-centre in a sac r 10: an 0.8 mm thin side
+
+
+@functools.lru_cache(maxsize=None)
+def _thin_case():
+    """The thrombus between an eccentric lumen and its sac (gap 0.8 mm on +x,
+    7.2 mm on -x), plus the arguments ``_boundary_faces`` was called with."""
+    import meshforge.solve.ilt as ilt
+
+    sac, lumen = _tube(10.0), _tube(6.0).translate((THIN_SHIFT, 0.0, 0.0), inplace=False)
+    seen, real = {}, ilt._boundary_faces
+
+    def spy(*args):
+        seen["args"] = args
+        return real(*args)
+
+    ilt._boundary_faces = spy
+    try:
+        m = build_ilt_mesh(lumen, sac, planes_from_report(_report(sac)), size=3.0, inset=0.5)
+    finally:
+        ilt._boundary_faces = real
+    return m, seen["args"], sac.bounds[4], sac.bounds[5]
+
+
+def _face_corners(m, faces):
+    from meshforge.solve.ilt import _TET_FACES
+
+    corners = [m.points[m.tets[t, list(_TET_FACES[label])]] for t, label in faces]
+    return np.array(corners, dtype=float).reshape(-1, 3, 3)
+
+
+def test_thin_thrombus_faces_are_labelled_by_the_surface_they_lie_on():
+    """Where the thrombus is thinner than a face's centroid-to-vertex reach
+    (~1.7 mm at 3 mm), the old nearest-VERTEX test swapped lumen and sac
+    labels and unloaded the wall (P07, P12). Labels here come from the
+    analytic geometry: every lumen face carries the pressure, every sac face
+    is tied, and both kinds of end face are free."""
+    m, _, z0, z1 = _thin_case()
+    groups = {"pressure": m.inner_faces, "tied": m.outer_faces, "free": m.free_faces}
+    where = {}
+    for name, faces in groups.items():
+        c = _face_corners(m, faces)
+        x, y, z = c[..., 0], c[..., 1], c[..., 2]
+        r_sac, r_lumen = np.hypot(x, y), np.hypot(x - THIN_SHIFT, y)
+        cap_plane = (np.abs(z - z0) < 1e-6).all(1) | (np.abs(z - z1) < 1e-6).all(1)
+        recut = (np.abs(z - z0 - 0.5) < 1e-3).all(1) | (np.abs(z - z1 + 0.5) < 1e-3).all(1)
+        on_sac = (np.abs(r_sac - 10.0) < 0.05).all(1) & ~cap_plane
+        on_lumen = (np.abs(r_lumen - 6.0) < 0.05).all(1) & ~recut
+        where[name] = {"sac": on_sac, "lumen": on_lumen, "cap_plane": cap_plane,
+                       "recut": recut, "thin": (x > 8.5).all(1)}
+    # every lumen face is pressure, every sac face is tied, the ends are free
+    assert where["pressure"]["lumen"].all(), "a pressure face is not on the lumen"
+    assert where["tied"]["sac"].all(), "a tied face is not on the sac"
+    assert (where["free"]["cap_plane"] | where["free"]["recut"]).all()
+    for name, w in where.items():
+        if name != "pressure":
+            assert not w["lumen"].any(), f"a lumen face is {name}"
+        if name != "tied":
+            assert not w["sac"].any(), f"a sac face is {name}"
+        if name != "free":
+            assert not (w["cap_plane"] | w["recut"]).any(), f"an end face is {name}"
+    # the thin side is really there and really meshed (x > 8.5: gap <= ~1 mm)
+    assert where["tied"]["thin"].sum() >= 20 and where["pressure"]["thin"].sum() >= 20
+    assert where["free"]["cap_plane"].sum() >= 20 and where["free"]["recut"].sum() >= 20
+    s = m.summary()
+    assert s["n_free_faces"] == len(m.free_faces) > 0
+    note = next(n for n in m.notes if n.startswith("thrombus boundary faces"))
+    assert f"{len(m.inner_faces)} pressure (lumen), {len(m.outer_faces)} tied (sac), " \
+           f"{len(m.free_faces)} free" in note
+
+
+def test_the_face_classifier_refuses_rather_than_guesses():
+    import meshforge.solve.ilt as ilt
+
+    _, (points, tets, lumen_r, sac_r, caps, recut, tol), _, _ = _thin_case()
+    # the sac moved 0.2 mm along the tube: its cap faces lie on neither surface
+    moved = sac_r.translate((0.0, 0.0, 0.2), inplace=False)
+    with pytest.raises(ValueError, match="neither the lumen nor the sac"):
+        ilt._boundary_faces(points, tets, lumen_r, moved, caps, recut, tol)
+    # a "sac" that also holds the lumen: the lumen faces lie on both
+    with pytest.raises(ValueError, match="within .* of both the lumen and the sac"):
+        ilt._boundary_faces(points, tets, lumen_r, sac_r.append_polydata(lumen_r), caps,
+                            recut, tol)
+    # cap planes the sac does not end on: its ends cannot be left free
+    off = [(name, origin + 5.0 * normal, normal) for name, origin, normal in caps]
+    with pytest.raises(ValueError, match="no thrombus face lies on the .* cap plane"):
+        ilt._boundary_faces(points, tets, lumen_r, sac_r, off, recut, tol)
+
+
+def _with_near_zero_edges(surface, n: int, gap: float = 4e-4):
+    """Split ``n`` interior edges at ``gap`` mm from one end: each split
+    leaves two needles carrying an edge of ``gap`` mm, like the cropped
+    s1364 sac that hung gmsh (D93)."""
+    import pyvista as pv
+
+    tri = surface.triangulate().clean()
+    pts, faces = tri.points.copy(), tri.faces.reshape(-1, 4)[:, 1:].copy()
+    touched, new_faces, done = set(), [], 0
+    for t in range(0, len(faces), max(1, len(faces) // (4 * n))):
+        a, b, c = (int(x) for x in faces[t])
+        (u,) = [k for k in range(len(faces)) if k != t and a in faces[k] and b in faces[k]]
+        d = next(int(x) for x in faces[u] if x not in (a, b))
+        if {a, b, c, d} & touched:
+            continue
+        m = len(pts)
+        pts = np.vstack([pts, pts[a] + gap * (pts[b] - pts[a]) / np.linalg.norm(pts[b] - pts[a])])
+        faces[t] = (a, m, c)  # a -> b split at m: (a, m, c) + (m, b, c)
+        new_faces.append((m, b, c))
+        faces[u] = (b, m, d)  # the neighbour runs b -> a: (b, m, d) + (m, a, d)
+        new_faces.append((m, a, d))
+        touched |= {a, b, c, d}
+        done += 1
+        if done == n:
+            break
+    faces = np.vstack([faces, new_faces])
+    return pv.PolyData(pts, np.column_stack([np.full(len(faces), 3), faces]).ravel())
+
+
+def test_short_edge_collapse_removes_near_zero_edges_and_keeps_the_shape():
+    from meshforge.solve.ilt import collapse_short_edges
+
+    sac = _tube(10.0)
+    bad = _with_near_zero_edges(sac, 12)
+    assert bad.n_open_edges == 0 and bad.n_points == sac.triangulate().clean().n_points + 12
+    out, n = collapse_short_edges(bad, 0.009)
+    assert n == 12
+    assert out.n_points == bad.n_points - 12 and out.n_open_edges == 0 and out.is_manifold
+    f = out.faces.reshape(-1, 4)[:, 1:]
+    p = out.points[f]
+    shortest = min(np.linalg.norm(p[:, (k + 1) % 3] - p[:, k], axis=1).min() for k in range(3))
+    assert shortest >= 0.009
+    assert abs(out.volume) == pytest.approx(abs(sac.volume), rel=1e-6)
+    # nothing to do on a clean surface
+    assert collapse_short_edges(sac, 0.009)[1] == 0
+
+
+def test_the_gmsh_guard_stops_a_call_that_overruns():
+    import time
+
+    from meshforge.solve.ilt import _run_gmsh, _tri_arrays
+
+    points, tris = _tri_arrays(_tube(6.0))
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match=r"did not finish within 0\.05 s and was stopped"):
+        _run_gmsh("remesh", "remeshing the lumen", size=3.0, timeout=0.05, points=points,
+                  tris=tris)
+    assert time.monotonic() - t0 < 10.0
+
+
+def test_the_gmsh_guard_passes_the_child_error_through():
+    from meshforge.solve.ilt import _run_gmsh, _tri_arrays
+
+    points, tris = _tri_arrays(_tube(6.0))
+    with pytest.raises(RuntimeError, match="unexpected keyword argument 'stray'"):
+        _run_gmsh("remesh", "x", size=3.0, points=points, tris=tris, stray=np.zeros(1))
+
+
+def test_the_thrombus_ladder_survives_a_hung_attempt(monkeypatch):
+    """The first rung times out (as gmsh did on s1364): the next one meshes,
+    and the notes say what happened. Every rung failing is a loud error."""
+    import meshforge.solve.ilt as ilt
+
+    real = ilt._remesh
+
+    def hangs_when_collapsing(surface, size, what="surface", tol=0.0):
+        if tol > 0:
+            raise RuntimeError(f"thrombus mesh: remeshing the {what}: gmsh did not finish")
+        return real(surface, size, what, tol)
+
+    sac, lumen = _tube(10.0), _tube(6.0)
+    monkeypatch.setattr(ilt, "_remesh", hangs_when_collapsing)
+    m = build_ilt_mesh(lumen, sac, planes_from_report(_report(sac)))
+    assert m.sj_min > ilt.SJ_MIN_ACCEPT
+    tried = next(n for n in m.notes if n.startswith("thrombus mesh attempts"))
+    assert "did not finish" in tried and "surfaces as given: sj_min" in tried
+
+    def always_hangs(surface, size, what="surface", tol=0.0):
+        raise RuntimeError("gmsh did not finish")
+
+    monkeypatch.setattr(ilt, "_remesh", always_hangs)
+    with pytest.raises(RuntimeError, match="failed on every attempt") as err:
+        build_ilt_mesh(lumen, sac, planes_from_report(_report(sac)))
+    assert str(err.value).count("did not finish") == len(ilt.COLLAPSE_LADDER)
+
+
 def test_sac_from_wall_closes_the_inner_surface():
     wall = _wall(14.0)
     sac = am.sac_from_wall(wall)

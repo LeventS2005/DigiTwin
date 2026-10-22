@@ -21,8 +21,11 @@ is set by geometry and pressure, not by the modulus. Units are N, mm, MPa
 * Wall tension T (N/mm): the through-thickness resultant of the in-plane
   stress over each radial column of hexes (projected on the column's tangent
   plane) — the wall's uniform nominal thickness t x the layer-mean in-plane
-  stress — its larger principal value; mapped to the outer-surface nodes. On
-  loaded geometry it is ~independent of the assumed thickness.
+  stress, or, when any column is not t thick along the surface normal (rays
+  crossing a sac's shoulder at an angle), the stress integrated along each
+  column's measured normal thickness — its larger principal value; mapped to
+  the outer-surface nodes. On loaded geometry it is ~independent of the
+  assumed thickness.
 
 Refusals (fail loudly, rule 6): no metric is reported — the sentinel ``None``
 plus a human-readable reason — when the mesh summary is missing, the wall has
@@ -54,6 +57,13 @@ PWS_PERCENTILE = 99.0
 MIN_EVALUATED_FRACTION = 0.10
 #: end zone "bending": this many shell bending lengths per cap.
 BENDING_LENGTHS = 3.0
+#: the tension is t_nominal x the layer-mean stress only while every radial
+#: column is t_nominal thick along the inner surface's normal, within this
+#: fraction. A swept wall's rays can cross a sac's shoulder at an angle: the
+#: column is then thinner than its ray (Zenodo P17: 0.57 mm under 1.5 mm rays),
+#: its stress ~t/h higher, and t x that stress over-reads the resultant by t/h
+#: (P17's p99 read 1.91 x the reference, 0.95 integrated along the normal).
+UNIFORM_NORMAL_TOL = 0.02
 ELEMENT = "C3D20R"
 METHOD = (
     "stiff-linear on the loaded geometry: linear elastic, small strain (nlgeom off), "
@@ -236,6 +246,44 @@ class _Columns:
     volume: np.ndarray  # (n_cells,)
     outer_area: np.ndarray  # (n_columns,) area of the column's outer face
     outer_face: np.ndarray  # (n_columns, 4) outer-face node ids
+
+
+def _median_column_thickness(cols: _Columns) -> float:
+    return float(np.median(np.bincount(cols.cell_column, weights=cols.h_normal)))
+
+
+def tension_thickness(cols: _Columns, t_nominal: float | None) -> float | None:
+    """The thickness :func:`stress_fields` integrates the tension over:
+    ``t_nominal`` when every radial column is that thick along the inner
+    surface's vertex normals (within ``UNIFORM_NORMAL_TOL``), else None — each
+    column's measured normal thickness. Equal ray lengths are not enough: a
+    ray that leaves the surface at an angle builds a thinner column."""
+    if t_nominal is None:
+        return None
+    h = np.bincount(cols.cell_column, weights=cols.h_normal)
+    off = np.abs(h / float(t_nominal) - 1.0)
+    return float(t_nominal) if bool(np.all(off <= UNIFORM_NORMAL_TOL)) else None
+
+
+def annotate_wall_thickness(wall) -> float | None:
+    """Measure a swept wall's thickness along the inner surface's normals
+    (median over its radial columns, mm) and record it in
+    ``wall.lattice["thickness_normal_median"]``: the thickness the stress
+    actually sees. A centreline sweep's rays run square to the centreline,
+    so on a sac's shoulders they leave the surface at an angle, and the
+    wall comes out thinner than its ray length (s1364: 1.30 vs 1.5 mm, read
+    as +37% peak stress; D93). Returns None, with a note, for a mesh without
+    radial columns."""
+    if getattr(wall, "lattice", None) is None:
+        return None
+    try:
+        value = round(_median_column_thickness(_columns(wall)), 4)
+    except (ValueError, KeyError, IndexError) as exc:
+        wall.lattice["thickness_normal_median"] = None
+        wall.lattice["thickness_normal_note"] = f"not measurable: {exc}"
+        return None
+    wall.lattice["thickness_normal_median"] = value
+    return value
 
 
 def _columns(wall) -> _Columns:
@@ -671,7 +719,8 @@ def stress_fields(ip: np.ndarray, cols: _Columns, thickness: float | None = None
     through-thickness integral of the in-plane stress. With ``thickness`` (the
     wall's nominal, uniform t) h_l = t x the layer's share of the column, i.e.
     N = t x the layer-mean in-plane stress, free of any normal estimate;
-    without it, h_l is measured along the inner surface's vertex normals."""
+    without it, h_l is measured along the inner surface's vertex normals.
+    :func:`tension_thickness` says which applies to a wall."""
     vm = _von_mises(ip)
     p1 = np.linalg.eigvalsh(_tensor(ip))[..., -1]
     mean = _tensor(ip.mean(axis=1))
@@ -762,6 +811,19 @@ def end_zones(wall, *, end_zone: str = "neck", crop_report: dict | None = None,
     return EndZones(excluded, caps, frac, notes)
 
 
+def pws_region_thickness(cols: _Columns, hot: np.ndarray, ip_w: np.ndarray) -> dict[str, float]:
+    """The wall under the PWS: the measured normal thickness (inner vertex
+    normals, per radial column) of the integration points ``hot`` (n_cells,
+    n_ip) at or above the 99th percentile; volume-weighted median and the
+    minimum, mm. A thin patch carries a stress ~t/h too high and can set the
+    PWS while the wall's median thickness passes (Zenodo P04: median -3.3 %,
+    a 0.77 mm patch over 1.6 % of the area; D94)."""
+    h = np.bincount(cols.cell_column, weights=cols.h_normal)[cols.cell_column]
+    h_ip = np.broadcast_to(h[:, None], hot.shape)[hot]
+    return {"median": round(weighted_percentile(h_ip, ip_w[hot], 50.0), 4),
+            "min": round(float(h_ip.min()), 4)}
+
+
 def stress_metrics(fields: StressFields, cols: _Columns, keep: np.ndarray,
                    centres: np.ndarray, distal) -> dict[str, Any]:
     """PWS and the other numbers of one solve, over the cells in ``keep``."""
@@ -795,6 +857,7 @@ def stress_metrics(fields: StressFields, cols: _Columns, keep: np.ndarray,
             "top1pct_centroid_mm": [round(float(v), 3) for v in hot_c],
             "top1pct_height_above_distal_cap_mm": height(hot_c),
             "top1pct_cells": int(hot_cells.size),
+            "top1pct_wall_thickness_mm": pws_region_thickness(cols, hot, ip_w),
         },
         "tension_n_per_mm": {
             "p50": round(weighted_percentile(tk, ta, 50.0), 6),
@@ -912,19 +975,26 @@ def run_aaa_stress(
         return AaaStressResult(out, None, reasons)
 
     cols = _columns(wall)
-    measured = float(np.median(np.bincount(cols.cell_column, weights=cols.h_normal)))
+    measured = _median_column_thickness(cols)
     out["wall"]["thickness_measured_mm"] = round(measured, 4)
     t_min = lat.get("thickness_min")
     uniform = t_nom is not None and t_min is not None and abs(t_nom - t_min) <= 1e-6 * t_nom
     thickness = float(t_nom) if uniform else measured
     out["wall"]["thickness_mm"] = round(thickness, 4)
+    # equal rays (uniform) are not a uniform wall: a ray crossing the sac at an
+    # angle builds a thinner column, so the nominal t holds only if every column
+    # is t thick along the normal
+    t_tension = tension_thickness(cols, thickness) if uniform else None
     out["tension_definition"] = (
         f"t x the layer-mean in-plane stress resultant (t = {thickness:g} mm, the wall's "
         f"uniform nominal thickness), larger principal value; per column of hexes, "
         f"mapped to the outer-surface nodes"
-        if uniform else
+        if t_tension is not None else
         "the in-plane stress integrated along the measured column thickness (inner-surface "
         "vertex normals), larger principal value; mapped to the outer-surface nodes"
+        + ("" if not uniform else
+           f" (the rays are {thickness:g} mm, but not every column is that thick along the "
+           f"surface normal, within {UNIFORM_NORMAL_TOL:.0%})")
     )
     ez = end_zones(wall, end_zone=end_zone, crop_report=crop_report, thickness=thickness,
                    nu=nu, volume=cols.volume)
@@ -975,7 +1045,7 @@ def run_aaa_stress(
             wall, p, Path(out_dir), f"{stem}_p{mmhg:g}mmHg", E=E, nu=nu, ccx=ccx,
             timeout=timeout, input_path=input_path, ilt=ilt, E_ilt=E_ilt, nu_ilt=nu_ilt,
         )
-        f = stress_fields(ip, cols, thickness if uniform else None)
+        f = stress_fields(ip, cols, t_tension)
         suffix = "" if key == "systolic" else "_whatif"
         vm_cell, p1_cell = f.vm_ip.mean(axis=1), f.p1_ip.mean(axis=1)
         grid.cell_data[f"von_mises{suffix}"] = vm_cell
@@ -1067,6 +1137,12 @@ def aaa_stress_text(summ: dict[str, Any]) -> str:
             f"centroid {pk['top1pct_height_above_distal_cap_mm']:.1f} mm above it "
             f"({pk['top1pct_cells']} cells)"
         )
+        hw = pk.get("top1pct_wall_thickness_mm")
+        if hw:
+            lines.append(
+                f"{'':<12}  wall under the top-1% region: median {hw['median']:.3f} mm, min "
+                f"{hw['min']:.3f} mm along the surface normal"
+            )
         lines.append(
             f"{'':<12}  wall tension p50 {tn['p50']:.3f}, p99 {tn['p99']:.3f}, max "
             f"{tn['max']:.3f} N/mm; solve {b['solve_s']:.1f} s"

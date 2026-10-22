@@ -484,9 +484,15 @@ dominated by the clamp):
 - the **peak location** (coordinates, height above the distal cap) and the
   centroid of the top-1% region;
 - **wall tension** (N/mm) p50 / p99 / max: the through-thickness resultant
-  of the in-plane stress (wall thickness × the layer-mean in-plane stress, its
-  larger principal value). On the loaded geometry it does not depend on the
-  assumed thickness (1.2 / 1.5 / 2.0 mm agree within 0.3%), while the PWS
+  of the in-plane stress, its larger principal value. It is the wall
+  thickness × the layer-mean in-plane stress only when every radial column of
+  hexes is that thick along the surface normal (within 2%). Otherwise the
+  stress is integrated along each column's measured normal thickness: a
+  centreline ray that crosses a sac's shoulder at an angle builds a column
+  thinner than the ray, and thickness × stress would over-read there (the
+  summary's `tension_definition` says which rule applied). On the loaded
+  geometry the tension does not depend on the assumed thickness (1.2 / 1.5 /
+  2.0 mm agree within the test's 2%; D88 measured 0.3%), while the PWS
   scales as 1/t;
 - the what-if: PWS at 120 / 140 mmHg (= 0.857 — the solve is linear).
 
@@ -507,22 +513,39 @@ missing or mismatched mesh summary; too little wall outside the end zones.
 - **What to give it:** the blood-lumen surface cut by the SAME two planes as
   the wall's surface (`crop --lumen`), `--sac`, the surface the wall was built from, and `--crop-report`, which carries
   those planes.
-- **The thrombus solid:** the region between the lumen and the wall's inner
-  surface (rebuilt from the wall itself), filled with quadratic tets (C3D10,
-  `--ilt-size` 3 mm). The lumen is re-cut 0.5 mm inside the caps so the two
-  surfaces never touch.
+- **The thrombus solid:** the region between the lumen and the sac (the
+  wall's inner surface), filled with quadratic tets (C3D10, `--ilt-size`
+  3 mm). The lumen is re-cut 0.5 mm inside the caps so the two surfaces
+  never touch.
+- **The mesher cannot hang:** gmsh can spin forever on a cut surface with
+  near-zero edges. Each gmsh call runs in its own process and is stopped
+  after 60 s with a readable error. The mesh is tried up to four ways (edges
+  under 0.009 mm collapsed first, then the surfaces as given, then two other
+  tolerances), and an attempt counts only if it fills sac − lumen within 2%
+  with a scaled-Jacobian minimum of at least 0.02. The notes say which
+  attempt was used.
 - **Coupling and loads:** the thrombus is tied to the wall without moving
   any node. The blood pressure then acts on the **lumen**, as it does in the
   body. The thrombus ends are free; the wall carries the clamp.
+  - **How each face is labelled:** each face of the thrombus is labelled by
+    the surface it lies on (lumen: pressure; sac: tied). This holds however
+    thin the thrombus is.
+  - **The re-cut caps:** the lumen's caps, 0.5 mm inside the cut planes,
+    are free too. Pressure there would add an end load that the blood,
+    which continues past the cut, does not apply.
+  - **Refusals and notes:** a face that lies on neither surface, or on both,
+    stops the run with a reason. The notes give the pressure / tied / free
+    face counts.
 - **Material:** `--E-ilt` defaults to 5 MPa (wall 100 MPa, ν 0.49 both). These
   are the Zenodo AAA dataset's own FE values, so our numbers compare with
   theirs. Physiological thrombus is softer; the ratio is what matters on
   loaded geometry.
 - **Checks:** the wall hoop stress matches the two-layer Lamé solution within
-  0.6%, and a near-zero-stiffness thrombus passes the pressure through as
-  if it were absent.
+  0.7%, and a near-zero-stiffness thrombus passes the pressure through as
+  if it were absent. On an off-centre lumen with a 0.8 mm thin side, every
+  lumen face carries pressure and every sac face is tied.
 - **Why it matters:** without it the stress is overstated. On a native AAA,
-  674 vs 278 kPa at 140 mmHg.
+  674 vs 287 kPa at 140 mmHg.
 
 **Assumptions it always prints:** investigational; wall thickness assumed
 1.5 mm, uniform; the thrombus line (either "modelled: ..." or "**no
@@ -558,7 +581,22 @@ tension regions 9.8 mm, our p99 / their p99 1.42 (p50 1.56). Ours reads
 higher because our wall carries no thrombus: their pressure acts on the
 lumen, inside the thrombus. Across the cases our/their p50 follows the
 thrombus thickness (Spearman 0.90); on the thin-thrombus case P12 it is 1.12
-with ρ 0.89.
+with ρ 0.89. (These wall-only numbers used the earlier nominal-thickness
+tension; recomputed from the same solves with the current rule they read ρ
+0.72, offset 4.0 mm, p99 1.26, p50 1.39.)
+
+**With the thrombus modelled** (`MESHFORGE_TENSION_ILT=1`,
+`outputs/m3/tension_validation_ilt.md`), on the same 12 cases:
+- median ρ 0.98 (0.83–0.99); the lowest is P07, a 46.6 mm crop that leaves a
+  6 mm comparison band;
+- top-1% offset 0.95 mm; p99 ratio 0.98 (0.93–1.00 in every case); p50
+  ratio 0.96.
+- The p99 hotspots that P04 (1.62) and P17 (1.91) showed before 20 Oct were
+  ours: the validation's gate walls use the centreline sweep, whose 1.5 mm
+  rays cross the sac's shoulders at an angle and build columns only 0.80 /
+  0.57 mm thick along the normal there, and the tension multiplied their
+  stress by the nominal 1.5 mm. Integrated along the measured normal
+  thickness (the rule above) they read 0.98 / 0.95.
 
 Data credits: Zenodo AAA 4D-CTA dataset, doi 10.5281/zenodo.19182977,
 CC BY 4.0 (its surfaces are a *reference segmentation* and its tension maps
@@ -694,6 +732,49 @@ The right-pane **history** table lists journaled steps (step | params | summary)
 `replay` or `meshforge replay` reproduces the session exactly.
 
 ---
+
+### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
+`meshforge copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
+the pipeline to Claude (Opus 5.5). It has five tools, each one or two of the steps above:
+
+| tool | steps | returns |
+|---|---|---|
+| `segment_aorta` | `segment` (`lumen_out`, `mask_out`) + `sac` | AI time, sac diameters, thrombus + wall thickness, how much of the sac edge was measured |
+| `crop_aneurysm` | `crop` (`lumen`, `parallel_caps`) | sac and neck diameters |
+| `mesh_wall` | `volmesh` 1.5 mm, `curvature_cap` 0.9, `sweep` | the quality gate: inverted / capped / floored, and the thickness measured along the surface normal (within 5% of 1.5 mm) |
+| `wall_stress` | `aaa_stress` with the thrombus (`lumen`) | PWS at both pressures, % change; the gate again under the peak: the wall under the PWS's top 1% must also be within 5% of 1.5 mm, or the call fails with the same hint |
+| `strength_index` | `tissue_index` at both pressures | index P10/P50/P90, strength band, n aneurysms / strips |
+
+How it behaves:
+- **Settings:** it starts with the standard ones and changes one only when a
+  step says so. A wall that fails the gate gives no stress. The error says
+  why, and the copilot fixes the cause and meshes again. The failure stays
+  in the record.
+  - **On the s1364 demo scan:** the default wall has no bad cells but is
+    1.30 mm thick along the surface normal, 13% thin, because the centreline
+    sweep's rays meet the sac's shoulders at an angle. Its stress would read
+    382 kPa instead of 279. The gate fails it, and the copilot re-crops with
+    parallel caps and meshes with the plane sweep (1.50 mm, PASS).
+  - **Another failure:** "caps 35° from parallel" when the plane sweep is
+    asked for on the default crop.
+- **The report** (`report.html`/`.md`) is built from the tool outputs alone.
+  - **Twin card:** a body outline with the aorta lit as module 1 and heart and
+    kidneys "next". Its data-layer slots are shape, wall + thrombus, stress,
+    strength (with n), flow (from `--flow-metrics`), BP what-if, and growth,
+    which waits for a second scan.
+  - **Claude's prose:** included only if every number in it matches a tool
+    output; one correction is allowed, otherwise it is withheld and the
+    report says so.
+- **The trail:** `transcript.json` (every request, tool call and result) and,
+  in-process, `session.mfwork`. `meshforge replay` reproduces every number.
+- **Live view:** `--server http://127.0.0.1:8765` runs the steps on a running
+  Workbench (`meshforge web`), so its viewport shows each artifact as it
+  lands.
+
+Needs the Anthropic SDK (`pip install 'meshforge[copilot]'`, or conda-forge
+`anthropic`) and credentials in the environment (`ANTHROPIC_API_KEY`). Every
+run calls the API, so it costs money. Model `--model`, effort `--effort` (default
+`high`); the server-side refusal fallback is on.
 
 ## 4. The step order that always works (Workbench quick path)
 

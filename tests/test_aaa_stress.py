@@ -1,6 +1,7 @@
 """D88 (M3): AAA wall stress — units, wall read-back, refusals, end zones,
 and the CalculiX benchmarks (Lamé/Laplace cylinder, a sphere-like bulge, a
-fusiform sac, linearity, modulus and thickness independence).
+fusiform sac, a cone with tilted rays, linearity, modulus and thickness
+independence).
 
 Everything below the ``ccx`` marker skips cleanly without CalculiX.
 """
@@ -45,6 +46,19 @@ SAC = dict(radius=10.0, sac_radius=25.0, sac_center=120.0, sac_sigma=40.0, flare
 
 def _fusiform(t=1.5):
     return _wall("aneurysm_tube", t, 24, 40, 2, **SAC)
+
+
+CONE = dict(r_start=10.0, r_end=45.0, length=60.0)  # half-angle 30.3 deg
+
+
+def _cone():
+    """A cone: the centreline sweep's 1.5 mm rays run square to the axis, so
+    every column is t cos(a) = 1.296 mm thick along the surface normal."""
+    return _wall("tapered_tube", 1.5, 24, 30, 2, n_theta=96, n_axial=121, **CONE)
+
+
+def _cone_cos():
+    return float(np.cos(np.arctan((CONE["r_end"] - CONE["r_start"]) / CONE["length"])))
 
 
 def _pws_keys(obj) -> list:
@@ -191,6 +205,18 @@ def test_refuses_missing_ray_counts_and_a_foreign_summary(tmp_path):
     assert "belongs to a different mesh" in _refused(_cylinder(), other, tmp_path)
 
 
+def test_volmesh_records_the_wall_thickness_along_the_normal():
+    """D93: the copilot's gate reads ``thickness_normal_median`` from the
+    volmesh summary. A centreline sweep's rays meet a sac's shoulders at an
+    angle, so its wall can only come out thinner than the ray length."""
+    cyl = _cylinder()
+    assert _clean_summary(cyl)["lattice"]["thickness_normal_median"] == pytest.approx(1.5, rel=0.01)
+    sac = _fusiform()
+    assert sac.lattice["sweep"] == "centreline"
+    assert sac.lattice["thickness_normal_median"] < 1.5 * 0.999
+    assert am.annotate_wall_thickness(type("Bare", (), {"lattice": None})()) is None
+
+
 def test_cli_refusal_exits_1_and_writes_the_sentinel(tmp_path):
     from meshforge.cli import main
 
@@ -279,6 +305,50 @@ def test_pws_ignores_stress_inside_the_end_zones():
     assert 20.0 <= m["peak"]["height_above_distal_cap_mm"] <= 80.0
 
 
+def _p04_like_wall():
+    """The cylinder with a patch pulled in along its rays to 0.77 mm: 12 full
+    columns, 1.65 % of the area, plus a tapered rim; the median stays 1.5 mm
+    (Zenodo P04: a 0.77 mm patch over 1.6 %, median -3.3 %; D94)."""
+    base = _cylinder()
+    root = am._columns(base).node_root
+    pts = np.asarray(base.grid.points, dtype=float).copy()
+    r0 = pts[root]
+    th = np.degrees(np.arctan2(r0[:, 1], r0[:, 0]))
+    patch = (np.abs(np.abs(th) - 180.0) < 31.0) & (np.abs(r0[:, 2] - 50.0) < 8.0)
+    pts[patch] = r0[patch] + (pts[patch] - r0[patch]) * (0.77 / 1.5)
+    grid = base.grid.copy()
+    grid.points = pts
+    return am.wall_from_grid(grid)
+
+
+def test_pws_region_thickness_is_the_wall_under_the_top_1pct():
+    """D96: on a P04-like wall the median gate passes, but the stress ~1/h sets
+    the PWS on the thin patch, and the summary says how thick the wall is there;
+    on the uniform wall it reads 1.5 mm."""
+    for wall, h_expect, pws_expect in ((_cylinder(), 1.5, 0.21), (_p04_like_wall(), 0.77, 0.37)):
+        cols = am._columns(wall)
+        h = np.bincount(cols.cell_column, weights=cols.h_normal)
+        assert np.median(h) == pytest.approx(1.5, rel=1e-3)  # the median gate cannot tell
+        ez = am.end_zones(wall, end_zone="20", thickness=1.5, volume=cols.volume)
+        c = np.asarray(wall.grid.cell_centers().points)
+        # the hoop stress a fixed resultant puts in h, +-5 % around the tube (no ties);
+        # the patch sits where the base stress is lowest
+        s = 0.2 * (1.0 + 0.05 * np.cos(np.arctan2(c[:, 1], c[:, 0]))) * 1.5 / h[cols.cell_column]
+        ip = np.zeros((wall.grid.n_cells, 8, 6))
+        ip[..., 0] = s[:, None]
+        m = am.stress_metrics(am.stress_fields(ip, cols), cols, ~ez.excluded, c, ez.distal)
+        hw = m["peak"]["top1pct_wall_thickness_mm"]
+        assert hw["median"] == pytest.approx(h_expect, rel=0.01)
+        assert hw["min"] <= hw["median"] and hw["min"] == pytest.approx(h.min(), rel=0.01)
+        assert m["von_mises_p99_mpa"] == pytest.approx(pws_expect, rel=0.03)
+    text = am.aaa_stress_text({"wall": {"n_cells": 1, "inverted": 0, "capped": 0, "floored": 0,
+                                        "sweep": "centreline", "thickness_mm": 1.5},
+                               "method": "m", "material": {"E_mpa": 1, "nu": 0.49}, "boundary": "b",
+                               "refused": [], "pressures_mmhg": {"systolic": 140, "whatif": 120},
+                               "systolic": {"pressure_mmhg": 140, "solve_s": 1.0, **m}})
+    assert "wall under the top-1% region: median 0.770 mm" in text
+
+
 def test_tension_is_the_through_thickness_resultant():
     """Uniform hoop stress s on a 1.5 mm wall: T = s * 1.5 on every column,
     and the node field carries it to both surfaces."""
@@ -300,15 +370,46 @@ def test_tension_is_the_through_thickness_resultant():
         assert np.isfinite(tp).all() and tp == pytest.approx(s * 1.5, rel=2e-3)
 
 
+def test_equal_rays_are_not_a_uniform_wall_for_the_tension():
+    """On a cone every ray is 1.5 mm, but every column is only t cos(a) thick
+    along the normal. A hoop resultant N0 there (stress N0 / h) must read N0:
+    the nominal t x stress reads N0 / cos(a), +16 % — the error that put
+    Zenodo P17's tension p99 at 1.91 x the reference (0.57 mm columns)."""
+    cyl = am._columns(_cylinder())
+    assert am.tension_thickness(cyl, 1.5) == 1.5  # radial rays: the nominal t holds
+    assert am.tension_thickness(cyl, None) is None
+    cone = _cone()
+    assert cone.lattice["sweep"] == "centreline"
+    assert cone.lattice["thickness_min"] == cone.lattice["thickness_max"] == 1.5  # equal rays
+    cols = am._columns(cone)
+    h = np.bincount(cols.cell_column, weights=cols.h_normal)
+    assert h == pytest.approx(1.5 * _cone_cos(), rel=1e-3)
+    assert am.tension_thickness(cols, 1.5) is None
+    pts = np.asarray(cone.grid.cell_centers().points)
+    th = np.arctan2(pts[:, 1], pts[:, 0])
+    s = (0.3 / h)[cols.cell_column]  # the hoop stress a 0.3 N/mm resultant puts in h
+    ip = np.zeros((cone.grid.n_cells, 8, 6))
+    ip[..., 0] = (s * np.sin(th) ** 2)[:, None]
+    ip[..., 1] = (s * np.cos(th) ** 2)[:, None]
+    ip[..., 3] = (-s * np.sin(th) * np.cos(th))[:, None]
+    f = am.stress_fields(ip, cols, am.tension_thickness(cols, 1.5))
+    assert f.tension_col == pytest.approx(0.3, rel=2e-3)
+    over = am.stress_fields(ip, cols, 1.5).tension_col  # the old rule
+    assert over == pytest.approx(0.3 / _cone_cos(), rel=2e-3)
+
+
 # ---------------------------------------------------------------------------
 # CalculiX benchmarks
 
 
 def _solve(wall, tmp, stem, p=P140, **kw):
-    """As run_aaa_stress does it: tension = nominal t x the layer-mean stress."""
+    """As run_aaa_stress does it: tension = nominal t x the layer-mean stress
+    when every column is t thick along the normal, else integrated along the
+    measured column thickness (``tension_thickness``)."""
     cols = am._columns(wall)
     ip, u, res = am.solve_pressure(wall, p, Path(tmp), stem, **kw)
-    return cols, am.stress_fields(ip, cols, wall.lattice["thickness_max"]), u, res
+    t = am.tension_thickness(cols, wall.lattice["thickness_max"])
+    return cols, am.stress_fields(ip, cols, t), u, res
 
 
 def _column_frames(wall, cols, f):
@@ -360,6 +461,30 @@ def test_cylinder_laplace_and_lame(tmp_path):
         pts[sel][:, 0], pts[sel][:, 1])
     ur_an = (1 + nu) / 100.0 * A * ((1 - 2 * nu) * a + b * b / a)
     assert ur.mean() == pytest.approx(ur_an, rel=0.02)
+
+
+@requires_ccx
+def test_cone_hoop_tension_through_run_aaa_stress(tmp_path):
+    """A cone's meridian is straight, so normal equilibrium alone fixes the
+    hoop resultant: N_hoop = P r_i / cos(a) per unit meridional length,
+    whatever the clamped ends do. The centreline-swept cone has equal 1.5 mm
+    rays but 1.296 mm columns; run_aaa_stress's tension, mid-cone: measured
+    +1.1 % (median; max +3.7 %). The nominal t x stress read +17 %."""
+    wall = _cone()
+    res = am.run_aaa_stress(wall, _clean_summary(wall), out_dir=tmp_path, stem="cone",
+                            end_zone="5")
+    assert res.refused == []
+    assert "measured column thickness" in res.summary["tension_definition"]
+    assert res.summary["wall"]["thickness_mm"] == 1.5  # the assumed wall is unchanged
+    inner = wall.boundary["inner"]
+    c = np.asarray(wall.grid.points)[np.asarray(inner.face_nodes)].mean(axis=1)
+    r_i, z = np.hypot(c[:, 0], c[:, 1]), c[:, 2]
+    mid = (z > 22.0) & (z < 38.0)
+    assert mid.sum() >= 24
+    t_cell = np.asarray(res.grid.cell_data["tension"])[np.asarray(inner.cell_ids)]
+    ratio = t_cell[mid] / (P140 * r_i[mid] / _cone_cos())
+    assert np.median(ratio) == pytest.approx(1.0, abs=0.03)
+    assert ratio.max() < 1.06
 
 
 @requires_ccx
