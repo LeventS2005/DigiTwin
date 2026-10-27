@@ -9,6 +9,14 @@
   <body>
     <header id="topbar">
       <h1>meshforge <span class="sub">Workbench</span></h1>
+      <!-- Demo mode (presentation layout): fewer panels, result reveal, the
+           coverage panel. URL ?demo=1 or localStorage meshforge.demo; off = the
+           Workbench as it is. app.js owns the behaviour; styles.css the layout. -->
+      <label id="demo-switch" class="demo-switch" title="presentation layout: load, contour &amp; mesh, simulate; results reveal as they land; the planned-coverage panel">
+        <input type="checkbox" id="demo-toggle" />
+        <span class="demo-switch-track" aria-hidden="true"></span>
+        <span class="demo-switch-label">Demo</span>
+      </label>
       <!-- Static, offline quick-start. No links, no fetch, no external
            navigation (the app is 127.0.0.1-only and self-contained). -->
       <details id="help" class="help">
@@ -85,6 +93,11 @@
           <div id="vtk-canvas" class="vtk-canvas">
             <p id="vp-empty" class="viewport-note">run a step to render its mesh</p>
           </div>
+          <!-- Demo mode only: a cover that wipes off a NEW result over ~2 s (pure
+               presentation of the final data), and the running step with its
+               elapsed seconds (from GET /state `running`). -->
+          <div id="vp-reveal" class="vp-reveal" hidden aria-hidden="true"></div>
+          <div id="vp-busy" class="vp-busy" hidden aria-live="polite"></div>
           <div id="vp-anim" class="vp-anim" hidden>
             <button type="button" id="vp-play" class="run" title="play / pause">▶</button>
             <input type="range" id="vp-frame" min="0" max="0" value="0" step="1" aria-label="CFD time frame" />
@@ -142,7 +155,7 @@
           <pre id="log" class="log" aria-live="polite"></pre>
         </section>
 
-        <section class="dock-panel flush">
+        <section id="history-panel" class="dock-panel flush">
           <h2 class="panel-title">history <span class="muted">journal — what a .mfwork replays</span></h2>
           <table id="history" class="history">
             <thead><tr><th>step</th><th>params</th><th>summary</th></tr></thead>
@@ -151,6 +164,53 @@
         </section>
       </section>
     </main>
+
+
+    <!-- Demo mode: the planned-coverage panel. An inert template; app.js clones
+         it above the twin panel while Demo is on and removes it when off. The
+         body outline is the twin figure's own path. Layer groups carry ids so
+         the buttons can show one system at a time; the aorta stays lit in every
+         mode because it is the live module. An ILLUSTRATION, not data. -->
+    <template id="coverage-svg">
+      <section id="coverage-panel" class="dock-panel coverage" data-layer="circulatory" aria-label="planned coverage">
+        <h2 class="panel-title">planned coverage <span class="muted">illustration, not data</span></h2>
+        <div class="cov-buttons" role="group" aria-label="show a system">
+          <button type="button" class="cov-btn on" data-layer="circulatory">Circulatory · CT / MRI / PET</button>
+          <button type="button" class="cov-btn" data-layer="skeletal">Skeletal · X-ray</button>
+          <button type="button" class="cov-btn" data-layer="brain">Brain · MRI / PET</button>
+        </div>
+        <svg class="cov-svg" viewBox="0 0 150 300" role="img" aria-label="body outline with the circulatory system (aorta live as module 1; heart and kidneys next), the skeletal system and brain tissue as planned layers">
+          <g transform="translate(5,0)">
+            <circle class="cov-body" cx="70" cy="24" r="16"/>
+            <path class="cov-body" d="M76 38 L78 48 Q96 50 106 58 L112 96 L117 150 Q118 160 112 160 L109 152 L104 104 L100 74 L99 112 Q96 136 100 160 L97 226 L95 284 Q95 292 86 292 L80 292 L79 230 L73 170 Q70 166 67 170 L61 230 L60 292 L54 292 Q45 292 45 284 L43 226 L40 160 Q44 136 41 112 L40 74 L36 104 L31 152 L28 160 Q22 160 23 150 L28 96 L34 58 Q44 50 62 48 L64 38 Z"/>
+            <g id="layer-skeletal" class="cov-layer">
+              <circle class="cov-skull" cx="70" cy="24" r="12"/>
+              <path class="cov-bone" d="M70 42 L70 166" stroke-dasharray="3.2 2.2"/>
+              <path class="cov-bone" d="M70 52 L48 55 M70 52 L92 55"/>
+              <path class="cov-bone" d="M70 62 q-20 4 -25 15 M70 62 q20 4 25 15 M70 72 q-22 4 -27 16 M70 72 q22 4 27 16 M70 82 q-23 4 -27 17 M70 82 q23 4 27 17 M70 92 q-22 4 -25 16 M70 92 q22 4 25 16 M70 102 q-19 4 -21 14 M70 102 q19 4 21 14"/>
+              <path class="cov-bone" d="M48 158 q3 22 22 18 M92 158 q-3 22 -22 18"/>
+              <path class="cov-bone" d="M54 176 L49 228 M49 232 L47 284 M86 176 L91 228 M91 232 L93 284 M40 60 L33 100 M33 104 L27 150 M100 60 L107 100 M107 104 L113 150"/>
+            </g>
+            <g id="layer-brain" class="cov-layer">
+              <ellipse class="cov-brain" cx="70" cy="22" rx="10" ry="8"/>
+              <path class="cov-sulcus" d="M64 20 q3 -3 6 0 q3 3 6 0 M63 25 q4 -2 7 0 q3 2 7 0"/>
+            </g>
+            <g id="layer-circulatory" class="cov-layer">
+              <path class="cov-vein" d="M67 100 C65 116 66 134 67 150 L59 174 C56 200 51 240 50 284 M81 174 C84 200 89 240 90 284 M69 70 C56 70 46 82 40 102 L31 148 M72 70 C86 70 104 82 110 102 L117 148"/>
+              <path class="cov-artery" d="M75 64 C74 54 69 46 66 38 M78 64 C79 54 76 46 74 38 M72 70 C58 68 44 78 36 100 L28 148 M80 70 C94 68 108 78 112 100 L118 148 M66 172 C62 200 56 240 54 284 M82 172 C86 200 92 240 94 284"/>
+              <path class="cov-next" d="M81 86 C77 79 66 81 66 89 C66 97 75 102 81 108 C87 102 96 97 96 89 C96 81 85 79 81 86 Z"/>
+              <ellipse class="cov-next" cx="55" cy="126" rx="5.5" ry="9" transform="rotate(-12 55 126)"/>
+              <ellipse class="cov-next" cx="88" cy="123" rx="5.5" ry="9" transform="rotate(12 88 123)"/>
+            </g>
+            <g id="aorta-live">
+              <path class="cov-aorta" d="M71 94 C69 78 71 66 77 66 C82 66 81 74 79 82 C77 92 74 104 74 132 L74 150 M74 150 L66 172 M74 150 L82 172"/>
+              <ellipse class="cov-sac" cx="74" cy="140" rx="5.5" ry="9"/>
+            </g>
+          </g>
+        </svg>
+        <p class="cov-caption">Planned coverage · illustration, not data. Aorta: live today (module 1). Heart, kidneys: next.</p>
+      </section>
+    </template>
 
     <!-- Status bar: the session's live state (source + artifact chips). -->
     <footer id="statusbar">

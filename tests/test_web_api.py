@@ -751,3 +751,30 @@ def test_twin_flow_is_serialised_like_every_journal_writer(client, monkeypatch) 
     flow.join(20)
     assert got == [200]
     assert [rec["step"] for rec in session.journal] == ["generate_synth", "centerline", "flow_metrics"]
+
+
+def test_state_reports_the_running_step_while_it_holds_the_lock(client, monkeypatch) -> None:
+    """D108: GET /state carries ``running`` (a STEP_KNOBS name) and
+    ``running_for`` (seconds) while a step runs under the session lock, and
+    both are None otherwise — so a Workbench driven from outside (the copilot
+    over HTTP) can show "meshing… 12 s"."""
+    from meshforge.pipeline import MeshingSession
+
+    holder = client.app.state.holder
+    assert client.get("/state").json()["running"] is None
+    assert client.get("/state").json()["running_for"] is None
+
+    seen: dict[str, object] = {}
+
+    def fake_centerline(self, **params):
+        seen["running"] = holder.running
+        seen["since_is_set"] = holder.running_since is not None
+        raise ValueError("stop here (no artifact needed)")
+
+    monkeypatch.setattr(MeshingSession, "compute_centerline", fake_centerline)
+    r = client.post("/step/centerline", json={})
+    assert r.status_code == 400  # the domain error is mapped, loudly
+    assert seen == {"running": "centerline", "since_is_set": True}
+    # cleared in `finally`, even on the error path
+    st = client.get("/state").json()
+    assert st["running"] is None and st["running_for"] is None

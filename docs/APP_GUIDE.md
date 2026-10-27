@@ -738,6 +738,31 @@ The right-pane **history** table lists journaled steps (step | params | summary)
 
 ---
 
+### 3.13 Demo mode  (presentation layout; the Demo switch in the top bar)
+
+For a demo or a recording. Flip **Demo** in the top bar, or open the page
+with `?demo=1` (it is also remembered in the browser). On:
+
+- the left pane shows three groups of the usual step panels and nothing
+  else — **Load** (`import_image`, `import_cso`), **Contour & mesh**
+  (`segment`, `sac`, `crop`, `wall`, `volmesh`), **Simulate**
+  (`aaa_stress`, `tissue_index`, `cfd`); Quick start, the synth source box
+  and the history table are hidden (the session panel stays: Save work file);
+- a **new result wipes in** over about two seconds instead of appearing at
+  once (a cover over the viewport; the mesh underneath is the final one);
+- the **step running on the server** shows bottom-left of the viewport with
+  its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
+  the copilot drives the server over `--server` (from `GET /state`
+  `running` / `running_for`);
+- a **planned coverage** panel above the twin: the body outline with the
+  circulatory system (CT, MRI, PET), the skeletal system (X-ray) and brain
+  tissue (MRI, PET) as layers you toggle; the aorta stays lit as the live
+  module. It is an illustration of what the twin is meant to cover, not
+  data, and the panel says so.
+
+Off, the Workbench is exactly the one described above. Demo mode changes
+nothing about what any step computes.
+
 ### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
 `meshforge copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
 the pipeline to Claude (Opus 5.5). It has five tools, each one or two of the steps above:

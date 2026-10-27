@@ -11,6 +11,7 @@ exporter calls) on client-supplied write paths.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,11 @@ class _SessionHolder:
         # frontend can cheaply poll GET /state and re-sync when ANOTHER client
         # (or a replay) changed the shared in-process session (auto-refresh).
         self.rev = 0
+        # The step running under the session lock right now (its STEP_KNOBS
+        # name) and when it started: GET /state reports both so a Workbench
+        # driven from outside (the copilot over HTTP) can show "meshing… 12 s".
+        self.running: str | None = None
+        self.running_since: float | None = None
 
 
 class SynthBody(BaseModel):
@@ -225,8 +231,15 @@ def create_app() -> FastAPI:
     @app.get("/state")
     def get_state():
         s = holder.session
+        running_for = (
+            round(time.monotonic() - holder.running_since, 1)
+            if holder.running is not None and holder.running_since is not None
+            else None
+        )
         return {
             "rev": holder.rev,
+            "running": holder.running,
+            "running_for": running_for,
             "input_path": str(s.input_path) if s.input_path else None,
             "input_sha256": s.input_sha256,
             "journal_len": len(s.journal),
@@ -451,7 +464,11 @@ def _make_step_endpoint(holder: _SessionHolder, step: str, model: type):
             if step == "screenshot" and params.get("path"):
                 _guard_write(session, _clean_path(params["path"]))
             method = getattr(session, f"compute_{step}")
-            return _capture(holder, method(**params))
+            holder.running, holder.running_since = step, time.monotonic()
+            try:
+                return _capture(holder, method(**params))
+            finally:
+                holder.running, holder.running_since = None, None
 
         return _run(work)
 

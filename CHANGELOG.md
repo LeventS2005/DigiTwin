@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench Demo mode** (D108; presentation layout, off by default). The
+  **Demo** switch in the top bar (URL `?demo=1` or `localStorage`
+  `meshforge.demo`) sets `body.demo`: the left pane keeps three groups of
+  real step panels (Load: `import_image`, `import_cso`; Contour & mesh:
+  `segment`, `sac`, `crop`, `wall`, `volmesh`; Simulate: `aaa_stress`,
+  `tissue_index`, `cfd`) and hides the rest; Quick start, the synth source
+  box and the history table are hidden; a NEW result wipes in over ~2 s
+  (a cover over the canvas, presentation of the final data only); the step
+  running on the server shows bottom-left with its elapsed seconds; and a
+  **planned-coverage** panel above the twin shows the body outline with
+  Circulatory (CT/MRI/PET) · Skeletal (X-ray) · Brain (MRI/PET) layers to
+  toggle, the aorta lit as the live module, captioned "illustration, not
+  data". Off, every rule is inert and the Workbench is unchanged.
+  - `GET /state` now carries `running` (the step holding the session lock,
+    its STEP_KNOBS name) and `running_for` (seconds), both `null` when idle,
+    so a Workbench driven from outside (the copilot over HTTP) can show it.
+  - Nothing in `pipeline`, `solve` or `copilot` changed; the natural path
+    and its numbers are untouched. Tests: `test_web_frontend_assets.py`
+    (+7 structural guards), `test_web_api.py` (+1).
 - Demo freeze (M6) for the copilot's twin card and report.
   - **Workbench twin panel:** the report's "your twin" card, live in the right
     pane (`GET /twin`). Every slot waits ("not run yet") until its step lands,

@@ -497,3 +497,91 @@ label.inline input[type="checkbox"] { width: 13px; height: 13px; accent-color: v
 .slot-value { color: var(--ink); font: 600 11px/1.45 var(--mono); overflow-wrap: anywhere; }
 .slot.next { opacity: .75; }
 .twin-foot { margin: 4px var(--pad) 0; color: #626870; font-size: 10px; text-align: right; }
+
+/* ===== Demo mode (D108): presentation layout ================================
+   body.demo is set by the Demo switch in the top bar (app.js; URL ?demo=1 or
+   localStorage meshforge.demo). Off = every rule below is inert. */
+.demo-switch {
+  margin: 0 auto;                 /* centred between the title and Quick start */
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #c9ced5;
+}
+.demo-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.demo-switch-track {
+  width: 30px; height: 16px; border-radius: 8px; background: #3a3f46; position: relative;
+  box-shadow: inset 0 1px 0 #2a2e33; transition: background .15s;
+}
+.demo-switch-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 6px; background: #c9ced5; transition: left .15s, background .15s;
+}
+.demo-switch input:checked + .demo-switch-track { background: #ff5d55; }
+.demo-switch input:checked + .demo-switch-track::after { left: 16px; background: #fff; }
+.demo-switch input:focus-visible + .demo-switch-track { outline: 2px solid #ff5d55; outline-offset: 2px; }
+
+/* the three groups: only the demo steps stay, each under its heading */
+.demo-group { display: none; }
+body.demo .demo-group {
+  display: block; margin: 10px 2px 4px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: #ff5d55;
+}
+body.demo #help { display: none; }
+body.demo #source-box { display: none; }
+body.demo #step-panels > details.step-box { display: none; }
+body.demo #step-panels > details.step-box[data-demo="1"] { display: block; }
+body.demo #history-panel { display: none; }
+
+/* result reveal: a cover over the canvas that wipes off top-to-bottom over ~2 s */
+.viewport-slot { position: relative; }
+.vp-reveal {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  background: #101012;
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 2.2s cubic-bezier(.45, 0, .2, 1);
+}
+.vp-reveal.go { clip-path: inset(100% 0 0 0); }
+.vp-reveal::after {                      /* the sweeping edge */
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: #ff5d55; box-shadow: 0 0 14px 3px rgba(255, 93, 85, .55);
+}
+.vp-reveal[hidden] { display: none; }
+
+/* the running step with its elapsed seconds (GET /state `running`) */
+.vp-busy {
+  position: absolute; left: 12px; bottom: 44px; z-index: 6; pointer-events: none;
+  padding: 5px 11px 5px 24px; border-radius: 14px; font-size: 12.5px; color: #f2f3f5;
+  background: rgba(16, 16, 18, .78); border: 1px solid #3a3f46;
+}
+.vp-busy::before {
+  content: ""; position: absolute; left: 10px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
+  border-radius: 4px; background: #ff5d55; animation: vp-pulse 1s ease-in-out infinite;
+}
+.vp-busy[hidden] { display: none; }
+@keyframes vp-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* planned-coverage panel (above the twin; exists only while Demo is on) */
+.coverage .cov-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+.coverage .cov-btn {
+  font: inherit; font-size: 10.5px; letter-spacing: .04em; padding: 4px 9px; cursor: pointer;
+  color: #c9ced5; background: #2a2e33; border: 1px solid #3a3f46; border-radius: 12px;
+}
+.coverage .cov-btn.on { color: #fff; background: #ff5d55; border-color: #ff5d55; }
+.coverage .cov-svg { display: block; width: auto; height: 190px; margin: 0 auto; }
+.coverage .cov-body { fill: #2a2d31; stroke: #8a8f96; stroke-width: 1.1; }
+.coverage .cov-bone { fill: none; stroke: #d7dbe0; stroke-width: 1.5; stroke-linecap: round; }
+.coverage .cov-skull { fill: none; stroke: #d7dbe0; stroke-width: 1.2; opacity: .6; }
+.coverage .cov-artery { fill: none; stroke: #ff6a5e; stroke-width: 1.5; stroke-linecap: round; }
+.coverage .cov-vein { fill: none; stroke: #5b8cff; stroke-width: 1; stroke-linecap: round; opacity: .75; }
+.coverage .cov-aorta { fill: none; stroke: #ff4a3c; stroke-width: 2.6; stroke-linecap: round; }
+.coverage .cov-sac { fill: rgba(255, 74, 60, .25); stroke: #ff4a3c; stroke-width: 2.2; }
+.coverage .cov-next { fill: none; stroke: #9aa0a8; stroke-width: 1.1; stroke-dasharray: 2.5 2; }
+.coverage .cov-brain { fill: #b48cff; opacity: .85; }
+.coverage .cov-sulcus { fill: none; stroke: #e6d9ff; stroke-width: .8; opacity: .8; }
+.coverage .cov-layer { transition: opacity .25s; }
+.coverage[data-layer="circulatory"] #layer-skeletal,
+.coverage[data-layer="circulatory"] #layer-brain,
+.coverage[data-layer="skeletal"] #layer-circulatory,
+.coverage[data-layer="skeletal"] #layer-brain,
+.coverage[data-layer="brain"] #layer-circulatory,
+.coverage[data-layer="brain"] #layer-skeletal { opacity: .14; }
+.coverage .cov-caption { margin: 6px 0 0; font-size: 10.5px; color: #9aa0a8; line-height: 1.35; }

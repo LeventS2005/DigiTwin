@@ -383,3 +383,104 @@ def test_no_local_folder_reaches_the_screen(app_js: str) -> None:
     history = _function_body(app_js, "async function refreshHistory")
     assert "shownJson(rec.params" in history and "shownJson(rec.summary" in history
     assert "JSON.stringify" not in history
+
+
+# ---- Demo mode (D108): presentation layout, off by default ----------------
+# The Demo switch in the top bar sets ``body.demo``; everything it changes is
+# CSS under that class plus a few app.js functions that only act under it.
+# These guards keep the contract: off = the Workbench unchanged; on = three
+# panel groups of real steps, a reveal, the running step, the coverage panel.
+
+_DEMO_GROUP_RE = re.compile(r'\["(?P<title>[^"]+)",\s*\[(?P<steps>[^\]]+)\]\]')
+
+
+def _demo_groups(app_js: str) -> dict[str, list[str]]:
+    start = app_js.index("const DEMO_GROUPS = [")
+    end = app_js.index("];", start)
+    groups: dict[str, list[str]] = {}
+    for m in _DEMO_GROUP_RE.finditer(app_js[start:end]):
+        groups[m.group("title")] = re.findall(r'"([a-z_0-9]+)"', m.group("steps"))
+    return groups
+
+
+def test_demo_switch_is_in_the_top_bar_and_persists(index_html: str, app_js: str) -> None:
+    assert 'id="demo-toggle"' in index_html
+    assert index_html.index('id="demo-toggle"') < index_html.index('id="workbench"')
+    assert 'localStorage.setItem("meshforge.demo"' in app_js
+    assert 'searchParams.set("demo", "1")' in app_js
+    assert 'classList.toggle("demo", on)' in app_js
+    # the URL wins over the stored preference, so ?demo=1 opens a fresh server in Demo mode
+    assert 'get("demo")' in app_js and 'getItem("meshforge.demo")' in app_js
+
+
+def test_demo_groups_name_real_steps_load_mesh_simulate(app_js: str) -> None:
+    groups = _demo_groups(app_js)
+    assert list(groups) == ["Load", "Contour & mesh", "Simulate"]
+    for title, steps in groups.items():
+        assert steps, title
+        for step in steps:
+            assert step in STEP_ORDER, f"{title}: {step} is not a pipeline step"
+    assert any(s.startswith("import_") for s in groups["Load"])
+    assert {"wall", "volmesh"} <= set(groups["Contour & mesh"])
+    assert {"aaa_stress", "cfd"} <= set(groups["Simulate"])  # FEA + CFD stay
+
+
+def test_demo_layout_hides_everything_else_only_under_body_demo(styles_css: str, index_html: str) -> None:
+    rules = {
+        "body.demo #step-panels > details.step-box { display: none; }",
+        'body.demo #step-panels > details.step-box[data-demo="1"] { display: block; }',
+        "body.demo #help { display: none; }",
+        "body.demo #source-box { display: none; }",
+        "body.demo #history-panel { display: none; }",
+    }
+    for rule in rules:
+        assert rule in styles_css, rule
+    assert 'id="history-panel"' in index_html
+    # no rule hides a panel without the body.demo guard
+    for line in styles_css.splitlines():
+        if "details.step-box" in line and "display: none" in line:
+            assert line.startswith("body.demo "), line
+
+
+def test_demo_headings_and_tags_are_set_from_the_groups(app_js: str) -> None:
+    assert 'box.dataset.demo = "1"' in app_js
+    assert 'h.className = "demo-group"' in app_js
+    assert "decorateDemoPanels();" in app_js and "initDemoMode();" in app_js
+
+
+def test_reveal_and_busy_line_act_only_in_demo_mode(app_js: str, index_html: str, styles_css: str) -> None:
+    assert 'id="vp-reveal"' in index_html and 'id="vp-busy"' in index_html
+    reveal = app_js[app_js.index("function playReveal()"):]
+    assert "if (!isDemo()) return;" in reveal[: reveal.index("}")+1] or "if (!isDemo()) return;" in reveal[:200]
+    busy = app_js[app_js.index("function updateBusyLine(st)"):]
+    assert "!isDemo()" in busy[:200]
+    assert "if (resetCamera) playReveal();" in app_js      # a NEW artifact only
+    assert "updateBusyLine(st);" in app_js                  # every /state poll
+    assert "st.running" in app_js and "running_for" in app_js
+    assert ".vp-reveal.go { clip-path: inset(100% 0 0 0); }" in styles_css
+    assert ".vp-busy {" in styles_css
+
+
+def test_coverage_panel_is_a_template_with_named_layers_and_the_caption(index_html: str, app_js: str, styles_css: str) -> None:
+    assert '<template id="coverage-svg">' in index_html
+    tpl = index_html[index_html.index('<template id="coverage-svg">'):index_html.index("</template>")]
+    for layer in ("layer-circulatory", "layer-skeletal", "layer-brain", "aorta-live"):
+        assert f'id="{layer}"' in tpl, layer
+    assert "Planned coverage · illustration, not data. Aorta: live today (module 1). Heart, kidneys: next." in tpl
+    for lab in ("Circulatory · CT / MRI / PET", "Skeletal · X-ray", "Brain · MRI / PET"):
+        assert lab in tpl, lab
+    # cloned above the twin only while Demo is on, removed when off
+    apply = app_js[app_js.index("function applyDemo(on)"):app_js.index("function decorateDemoPanels()")]
+    assert "buildCoveragePanel();" in apply and "removeCoveragePanel();" in apply
+    assert "twin.parentElement.insertBefore(node, twin)" in app_js
+    # the aorta is outside the dimmed layer groups, so it stays lit in every mode
+    assert '.coverage[data-layer="skeletal"] #layer-circulatory' in styles_css
+    assert "#aorta-live" not in styles_css.split("/* planned-coverage panel")[1].split("opacity: .14")[0].replace("#layer", "")
+
+
+def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
+    demo_text = index_html[index_html.index('id="demo-switch"'):]
+    for banned in ("rupture probability", "time to rupture", "diagnos", "predict"):
+        # "not a diagnosis" is allowed in the twin foot; the demo additions add no claim
+        assert banned not in app_js[app_js.index("const DEMO_GROUPS"):app_js.index("async function init()")]
+    assert "illustration, not data" in demo_text

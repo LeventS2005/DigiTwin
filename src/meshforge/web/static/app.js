@@ -135,6 +135,7 @@ async function refreshViewport(resetCamera) {
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
   window.MeshforgeViewport.load(payload, resetCamera);
+  if (resetCamera) playReveal(); // demo mode only (no-op otherwise)
   populateFields(payload.fields || [], payload.field);
   updateColorbar(payload);
   setupFrames(payload);
@@ -406,6 +407,7 @@ function startAutoRefresh() {
     pollBusy = true;
     try {
       const st = await apiGet("/state");
+      updateBusyLine(st); // demo mode only (no-op otherwise)
       if (lastRev !== null && st.rev !== lastRev) {
         log("session changed — resyncing view");
         await refreshHistory();
@@ -888,6 +890,166 @@ async function resetSession() {
 }
 
 // ---- init --------------------------------------------------------------
+
+// ---- Demo mode (D108): presentation layout ---------------------------------
+// Off = the Workbench exactly as before. On (the top-bar switch; URL ?demo=1;
+// localStorage meshforge.demo) = three panel groups on the left, a result
+// reveal in the viewport, the running step with its elapsed seconds, and the
+// planned-coverage panel above the twin. Nothing here calls a compute route
+// or changes what any step does (rule 4): it only shows the same results.
+const DEMO_GROUPS = [
+  ["Load", ["import_image", "import_cso"]],
+  ["Contour & mesh", ["segment", "sac", "crop", "wall", "volmesh"]],
+  ["Simulate", ["aaa_stress", "tissue_index", "cfd"]],
+];
+const DEMO_VERBS = {
+  import_image: "loading the scan",
+  import_cso: "loading the contours",
+  segment: "contouring the aorta (AI outline)",
+  sac: "recovering the sac from the CT",
+  crop: "cropping the aneurysm",
+  wall: "meshing the wall",
+  volmesh: "meshing the volume",
+  aaa_stress: "solving the wall stress (finite elements)",
+  tissue_index: "computing the investigational index",
+  cfd: "solving the flow (CFD)",
+};
+function isDemo() {
+  return document.body.classList.contains("demo");
+}
+function readDemoPref() {
+  try {
+    const q = new URLSearchParams(window.location.search).get("demo");
+    if (q !== null) return q === "1" || q === "true" || q === "on";
+    return localStorage.getItem("meshforge.demo") === "1";
+  } catch (err) {
+    return false; // private mode / no storage: plain Workbench
+  }
+}
+function applyDemo(on) {
+  document.body.classList.toggle("demo", on);
+  const t = $("#demo-toggle");
+  if (t) t.checked = on;
+  try {
+    localStorage.setItem("meshforge.demo", on ? "1" : "0");
+  } catch (err) {
+    // private mode — the URL still carries it
+  }
+  try {
+    const url = new URL(window.location.href);
+    if (on) url.searchParams.set("demo", "1");
+    else url.searchParams.delete("demo");
+    history.replaceState(null, "", url.toString());
+  } catch (err) {
+    // no history API — nothing to keep
+  }
+  if (on) {
+    buildCoveragePanel();
+    openDemoPanels();
+  } else {
+    removeCoveragePanel();
+    hideBusyLine();
+  }
+}
+// Tag the demo steps' panels and put a heading before the first of each group.
+// The panels keep their STEP_ORDER places; the CSS hides the untagged ones.
+function decorateDemoPanels() {
+  const host = $("#step-panels");
+  for (const [title, steps] of DEMO_GROUPS) {
+    let first = null;
+    for (const step of steps) {
+      const box = host.querySelector(`details.step-box[data-step="${step}"]`);
+      if (!box) continue;
+      box.dataset.demo = "1";
+      if (!first) first = box;
+    }
+    if (first) {
+      const h = document.createElement("h3");
+      h.className = "demo-group";
+      h.textContent = title;
+      host.insertBefore(h, first);
+    }
+  }
+}
+function openDemoPanels() {
+  for (const box of document.querySelectorAll('#step-panels details.step-box[data-demo="1"]')) box.open = true;
+}
+// The coverage panel is cloned from the inert <template> in index.html while
+// Demo is on and removed when it is off, so it is not in the DOM otherwise.
+function buildCoveragePanel() {
+  if ($("#coverage-panel")) return;
+  const tpl = $("#coverage-svg");
+  const twin = $("#twin-panel");
+  if (!tpl || !twin) return;
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  twin.parentElement.insertBefore(node, twin);
+  for (const btn of node.querySelectorAll(".cov-btn")) {
+    btn.addEventListener("click", () => {
+      node.dataset.layer = btn.dataset.layer;
+      for (const b of node.querySelectorAll(".cov-btn")) b.classList.toggle("on", b === btn);
+    });
+  }
+}
+function removeCoveragePanel() {
+  const p = $("#coverage-panel");
+  if (p) p.remove();
+}
+// A NEW result wipes in over ~2 s: a cover over the canvas (CSS clip-path
+// transition) — presentation of the final data, nothing invented.
+let revealTimer = null;
+function playReveal() {
+  if (!isDemo()) return;
+  const cover = $("#vp-reveal");
+  if (!cover) return;
+  clearTimeout(revealTimer);
+  cover.classList.remove("go");
+  cover.hidden = false;
+  void cover.offsetWidth; // restart the transition from the covered state
+  cover.classList.add("go");
+  revealTimer = setTimeout(() => {
+    cover.hidden = true;
+    cover.classList.remove("go");
+  }, 2600);
+}
+// The step running on the server right now (GET /state `running`, set while
+// the step holds the session lock — also when the copilot drives it over HTTP)
+// with its elapsed seconds, ticking locally between polls.
+let busyTicker = null;
+let busyStart = null;
+let busyStep = null;
+function updateBusyLine(st) {
+  if (!isDemo() || !st || !st.running) {
+    hideBusyLine();
+    return;
+  }
+  if (busyStep !== st.running) {
+    busyStep = st.running;
+    busyStart = Date.now() - 1000 * (Number(st.running_for) || 0);
+  }
+  if (!busyTicker) busyTicker = setInterval(tickBusyLine, 250);
+  tickBusyLine();
+}
+function tickBusyLine() {
+  const el = $("#vp-busy");
+  if (!el || !busyStep) return;
+  const secs = Math.max(0, Math.round((Date.now() - busyStart) / 1000));
+  el.textContent = `${DEMO_VERBS[busyStep] || busyStep + " running"}… ${secs} s`;
+  el.hidden = false;
+}
+function hideBusyLine() {
+  const el = $("#vp-busy");
+  if (el) el.hidden = true;
+  if (busyTicker) clearInterval(busyTicker);
+  busyTicker = null;
+  busyStep = null;
+  busyStart = null;
+}
+function initDemoMode() {
+  const t = $("#demo-toggle");
+  if (t) t.addEventListener("change", () => applyDemo(t.checked));
+  applyDemo(readDemoPref());
+}
+
 async function init() {
   // Source dropdown + panel order from /catalog (rule-4-safe: served by the
   // API, not hardcoded here). One fetch so the panel builder below can use
@@ -933,6 +1095,9 @@ async function init() {
   } catch (err) {
     onError(err);
   }
+
+  decorateDemoPanels(); // tags the demo steps + group headings (inert until body.demo)
+  initDemoMode();
 
   // Native "Browse…" for the source/session path fields (desktop shell);
   // and the one-line explanation when there's no bridge to drive them.
