@@ -10,9 +10,9 @@
     <header id="topbar">
       <h1>meshforge <span class="sub">Workbench</span></h1>
       <!-- Demo mode (presentation layout): fewer panels, result reveal, the
-           coverage panel. URL ?demo=1 or localStorage meshforge.demo; off = the
+           patient atlas. URL ?demo=1 or localStorage meshforge.demo; off = the
            Workbench as it is. app.js owns the behaviour; styles.css the layout. -->
-      <label id="demo-switch" class="demo-switch" title="presentation layout: load, contour &amp; mesh, simulate; results reveal as they land; the planned-coverage panel">
+      <label id="demo-switch" class="demo-switch" title="presentation layout: load, contour &amp; mesh, simulate; results reveal as they land; the patient atlas above the twin">
         <input type="checkbox" id="demo-toggle" />
         <span class="demo-switch-track" aria-hidden="true"></span>
         <span class="demo-switch-label">Demo</span>
@@ -166,49 +166,49 @@
     </main>
 
 
-    <!-- Demo mode: the planned-coverage panel. An inert template; app.js clones
-         it above the twin panel while Demo is on and removes it when off. The
-         body outline is the twin figure's own path. Layer groups carry ids so
-         the buttons can show one system at a time; the aorta stays lit in every
-         mode because it is the live module. An ILLUSTRATION, not data. -->
-    <template id="coverage-svg">
-      <section id="coverage-panel" class="dock-panel coverage" data-layer="circulatory" aria-label="planned coverage">
-        <h2 class="panel-title">planned coverage <span class="muted">illustration, not data</span></h2>
-        <div class="cov-buttons" role="group" aria-label="show a system">
-          <button type="button" class="cov-btn on" data-layer="circulatory">Circulatory · CT / MRI / PET</button>
-          <button type="button" class="cov-btn" data-layer="skeletal">Skeletal · X-ray</button>
-          <button type="button" class="cov-btn" data-layer="brain">Brain · MRI / PET</button>
+    <!-- Demo mode: the patient atlas (D108 addendum 6). An inert template;
+         app.js clones it above the twin panel while Demo is on and removes it
+         when off. One patient record, every study filed by body region and
+         modality: the body map is 15 regions, each its own path, filed by the
+         PATIENT's side (right = the viewer's left, as on a scan). Every study
+         row comes from GET /atlas — the scans the session really loaded, no
+         priors, no other patients, no dates. The region ids and names are
+         meshforge.atlas.REGIONS; the asset test pins the two. -->
+    <template id="atlas-svg">
+      <section id="atlas-panel" class="dock-panel atlas" data-modality="All" aria-label="patient atlas">
+        <h2 class="panel-title">patient atlas <span id="atlas-patient" class="muted">no patient loaded</span></h2>
+        <div class="atlas-chips" role="group" aria-label="modality">
+          <button type="button" class="atlas-chip on" data-modality="All">All</button>
+          <button type="button" class="atlas-chip" data-modality="CT">CT</button>
+          <button type="button" class="atlas-chip" data-modality="MRI">MRI</button>
+          <button type="button" class="atlas-chip" data-modality="X-ray">X-ray</button>
+          <button type="button" class="atlas-chip" data-modality="US">US</button>
+          <button type="button" class="atlas-chip" data-modality="Angio">Angio</button>
         </div>
-        <svg class="cov-svg" viewBox="0 0 150 300" role="img" aria-label="body outline with the circulatory system (aorta live as module 1; heart and kidneys next), the skeletal system and brain tissue as planned layers">
-          <g transform="translate(5,0)">
-            <circle class="cov-body" cx="70" cy="24" r="16"/>
-            <path class="cov-body" d="M76 38 L78 48 Q96 50 106 58 L112 96 L117 150 Q118 160 112 160 L109 152 L104 104 L100 74 L99 112 Q96 136 100 160 L97 226 L95 284 Q95 292 86 292 L80 292 L79 230 L73 170 Q70 166 67 170 L61 230 L60 292 L54 292 Q45 292 45 284 L43 226 L40 160 Q44 136 41 112 L40 74 L36 104 L31 152 L28 160 Q22 160 23 150 L28 96 L34 58 Q44 50 62 48 L64 38 Z"/>
-            <g id="layer-skeletal" class="cov-layer">
-              <circle class="cov-skull" cx="70" cy="24" r="12"/>
-              <path class="cov-bone" d="M70 42 L70 166" stroke-dasharray="3.2 2.2"/>
-              <path class="cov-bone" d="M70 52 L48 55 M70 52 L92 55"/>
-              <path class="cov-bone" d="M70 62 q-20 4 -25 15 M70 62 q20 4 25 15 M70 72 q-22 4 -27 16 M70 72 q22 4 27 16 M70 82 q-23 4 -27 17 M70 82 q23 4 27 17 M70 92 q-22 4 -25 16 M70 92 q22 4 25 16 M70 102 q-19 4 -21 14 M70 102 q19 4 21 14"/>
-              <path class="cov-bone" d="M48 158 q3 22 22 18 M92 158 q-3 22 -22 18"/>
-              <path class="cov-bone" d="M54 176 L49 228 M49 232 L47 284 M86 176 L91 228 M91 232 L93 284 M40 60 L33 100 M33 104 L27 150 M100 60 L107 100 M107 104 L113 150"/>
-            </g>
-            <g id="layer-brain" class="cov-layer">
-              <ellipse class="cov-brain" cx="70" cy="22" rx="10" ry="8"/>
-              <path class="cov-sulcus" d="M64 20 q3 -3 6 0 q3 3 6 0 M63 25 q4 -2 7 0 q3 2 7 0"/>
-            </g>
-            <g id="layer-circulatory" class="cov-layer">
-              <path class="cov-vein" d="M67 100 C65 116 66 134 67 150 L59 174 C56 200 51 240 50 284 M81 174 C84 200 89 240 90 284 M69 70 C56 70 46 82 40 102 L31 148 M72 70 C86 70 104 82 110 102 L117 148"/>
-              <path class="cov-artery" d="M75 64 C74 54 69 46 66 38 M78 64 C79 54 76 46 74 38 M72 70 C58 68 44 78 36 100 L28 148 M80 70 C94 68 108 78 112 100 L118 148 M66 172 C62 200 56 240 54 284 M82 172 C86 200 92 240 94 284"/>
-              <path class="cov-next" d="M81 86 C77 79 66 81 66 89 C66 97 75 102 81 108 C87 102 96 97 96 89 C96 81 85 79 81 86 Z"/>
-              <ellipse class="cov-next" cx="55" cy="126" rx="5.5" ry="9" transform="rotate(-12 55 126)"/>
-              <ellipse class="cov-next" cx="88" cy="123" rx="5.5" ry="9" transform="rotate(12 88 123)"/>
-            </g>
-            <g id="aorta-live">
-              <path class="cov-aorta" d="M71 94 C69 78 71 66 77 66 C82 66 81 74 79 82 C77 92 74 104 74 132 L74 150 M74 150 L66 172 M74 150 L82 172"/>
-              <ellipse class="cov-sac" cx="74" cy="140" rx="5.5" ry="9"/>
-            </g>
+        <svg class="atlas-svg" viewBox="0 0 150 300" role="group" aria-label="body map, front view, 15 regions; the patient's right is on the left">
+          <g class="atlas-regions">
+            <path class="atlas-region" data-region="head" tabindex="0" aria-label="Head and neck" role="button" data-cx="75" data-cy="22" d="M69 48 L69 38.8 A16 16 0 1 1 81 38.8 L81 48 Z"/>
+            <path class="atlas-region" data-region="chest" tabindex="0" aria-label="Chest" role="button" data-cx="75" data-cy="80" d="M62 50 L88 50 L90 74 L89 108 L61 108 L60 74 Z"/>
+            <path class="atlas-region" data-region="torso" tabindex="0" aria-label="Torso (abdomen and pelvis)" role="button" data-cx="75" data-cy="140" d="M60 110 L90 110 L94 150 L92 170 L77 170 L75 161 L73 170 L58 170 L56 150 Z"/>
+            <path class="atlas-region" data-region="shoulder_r" tabindex="0" aria-label="Right shoulder" role="button" data-cx="46" data-cy="62" d="M58 50 L58 72 L34 72 L36 58 Q44 50 58 50 Z"/>
+            <path class="atlas-region" data-region="shoulder_l" tabindex="0" aria-label="Left shoulder" role="button" data-cx="104" data-cy="62" d="M92 50 L92 72 L116 72 L114 58 Q106 50 92 50 Z"/>
+            <path class="atlas-region" data-region="arm_r" tabindex="0" aria-label="Right arm" role="button" data-cx="43" data-cy="115" d="M35 74 L56 74 L52 156 L31 156 Z"/>
+            <path class="atlas-region" data-region="arm_l" tabindex="0" aria-label="Left arm" role="button" data-cx="107" data-cy="115" d="M94 74 L115 74 L119 156 L98 156 Z"/>
+            <path class="atlas-region" data-region="hand_r" tabindex="0" aria-label="Right hand" role="button" data-cx="41" data-cy="172" d="M31 158 L52 158 L52 178 Q52 186 44 186 L37 186 Q29 186 29 178 Z"/>
+            <path class="atlas-region" data-region="hand_l" tabindex="0" aria-label="Left hand" role="button" data-cx="109" data-cy="172" d="M98 158 L119 158 L121 178 Q121 186 113 186 L106 186 Q98 186 98 178 Z"/>
+            <path class="atlas-region" data-region="upper_leg_r" tabindex="0" aria-label="Right upper leg" role="button" data-cx="65" data-cy="200" d="M58 172 L73 172 L73 228 L55 228 Z"/>
+            <path class="atlas-region" data-region="upper_leg_l" tabindex="0" aria-label="Left upper leg" role="button" data-cx="85" data-cy="200" d="M77 172 L92 172 L95 228 L77 228 Z"/>
+            <path class="atlas-region" data-region="lower_leg_r" tabindex="0" aria-label="Right lower leg" role="button" data-cx="64" data-cy="254" d="M56 230 L72 230 L71 278 L58 278 Z"/>
+            <path class="atlas-region" data-region="lower_leg_l" tabindex="0" aria-label="Left lower leg" role="button" data-cx="86" data-cy="254" d="M78 230 L94 230 L92 278 L79 278 Z"/>
+            <path class="atlas-region" data-region="foot_r" tabindex="0" aria-label="Right foot" role="button" data-cx="60" data-cy="288" d="M57 280 L71 280 L71 296 L50 296 Q46 296 47 291 Z"/>
+            <path class="atlas-region" data-region="foot_l" tabindex="0" aria-label="Left foot" role="button" data-cx="90" data-cy="288" d="M79 280 L93 280 L103 291 Q104 296 100 296 L79 296 Z"/>
           </g>
+          <g class="atlas-badges" aria-hidden="true"><!-- count badges, from GET /atlas --></g>
         </svg>
-        <p class="cov-caption">Planned coverage · illustration, not data. Aorta: live today (module 1). Heart, kidneys: next.</p>
+        <p id="atlas-hover" class="atlas-hover" aria-live="polite">hover a region</p>
+        <h3 class="atlas-list-title">studies · <span id="atlas-scope">all regions</span></h3>
+        <ul id="atlas-studies" class="atlas-studies" aria-live="polite"><!-- from GET /atlas --></ul>
+        <p id="atlas-caption" class="atlas-caption">atlas · regions without studies are dim · sides are the patient's</p>
       </section>
     </template>
 

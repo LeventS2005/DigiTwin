@@ -73,6 +73,7 @@ async function afterStep(result) {
   await refreshHistory();
   await refreshState();
   await refreshTwin();
+  await refreshAtlas();
   viewportField = null; // a new artifact -> let the server pick the default field
   await refreshViewport(true);
   // Any new mesh or source invalidates a picked inflow end; a cfd run keeps it
@@ -415,6 +416,7 @@ function startAutoRefresh() {
         await refreshHistory();
         await refreshState(); // also updates lastRev
         await refreshTwin();
+        await refreshAtlas();
         viewportField = null;
         await refreshViewport(true);
         resetFlowPicker();
@@ -873,6 +875,7 @@ async function loadWorkfile() {
   await refreshHistory();
   await refreshState();
   await refreshTwin();
+  await refreshAtlas();
   viewportField = null;
   await refreshViewport(true);
   resetFlowPicker();
@@ -888,6 +891,7 @@ async function resetSession() {
   await refreshHistory();
   await refreshState();
   await refreshTwin();
+  await refreshAtlas();
   await refreshPresets();
 }
 
@@ -899,7 +903,7 @@ async function resetSession() {
 // the left, in the order the copilot runs them, each marked waiting / running
 // / done (or failed, when the wall gate refused the mesh); a result reveal in
 // the viewport; the running step with its elapsed
-// seconds; and the planned-coverage panel above the twin. Nothing here calls
+// seconds; and the patient atlas above the twin. Nothing here calls
 // a compute route or changes what any step does (rule 4): it only shows the
 // same results.
 // [step, tab title, one-line hint] — the step's own panel (its knobs, its Run
@@ -958,11 +962,11 @@ function applyDemo(on) {
     // no history API — nothing to keep
   }
   if (on) {
-    buildCoveragePanel();
+    buildAtlasPanel();
     closeDemoPanels();
     paintDemoTabs();
   } else {
-    removeCoveragePanel();
+    removeAtlasPanel();
     hideBusyLine();
   }
 }
@@ -1040,25 +1044,196 @@ function paintDemoTabs() {
       : "waiting";
   }
 }
-// The coverage panel is cloned from the inert <template> in index.html while
-// Demo is on and removed when it is off, so it is not in the DOM otherwise.
-function buildCoveragePanel() {
-  if ($("#coverage-panel")) return;
-  const tpl = $("#coverage-svg");
+// ---- patient atlas (D108 addendum 6) --------------------------------------
+// One patient record, every study filed by body region and modality, the
+// way every surgeon would land on the same page. Cloned from the inert
+// <template> in index.html above the twin while Demo is on, removed when off,
+// so it is not in the DOM otherwise. Data: GET /atlas — the 15-region
+// catalogue and the studies the session REALLY holds (meshforge.atlas: today
+// at most the CT the segment step loaded, its coverage declared by checksum).
+// This paints that and nothing else: no earlier study, no other patient, no
+// date (withheld), and `loaded ✓` is the server's own word for the session's
+// source. The modality chip filters the body map and the list alike; a
+// region with studies is lit and carries a count badge; hover (or keyboard
+// focus) names the region and its studies on the line under the figure; a
+// click selects it and filters the list; click again, or Esc, clears.
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ATLAS_IDLE_HINT = "hover a region";
+let atlasData = null; // last GET /atlas payload
+let atlasModality = "All"; // the chip that is on
+let atlasSelected = null; // selected region id, or null
+let atlasHovered = null; // region under the pointer / keyboard focus, or null
+function buildAtlasPanel() {
+  if ($("#atlas-panel")) return;
+  const tpl = $("#atlas-svg");
   const twin = $("#twin-panel");
   if (!tpl || !twin) return;
   const node = tpl.content.firstElementChild.cloneNode(true);
   twin.parentElement.insertBefore(node, twin);
-  for (const btn of node.querySelectorAll(".cov-btn")) {
-    btn.addEventListener("click", () => {
-      node.dataset.layer = btn.dataset.layer;
-      for (const b of node.querySelectorAll(".cov-btn")) b.classList.toggle("on", b === btn);
+  for (const chip of node.querySelectorAll(".atlas-chip")) {
+    chip.addEventListener("click", () => {
+      atlasModality = chip.dataset.modality || "All";
+      paintAtlas();
     });
   }
+  for (const region of node.querySelectorAll(".atlas-region")) {
+    const id = region.dataset.region;
+    const enter = () => {
+      atlasHovered = id;
+      paintAtlasHover();
+    };
+    const leave = () => {
+      if (atlasHovered === id) atlasHovered = null;
+      paintAtlasHover();
+    };
+    region.addEventListener("mouseenter", enter);
+    region.addEventListener("mouseleave", leave);
+    region.addEventListener("focus", enter);
+    region.addEventListener("blur", leave);
+    region.addEventListener("click", () => selectAtlasRegion(atlasSelected === id ? null : id));
+    region.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectAtlasRegion(atlasSelected === id ? null : id);
+      }
+    });
+  }
+  document.addEventListener("keydown", atlasEscape);
+  paintAtlas(); // the catalogue's own labels until /atlas answers
+  refreshAtlas().catch(() => {});
 }
-function removeCoveragePanel() {
-  const p = $("#coverage-panel");
+function atlasEscape(e) {
+  if (e.key === "Escape" && atlasSelected !== null) selectAtlasRegion(null);
+}
+function removeAtlasPanel() {
+  const p = $("#atlas-panel");
   if (p) p.remove();
+  document.removeEventListener("keydown", atlasEscape);
+  atlasSelected = null;
+  atlasHovered = null;
+}
+function selectAtlasRegion(id) {
+  atlasSelected = id;
+  paintAtlas();
+}
+// Fetched with the twin on every session change; a no-op while the panel is
+// not in the DOM (Demo off), so the plain Workbench never calls /atlas.
+async function refreshAtlas() {
+  if (!$("#atlas-panel")) return;
+  try {
+    atlasData = await apiGet("/atlas");
+  } catch (err) {
+    return; // a hiccup must not spam the log; the next refresh retries
+  }
+  paintAtlas();
+}
+// The studies on file, under the chip, in one region (or all when null).
+function atlasStudies(regionId) {
+  const all = (atlasData && atlasData.studies) || [];
+  return all.filter(
+    (s) =>
+      (atlasModality === "All" || s.modality === atlasModality) &&
+      (!regionId || (s.regions || []).includes(regionId))
+  );
+}
+function atlasRegionName(id) {
+  const r = ((atlasData && atlasData.regions) || []).find((x) => x.id === id);
+  if (r) return r.name;
+  const el = document.querySelector(`.atlas-region[data-region="${id}"]`);
+  return el ? el.getAttribute("aria-label") : id;
+}
+function paintAtlas() {
+  const panel = $("#atlas-panel");
+  if (!panel) return;
+  panel.dataset.modality = atlasModality;
+  for (const chip of panel.querySelectorAll(".atlas-chip")) {
+    chip.classList.toggle("on", (chip.dataset.modality || "All") === atlasModality);
+  }
+  $("#atlas-patient").textContent = (atlasData && atlasData.patient) || "no patient loaded";
+  const badges = panel.querySelector(".atlas-badges");
+  badges.innerHTML = "";
+  for (const region of panel.querySelectorAll(".atlas-region")) {
+    const id = region.dataset.region;
+    const n = atlasStudies(id).length;
+    region.dataset.has = n > 0 ? "1" : "0";
+    region.classList.toggle("selected", atlasSelected === id);
+    region.setAttribute("aria-pressed", atlasSelected === id ? "true" : "false");
+    if (n > 0) {
+      const g = document.createElementNS(SVG_NS, "g");
+      g.setAttribute("class", "atlas-badge");
+      const c = document.createElementNS(SVG_NS, "circle");
+      c.setAttribute("cx", region.dataset.cx);
+      c.setAttribute("cy", region.dataset.cy);
+      c.setAttribute("r", "7");
+      const t = document.createElementNS(SVG_NS, "text");
+      t.setAttribute("x", region.dataset.cx);
+      t.setAttribute("y", region.dataset.cy);
+      t.textContent = String(n);
+      g.append(c, t);
+      badges.appendChild(g);
+    }
+  }
+  paintAtlasHover();
+  $("#atlas-scope").textContent = atlasSelected ? atlasRegionName(atlasSelected) : "all regions";
+  const list = $("#atlas-studies");
+  list.innerHTML = "";
+  const rows = atlasStudies(atlasSelected);
+  if (!rows.length) {
+    const li = document.createElement("li");
+    li.className = "atlas-empty";
+    const what = atlasModality === "All" ? "studies" : `${atlasModality} studies`;
+    const where = atlasSelected ? atlasRegionName(atlasSelected) : "this patient";
+    li.textContent = `no ${what} on file for ${where} — X-ray, CT, MRI, US would list here`;
+    list.appendChild(li);
+  }
+  for (const s of rows) {
+    const li = document.createElement("li");
+    const tag = document.createElement("span");
+    tag.className = "atlas-tag";
+    tag.textContent = s.modality;
+    const desc = document.createElement("span");
+    desc.className = "atlas-desc";
+    desc.textContent = shownText(s.description || "");
+    const date = document.createElement("span");
+    date.className = "atlas-date";
+    date.textContent = s.date || ""; // the server withholds dates (no PHI); nothing is made up here
+    const status = document.createElement("span");
+    status.className = "atlas-status";
+    status.textContent = s.status || "";
+    li.append(tag, desc, date, status);
+    if (s.loaded) {
+      const loaded = document.createElement("span");
+      loaded.className = "atlas-loaded";
+      loaded.textContent = "loaded ✓";
+      li.appendChild(loaded);
+    }
+    list.appendChild(li);
+  }
+  const n = atlasData ? Number(atlasData.n_patients) || 0 : 0;
+  $("#atlas-caption").textContent =
+    `atlas · ${n} patient${n === 1 ? "" : "s"} on file · regions without studies are dim · sides are the patient's`;
+}
+// The line under the figure: the hovered (or focused) region, else the
+// selected one, else the idle hint.
+function paintAtlasHover() {
+  const el = $("#atlas-hover");
+  if (!el) return;
+  const id = atlasHovered || atlasSelected;
+  if (!id) {
+    el.textContent = ATLAS_IDLE_HINT;
+    return;
+  }
+  const name = atlasRegionName(id);
+  const rows = atlasStudies(id);
+  const mod = atlasModality === "All" ? "" : `${atlasModality} `;
+  if (!rows.length) {
+    el.textContent = `${name} · no ${mod}studies on file`;
+    return;
+  }
+  const current = rows.find((s) => s.status === "current") || rows[0];
+  const count =
+    rows.length === 1 ? `1 ${rows[0].modality} study` : `${rows.length} ${mod}studies`;
+  el.textContent = `${name} · ${count} · ${current.status}: ${current.modality} ${shownText(current.description || "")}`;
 }
 // A NEW result wipes in over ~2 s: a cover over the canvas (CSS clip-path
 // transition) — presentation of the final data, nothing invented.
@@ -1236,6 +1411,7 @@ async function init() {
   await refreshHistory();
   await refreshState();
   await refreshTwin(); // pending slots before a run; filled if a session is in progress
+  await refreshAtlas(); // the patient atlas, while Demo is on
   await refreshViewport(true); // paints if a session was already in progress
   startAutoRefresh(); // keep the view current on external session changes
   log("Workbench ready." + (viewportUp ? "" : " (3-D viewport unavailable)"));

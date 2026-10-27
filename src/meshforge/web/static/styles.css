@@ -583,29 +583,51 @@ details.step-box[data-demo-state="done"] .demo-mark::before { content: "✓"; wi
 .vp-busy[hidden] { display: none; }
 @keyframes vp-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 
-/* planned-coverage panel (above the twin; exists only while Demo is on) */
-.coverage .cov-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
-.coverage .cov-btn {
-  font: inherit; font-size: 10.5px; letter-spacing: .04em; padding: 4px 9px; cursor: pointer;
+/* patient-atlas panel (above the twin; exists only while Demo is on). The
+   body map: 15 regions, each its own path, filed by the PATIENT's side. A
+   region with studies is lit (accent fill, solid edge, a count badge); one
+   without is dim (dashed edge); the modality chip filters both, like the
+   study list. Hover brightens the fill and turns the edge white; a click
+   selects (accent 2 px edge). Strokes are screen pixels (non-scaling). */
+/* the title bar may wrap: the patient line is long */
+.atlas > .panel-title { height: auto; min-height: 23px; padding-top: 3px; padding-bottom: 3px; line-height: 1.25; }
+.atlas > .panel-title .muted { text-align: right; line-height: 1.2; }
+.atlas .atlas-chips { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px var(--pad) 4px; }
+.atlas .atlas-chip {
+  font: inherit; font-size: 10.5px; letter-spacing: .04em; padding: 3px 9px; cursor: pointer;
   color: #c9ced5; background: #2a2e33; border: 1px solid #3a3f46; border-radius: 12px;
 }
-.coverage .cov-btn.on { color: #fff; background: #ff5d55; border-color: #ff5d55; }
-.coverage .cov-svg { display: block; width: auto; height: 190px; margin: 0 auto; }
-.coverage .cov-body { fill: #2a2d31; stroke: #8a8f96; stroke-width: 1.1; }
-.coverage .cov-bone { fill: none; stroke: #d7dbe0; stroke-width: 1.5; stroke-linecap: round; }
-.coverage .cov-skull { fill: none; stroke: #d7dbe0; stroke-width: 1.2; opacity: .6; }
-.coverage .cov-artery { fill: none; stroke: #ff6a5e; stroke-width: 1.5; stroke-linecap: round; }
-.coverage .cov-vein { fill: none; stroke: #5b8cff; stroke-width: 1; stroke-linecap: round; opacity: .75; }
-.coverage .cov-aorta { fill: none; stroke: #ff4a3c; stroke-width: 2.6; stroke-linecap: round; }
-.coverage .cov-sac { fill: rgba(255, 74, 60, .25); stroke: #ff4a3c; stroke-width: 2.2; }
-.coverage .cov-next { fill: none; stroke: #9aa0a8; stroke-width: 1.1; stroke-dasharray: 2.5 2; }
-.coverage .cov-brain { fill: #b48cff; opacity: .85; }
-.coverage .cov-sulcus { fill: none; stroke: #e6d9ff; stroke-width: .8; opacity: .8; }
-.coverage .cov-layer { transition: opacity .25s; }
-.coverage[data-layer="circulatory"] #layer-skeletal,
-.coverage[data-layer="circulatory"] #layer-brain,
-.coverage[data-layer="skeletal"] #layer-circulatory,
-.coverage[data-layer="skeletal"] #layer-brain,
-.coverage[data-layer="brain"] #layer-circulatory,
-.coverage[data-layer="brain"] #layer-skeletal { opacity: .14; }
-.coverage .cov-caption { margin: 6px 0 0; font-size: 10.5px; color: #9aa0a8; line-height: 1.35; }
+.atlas .atlas-chip.on { color: #fff; background: #ff5d55; border-color: #ff5d55; }
+.atlas .atlas-svg { display: block; width: auto; height: 224px; margin: 2px auto 0; overflow: visible; }
+.atlas .atlas-region {
+  fill: rgba(201, 204, 209, .08); stroke: #6f757d; stroke-width: 1px; stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke; cursor: pointer; outline: none;
+  transition: fill .15s, stroke .15s;
+}
+.atlas .atlas-region[data-has="1"] { fill: rgba(255, 93, 85, .35); stroke: #ff5d55; stroke-dasharray: none; }
+body.demo .atlas .atlas-region:hover,
+body.demo .atlas .atlas-region:focus-visible { fill: rgba(201, 204, 209, .24); stroke: #fff; }
+body.demo .atlas .atlas-region[data-has="1"]:hover,
+body.demo .atlas .atlas-region[data-has="1"]:focus-visible { fill: rgba(255, 93, 85, .58); stroke: #fff; }
+body.demo .atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px; stroke-dasharray: none; }
+.atlas .atlas-badge circle { fill: #ff5d55; stroke: #1b1c1e; stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.atlas .atlas-badge text { fill: #fff; font: 700 9px var(--ui); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.atlas .atlas-hover { margin: 6px var(--pad) 0; min-height: 15px; font-size: 11px; color: #e3e6ea; line-height: 1.35; }
+.atlas .atlas-list-title {
+  margin: 8px var(--pad) 2px; font: 600 10.5px/1 var(--ui); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-head);
+}
+.atlas .atlas-list-title span { text-transform: none; letter-spacing: 0; color: #c9ced5; }
+.atlas .atlas-studies { list-style: none; margin: 0; padding: 0 var(--pad); }
+.atlas .atlas-studies li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 4px 0;
+  border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink);
+}
+.atlas .atlas-tag {
+  padding: 1px 6px; border-radius: 3px; background: #2a2e33; border: 1px solid #3a3f46;
+  font: 700 10px/1.4 var(--mono); color: #e3e6ea;
+}
+.atlas .atlas-date, .atlas .atlas-status { color: #9aa0a8; }
+.atlas .atlas-loaded { margin-left: auto; color: #5fd08a; font-weight: 600; }
+.atlas .atlas-empty { color: #8b9098; font-style: italic; }
+.atlas .atlas-caption { margin: 6px var(--pad) 0; font-size: 10.5px; color: #9aa0a8; line-height: 1.35; }

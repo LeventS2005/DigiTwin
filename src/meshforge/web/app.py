@@ -270,6 +270,16 @@ def create_app() -> FastAPI:
 
         return twin_from_journal(list(holder.session.journal))
 
+    # -- patient atlas (D108 addendum 6): the body regions and the studies --
+    # the session really holds (meshforge.atlas; at most the CT the segment
+    # step loaded). Read-only and VTK-free (session attributes only), so it
+    # stays outside the session lock like /state and /twin.
+    @app.get("/atlas")
+    def get_atlas():
+        from meshforge.atlas import atlas_for
+
+        return atlas_for(holder.session)
+
     # The copilot's --flow-metrics over --server: the session journals the
     # pre-computed CFD numbers as their own flow_metrics record (nothing is
     # computed, no VTK), so GET /twin and the report print the same flow

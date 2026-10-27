@@ -389,7 +389,7 @@ def test_no_local_folder_reaches_the_screen(app_js: str) -> None:
 # The Demo switch in the top bar sets ``body.demo``; everything it changes is
 # CSS under that class plus a few app.js functions that only act under it.
 # These guards keep the contract: off = the Workbench unchanged; on = the AAA
-# path's steps as numbered tabs, a reveal, the running step, the coverage panel.
+# path's steps as numbered tabs, a reveal, the running step, the patient atlas.
 
 _DEMO_STEP_RE = re.compile(r'\["(?P<step>[a-z_0-9]+)",\s*"(?P<title>[^"]+)",\s*"(?P<hint>[^"]+)"\]')
 
@@ -507,21 +507,70 @@ def test_reveal_and_busy_line_act_only_in_demo_mode(app_js: str, index_html: str
     assert ".vp-busy {" in styles_css
 
 
-def test_coverage_panel_is_a_template_with_named_layers_and_the_caption(index_html: str, app_js: str, styles_css: str) -> None:
-    assert '<template id="coverage-svg">' in index_html
-    tpl = index_html[index_html.index('<template id="coverage-svg">'):index_html.index("</template>")]
-    for layer in ("layer-circulatory", "layer-skeletal", "layer-brain", "aorta-live"):
-        assert f'id="{layer}"' in tpl, layer
-    assert "Planned coverage · illustration, not data. Aorta: live today (module 1). Heart, kidneys: next." in tpl
-    for lab in ("Circulatory · CT / MRI / PET", "Skeletal · X-ray", "Brain · MRI / PET"):
-        assert lab in tpl, lab
+def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_only(
+    index_html: str, app_js: str, styles_css: str
+) -> None:
+    """D108 addendum 6: the patient atlas replaces the coverage illustration.
+    The body map is exactly the 15 regions of meshforge.atlas.REGIONS (same
+    ids, same names, in order), each focusable and labelled; six modality
+    chips with All on; every study row comes from GET /atlas (nothing about
+    the demo scan is written into the page); the empty state names what
+    WOULD list and invents nothing; hover / focus / selected rules exist only
+    under body.demo."""
+    from meshforge import atlas as atlas_mod
+
+    assert '<template id="atlas-svg">' in index_html
+    t0 = index_html.index('<template id="atlas-svg">')
+    tpl = index_html[t0:index_html.index("</template>", t0)]
+    regions = re.findall(
+        r'<path class="atlas-region" data-region="([a-z_]+)" tabindex="0" aria-label="([^"]+)" role="button"'
+        r' data-cx="\d+" data-cy="\d+" d="M[^"]+Z"/>',
+        tpl,
+    )
+    assert len(regions) == 15 and tpl.count('class="atlas-region"') == 15
+    assert [rid for rid, _ in regions] == [rid for rid, _ in atlas_mod.REGIONS]
+    assert dict(regions) == dict(atlas_mod.REGIONS)  # the aria-labels are the catalogue's names
+    assert len(atlas_mod.REGIONS) == 15 and len({rid for rid, _ in atlas_mod.REGIONS}) == 15
+    # sides are the patient's: a right-side region is drawn on the viewer's left
+    xr = int(re.search(r'data-region="hand_r"[^>]*data-cx="(\d+)"', tpl).group(1))
+    xl = int(re.search(r'data-region="hand_l"[^>]*data-cx="(\d+)"', tpl).group(1))
+    assert xr < 75 < xl
+    assert "the patient's right is on the left" in tpl
+    chips = re.findall(r'<button type="button" class="atlas-chip( on)?" data-modality="([^"]+)">([^<]+)</button>', tpl)
+    assert [m for _, m, _ in chips] == ["All", "CT", "MRI", "X-ray", "US", "Angio"]
+    assert [m for _, m, lab in chips if lab != m] == [] and [m for on, m, _ in chips if on] == ["All"]
+    assert [m for _, m, _ in chips][1:] == list(atlas_mod.MODALITIES)
+    assert 'id="atlas-hover"' in tpl and 'id="atlas-studies"' in tpl and 'id="atlas-scope"' in tpl
+    assert "atlas · regions without studies are dim · sides are the patient's" in tpl
+    # real rows only: the page and the script know no study, no scan, no patient
+    atlas_js = app_js[app_js.index("// ---- patient atlas"):app_js.index("// A NEW result wipes in")]
+    for banned in ("abdomen + pelvis", "s1364", "1.5 mm", "prior", "TotalSegmentator", "date withheld"):
+        assert banned not in tpl, banned
+        assert banned not in atlas_js, banned
+    assert 'apiGet("/atlas")' in app_js
+    assert 'loaded.textContent = "loaded ✓";' in app_js and "if (s.loaded) {" in app_js
+    assert "would list here" in app_js  # the empty state
+    assert "regions without studies are dim · sides are the patient's" in app_js
     # cloned above the twin only while Demo is on, removed when off
     apply = app_js[app_js.index("function applyDemo(on)"):app_js.index("function decorateDemoPanels()")]
-    assert "buildCoveragePanel();" in apply and "removeCoveragePanel();" in apply
+    assert "buildAtlasPanel();" in apply and "removeAtlasPanel();" in apply
     assert "twin.parentElement.insertBefore(node, twin)" in app_js
-    # the aorta is outside the dimmed layer groups, so it stays lit in every mode
-    assert '.coverage[data-layer="skeletal"] #layer-circulatory' in styles_css
-    assert "#aorta-live" not in styles_css.split("/* planned-coverage panel")[1].split("opacity: .14")[0].replace("#layer", "")
+    # refreshed with the twin on every session change; a no-op while Demo is off
+    assert app_js.count("await refreshAtlas();") == app_js.count("await refreshTwin();") >= 4
+    refresh = app_js[app_js.index("async function refreshAtlas()"):]
+    assert 'if (!$("#atlas-panel")) return;' in refresh[:120]
+    # states: has / none by data attribute; hover, focus and selected under body.demo only
+    assert '.atlas .atlas-region[data-has="1"]' in styles_css
+    assert "body.demo .atlas .atlas-region:hover" in styles_css
+    assert "body.demo .atlas .atlas-region:focus-visible" in styles_css
+    assert "body.demo .atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px;" in styles_css
+    for line in styles_css.splitlines():
+        if ".atlas-region" in line and (":hover" in line or ".selected" in line or ":focus-visible" in line):
+            assert line.startswith("body.demo "), line
+    # keyboard: Enter / Space select, Esc clears; click again clears
+    assert 'e.key === "Enter" || e.key === " "' in app_js
+    assert 'e.key === "Escape" && atlasSelected !== null' in app_js
+    assert "selectAtlasRegion(atlasSelected === id ? null : id)" in app_js
 
 
 def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
@@ -529,7 +578,8 @@ def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
     for banned in ("rupture probability", "time to rupture", "diagnos", "predict"):
         # "not a diagnosis" is allowed in the twin foot; the demo additions add no claim
         assert banned not in app_js[app_js.index("const DEMO_STEPS"):app_js.index("async function init()")]
-    assert "illustration, not data" in demo_text
+    assert "regions without studies are dim" in demo_text  # the atlas: real studies only, nothing invented
+    assert "no patient loaded" in demo_text
 
 
 def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:

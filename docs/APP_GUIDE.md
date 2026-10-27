@@ -768,11 +768,34 @@ with `?demo=1` (it is also remembered in the browser). On:
   its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
   the copilot drives the server over `--server` (from `GET /state`
   `running` / `running_for`);
-- a **planned coverage** panel above the twin: the body outline with the
-  circulatory system (CT, MRI, PET), the skeletal system (X-ray) and brain
-  tissue (MRI, PET) as layers you toggle; the aorta stays lit as the live
-  module. It is an illustration of what the twin is meant to cover, not
-  data, and the panel says so.
+- a **patient atlas** panel above the twin: one patient record, every
+  study filed by body region and modality — the page every surgeon would
+  land on, whichever region they treat. A front-view body map of 15
+  regions (head and neck, chest, torso, and the shoulders, arms, hands,
+  upper legs, lower legs and feet by the **patient's** side: the patient's
+  right is on your left, as on a scan; the caption says so). The chips
+  under the header (All · CT · MRI · X-ray · US · Angio) filter the map and
+  the study list alike. A region with studies is lit (accent fill, solid
+  edge, a count badge); one without is dim (dashed edge). Hover a region
+  (or Tab to it) and the line under the figure names it and its studies,
+  e.g. "Torso (abdomen and pelvis) · 1 CT study · current: CT abdomen +
+  pelvis + lower chest · 1.5 mm" or "Right upper leg · no studies on file".
+  Click a region to select it (accent 2 px edge): the study list filters
+  to it; click again, or press Esc, to clear. Each study row shows the
+  modality, the description, the date, current / prior, and **loaded ✓**
+  when it is the scan this session is working on.
+  **Honesty rules.** Every row comes from `GET /atlas` (`meshforge.atlas`),
+  which lists exactly the scans the session loaded: today at most one, the
+  CT the `segment` step outlined (the ghost's outline is the marker; an STL,
+  a synthetic tube or a CAD import is not a study). Its body coverage is
+  declared only for the public demo CT (TotalSegmentator v2 subject s1364,
+  CC BY 4.0, matched by checksum: chest + torso); any other CT is listed
+  with its coverage "unassigned" and lights no region. No prior study, no
+  other patient and no date are ever shown (dates are withheld — no PHI);
+  the header reads "no patient loaded" until a scan is in, and the empty
+  state says what *would* list there ("no studies on file for Right foot —
+  X-ray, CT, MRI, US would list here"). Loading a study from the atlas is
+  not wired (no button); the list is a record, not a launcher.
 
 Off, the Workbench is exactly the one described above. Demo mode changes
 nothing about what any step computes.
