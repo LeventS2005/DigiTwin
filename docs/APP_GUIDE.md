@@ -743,11 +743,21 @@ The right-pane **history** table lists journaled steps (step | params | summary)
 For a demo or a recording. Flip **Demo** in the top bar, or open the page
 with `?demo=1` (it is also remembered in the browser). On:
 
-- the left pane shows three groups of the usual step panels and nothing
-  else — **Load** (`import_image`, `import_cso`), **Contour & mesh**
-  (`segment`, `sac`, `crop`, `wall`, `volmesh`), **Simulate**
-  (`aaa_stress`, `tissue_index`, `cfd`); Quick start, the synth source box
-  and the history table are hidden (the session panel stays: Save work file);
+- the left pane shows the AAA path's six steps as numbered tabs, in the
+  order the copilot runs them, and nothing else — **1 Load scan**
+  (`segment`: the CT goes in, the AI outlines the aorta; the `sac` recovery
+  runs in its turn), **2 Crop aneurysm** (`crop`), **3 Mesh wall**
+  (`volmesh`), **4 Wall stress · FEA** (`aaa_stress`), **5 Strength index**
+  (`tissue_index`), **6 Blood flow · CFD** (`cfd`; the copilot's pre-computed
+  flow metrics fill it). Each tab is the step's own panel, closed: a click
+  opens its knobs and Run button. Its mark shows waiting, running (the step
+  holding the session, red, pulsing) or done (green ✓: a record for it is in
+  the journal, so a re-run upstream puts the tabs after it back to waiting);
+  the Mesh wall tab shows failed (red ✕) while the copilot's last `mesh_wall`
+  call failed its quality gate — the twin's wall slot says the same, in the
+  same words — until a re-mesh lands.
+  Quick start, the synth source box and the history table are hidden (the
+  session panel stays: Save work file);
 - a **new result wipes in** over about two seconds instead of appearing at
   once (a cover over the viewport; the mesh underneath is the final one);
 - the **step running on the server** shows bottom-left of the viewport with

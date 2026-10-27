@@ -388,19 +388,16 @@ def test_no_local_folder_reaches_the_screen(app_js: str) -> None:
 # ---- Demo mode (D108): presentation layout, off by default ----------------
 # The Demo switch in the top bar sets ``body.demo``; everything it changes is
 # CSS under that class plus a few app.js functions that only act under it.
-# These guards keep the contract: off = the Workbench unchanged; on = three
-# panel groups of real steps, a reveal, the running step, the coverage panel.
+# These guards keep the contract: off = the Workbench unchanged; on = the AAA
+# path's steps as numbered tabs, a reveal, the running step, the coverage panel.
 
-_DEMO_GROUP_RE = re.compile(r'\["(?P<title>[^"]+)",\s*\[(?P<steps>[^\]]+)\]\]')
+_DEMO_STEP_RE = re.compile(r'\["(?P<step>[a-z_0-9]+)",\s*"(?P<title>[^"]+)",\s*"(?P<hint>[^"]+)"\]')
 
 
-def _demo_groups(app_js: str) -> dict[str, list[str]]:
-    start = app_js.index("const DEMO_GROUPS = [")
+def _demo_steps(app_js: str) -> list[tuple[str, str, str]]:
+    start = app_js.index("const DEMO_STEPS = [")
     end = app_js.index("];", start)
-    groups: dict[str, list[str]] = {}
-    for m in _DEMO_GROUP_RE.finditer(app_js[start:end]):
-        groups[m.group("title")] = re.findall(r'"([a-z_0-9]+)"', m.group("steps"))
-    return groups
+    return [(m.group("step"), m.group("title"), m.group("hint")) for m in _DEMO_STEP_RE.finditer(app_js[start:end])]
 
 
 def test_demo_switch_is_in_the_top_bar_and_persists(index_html: str, app_js: str) -> None:
@@ -413,22 +410,31 @@ def test_demo_switch_is_in_the_top_bar_and_persists(index_html: str, app_js: str
     assert 'get("demo")' in app_js and 'getItem("meshforge.demo")' in app_js
 
 
-def test_demo_groups_name_real_steps_load_mesh_simulate(app_js: str) -> None:
-    groups = _demo_groups(app_js)
-    assert list(groups) == ["Load", "Contour & mesh", "Simulate"]
-    for title, steps in groups.items():
-        assert steps, title
-        for step in steps:
-            assert step in STEP_ORDER, f"{title}: {step} is not a pipeline step"
-    assert any(s.startswith("import_") for s in groups["Load"])
-    assert {"wall", "volmesh"} <= set(groups["Contour & mesh"])
-    assert {"aaa_stress", "cfd"} <= set(groups["Simulate"])  # FEA + CFD stay
+def test_demo_tabs_are_the_aaa_path_in_run_order(app_js: str) -> None:
+    """Four to seven tabs, real steps, in the order the copilot runs them —
+    which is also their STEP_ORDER (DOM) order, so no reordering is needed."""
+    tabs = _demo_steps(app_js)
+    steps = [t[0] for t in tabs]
+    assert steps == ["segment", "crop", "volmesh", "aaa_stress", "tissue_index", "cfd"]
+    assert 4 <= len(steps) <= 7
+    places = [STEP_ORDER.index(s) for s in steps]  # KeyError-free: every one is a step
+    assert places == sorted(places), "the tabs must sit in STEP_ORDER, the panels' DOM order"
+    titles = [t[1] for t in tabs]
+    assert titles[0].startswith("Load"), "the first tab is the scan going in"
+    assert any("FEA" in t for t in titles) and any("CFD" in t for t in titles)
+    assert all(t[1] and t[2] for t in tabs), "every tab has a title and a hint"
+    # the sub-steps without a tab of their own map onto one that exists
+    aliases = re.search(r"const DEMO_STEP_OF = \{([^}]*)\};", app_js).group(1)
+    for alias, target in re.findall(r'([a-z_]+):\s*"([a-z_]+)"', aliases):
+        assert target in steps, (alias, target)
+    assert "sac" in aliases and "flow_metrics" in aliases
 
 
 def test_demo_layout_hides_everything_else_only_under_body_demo(styles_css: str, index_html: str) -> None:
     rules = {
         "body.demo #step-panels > details.step-box { display: none; }",
         'body.demo #step-panels > details.step-box[data-demo="1"] { display: block; }',
+        'body.demo #step-panels > details.step-box[data-demo="1"] > summary .step-name { display: none; }',
         "body.demo #help { display: none; }",
         "body.demo #source-box { display: none; }",
         "body.demo #history-panel { display: none; }",
@@ -440,12 +446,52 @@ def test_demo_layout_hides_everything_else_only_under_body_demo(styles_css: str,
     for line in styles_css.splitlines():
         if "details.step-box" in line and "display: none" in line:
             assert line.startswith("body.demo "), line
+    # the tab itself exists only under body.demo; off, the step's own name shows
+    assert ".demo-tab { display: none; }" in styles_css
+    assert "body.demo .demo-tab {" in styles_css
 
 
-def test_demo_headings_and_tags_are_set_from_the_groups(app_js: str) -> None:
+def test_demo_tabs_are_numbered_closed_and_marked_from_the_journal(app_js: str, styles_css: str) -> None:
     assert 'box.dataset.demo = "1"' in app_js
-    assert 'h.className = "demo-group"' in app_js
+    assert 'box.dataset.demoState = "waiting"' in app_js
+    assert 'tab.className = "demo-tab"' in app_js and 'num.textContent = String(i + 1)' in app_js
     assert "decorateDemoPanels();" in app_js and "initDemoMode();" in app_js
+    # demo on: the tabs close (the path at a glance) and are painted at once
+    apply = app_js[app_js.index("function applyDemo(on)"):app_js.index("function decorateDemoPanels()")]
+    assert "closeDemoPanels();" in apply and "paintDemoTabs();" in apply
+    # done = in the journal (truncation upstream puts later tabs back to waiting)
+    assert "noteDemoJournal(journal);" in app_js[app_js.index("async function refreshHistory()"):]
+    paint = app_js[app_js.index("function paintDemoTabs()"):]
+    paint = paint[: paint.index("\n}\n") + 3]
+    assert '"running"' in paint and '"done"' in paint and '"waiting"' in paint
+    assert "demoDoneSteps.has(step)" in paint
+    # running = GET /state `running`, through the alias map, on change and on clear
+    busy = app_js[app_js.index("function updateBusyLine(st)"):app_js.index("function initDemoMode()")]
+    assert busy.count("paintDemoTabs();") >= 2
+    for state in ("running", "done", "failed"):
+        assert f'details.step-box[data-demo-state="{state}"]' in styles_css, state
+
+
+def test_demo_mesh_wall_tab_shows_the_gate_failure_in_the_reports_own_words(app_js: str) -> None:
+    """While the copilot's last mesh_wall call failed its gate, the journal
+    still holds that wall's volmesh record; the tab must not read as a pass.
+    The twin's wall slot (GET /twin, from copilot/report.py) says so in a
+    fixed note; app.js matches that note's start, so pin the two together."""
+    import inspect
+
+    from meshforge.copilot import report
+
+    assert 'const WALL_GATE_FAIL_NOTE = "last wall gate FAIL";' in app_js
+    assert 'f"last wall gate FAIL: {' in inspect.getsource(report)
+    assert "noteDemoTwin(twin);" in app_js[app_js.index("function renderTwin(twin)"):]
+    note = app_js[app_js.index("function noteDemoTwin(twin)"):]
+    note = note[: note.index("\n}\n") + 3]
+    assert 's.key === "wall"' in note and "startsWith(WALL_GATE_FAIL_NOTE)" in note
+    paint = app_js[app_js.index("function paintDemoTabs()"):]
+    paint = paint[: paint.index("\n}\n") + 3]
+    assert 'step === "volmesh" && demoWallFailed ? "failed"' in paint
+    # running wins over failed (a re-mesh in progress), failed over done
+    assert paint.index('"running"') < paint.index('"failed"') < paint.index('"done"')
 
 
 def test_reveal_and_busy_line_act_only_in_demo_mode(app_js: str, index_html: str, styles_css: str) -> None:
@@ -482,5 +528,5 @@ def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
     demo_text = index_html[index_html.index('id="demo-switch"'):]
     for banned in ("rupture probability", "time to rupture", "diagnos", "predict"):
         # "not a diagnosis" is allowed in the twin foot; the demo additions add no claim
-        assert banned not in app_js[app_js.index("const DEMO_GROUPS"):app_js.index("async function init()")]
+        assert banned not in app_js[app_js.index("const DEMO_STEPS"):app_js.index("async function init()")]
     assert "illustration, not data" in demo_text
