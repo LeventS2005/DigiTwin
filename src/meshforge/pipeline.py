@@ -957,6 +957,11 @@ class MeshingSession:
         self.cfd = None  # CfdResult from compute_cfd (V23)
         self.aaa_stress = None  # AaaStressResult from compute_aaa_stress (D88)
         self.profile = None  # Profile2D from compute_import_cad (V12)
+        # The AI outline of the whole aorta from the segment step. The sac and
+        # crop steps replace ``surface`` with the piece they work on; this
+        # stays so a front-end can draw the whole vessel behind that piece
+        # (the Workbench's ghost). Cleared by every other source step.
+        self.outline = None
         # D93: the surface the last crop cut, and what it produced; a crop of
         # that unchanged output re-crops the source instead
         self._crop_source = None
@@ -990,6 +995,7 @@ class MeshingSession:
         self.surface = surface
         self.input_path = path
         self.truth = None
+        self.outline = None  # not an AI outline
         self._invalidate_downstream()
         self.length_unit = None  # STL/VTK/... carry no unit
         report = inspect_surface(self.surface, path=str(path), sha256=self.input_sha256)
@@ -1009,6 +1015,7 @@ class MeshingSession:
 
         self.surface, self.truth = generate(shape, **params)
         self.input_path = None
+        self.outline = None  # not an AI outline
         self.input_sha256 = None
         self._invalidate_downstream()
         self.length_unit = None  # synthetic shapes are unitless
@@ -1358,6 +1365,7 @@ class MeshingSession:
         self.surface = surface
         self.input_path = Path(path)
         self.truth = None
+        self.outline = None  # not an AI outline
         self._invalidate_downstream()
         # DICOM patient coordinates are millimetres by the standard; NIfTI
         # follows its xyzt_units (mm, converted, or assumed with a note —
@@ -1473,6 +1481,7 @@ class MeshingSession:
         self.surface = surface
         self.input_path = Path(path)
         self.truth = None
+        self.outline = None  # not an AI outline
         self._invalidate_downstream()
         self.length_unit = "mm"  # CSO world coordinates are millimetres
         # V40: reuse the validated centreline at the volmesh step (None => the
@@ -1567,6 +1576,7 @@ class MeshingSession:
             Path(lumen_out).parent.mkdir(parents=True, exist_ok=True)
             seg.lumen_surface.save(lumen_out)
         self.surface = seg.surface
+        self.outline = seg.surface  # the whole vessel, kept through sac/crop
         self.input_path = Path(path)
         self.input_sha256 = seg.input_sha256
         self.truth = None

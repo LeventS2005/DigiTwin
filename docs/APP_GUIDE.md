@@ -95,7 +95,11 @@ Layout — three panes:
 - The Workbench **auto-refreshes**: it polls the session revision every
   couple of seconds, so when another client (a second tab, the desktop
   window, or a script driving the same server) changes the session, the
-  view re-syncs itself — no manual ⌘R needed.
+  view re-syncs itself — no manual ⌘R needed. After the `segment` step, the whole **AI outline** stays as a faint
+  translucent **ghost** behind whatever is shown next — the recovered
+  sac, the cropped segment, its wall, its stress field — so the piece
+  is seen in the whole aorta (arch and all); it is context only, never
+  coloured, and a non-AI source (synth, a file) has none.
 - **Right — twin, log & history:** on top, the **your twin · v0** panel
   (the copilot report's twin card, live — see §3.9c), then the **log**, the
   **history** table (the journal — it mirrors exactly what a `.mfwork` file

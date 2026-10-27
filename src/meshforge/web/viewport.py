@@ -171,6 +171,20 @@ def serialize(
     return payload
 
 
+def serialize_ghost(mesh: Any, target_reduction: float = 0.6) -> dict[str, Any]:
+    """The ghost outline → its bare vtk.js state: the triangulated surface
+    decimated for transport (it is the whole aorta, the session's largest
+    surface) with every field dropped — the canvas paints it in one faint
+    translucent colour behind the artifact. Display passthrough only; the
+    session's outline is not touched (decimate returns a new mesh)."""
+    from trame_vtk.modules.vtk import vtk_mesh
+
+    tri = mesh.triangulate() if mesh.n_cells else mesh
+    ghost = tri.decimate(target_reduction) if tri.n_cells > 2000 else tri.copy(deep=False)
+    ghost.clear_data()
+    return vtk_mesh(ghost)
+
+
 def serialize_overlay(mesh: Any) -> dict[str, Any]:
     """A QC overlay (e.g. the raw CSO contour polylines) → its bare vtk.js
     state.  Display passthrough only: no colour fields, no ranges — the canvas

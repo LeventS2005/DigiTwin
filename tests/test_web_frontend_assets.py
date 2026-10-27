@@ -530,3 +530,17 @@ def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
         # "not a diagnosis" is allowed in the twin foot; the demo additions add no claim
         assert banned not in app_js[app_js.index("const DEMO_STEPS"):app_js.index("async function init()")]
     assert "illustration, not data" in demo_text
+
+
+def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
+    """GET /geometry's ``ghost`` (the whole AI outline) is a third, faint
+    translucent representation behind the mesh and the QC overlay; load()
+    takes it from the main payload only, clear() drops it."""
+    vp_js = (_static_dir() / "viewport.js").read_text()
+    assert "var GHOST_PROPERTY = { color: [0.78, 0.8, 0.84], opacity: 0.16" in vp_js
+    assert '<vtk-geometry-representation v-if="ghost" :property="ghostProperty">' in vp_js
+    assert vp_js.index('v-if="ghost"') > vp_js.index('v-if="overlay"')  # drawn after, behind by opacity
+    assert 'if (S.ghost && "ghost" in payload) S.ghost.value = (payload.ghost && payload.ghost.state) || null;' in vp_js
+    assert "if (S.ready && S.ghost) S.ghost.value = null;" in vp_js  # clear()
+    assert "setGhost: setGhost," in vp_js
+

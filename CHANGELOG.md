@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench viewport ghost: the whole AI outline behind the piece being
+  shown.** The `segment` step now keeps its outline on the session
+  (`MeshingSession.outline`; every other source step clears it) after the
+  `sac` and `crop` steps replace the working surface, and `GET /geometry`
+  sends it as `ghost` (decimated, fieldless, serialized once per outline)
+  behind every artifact that is not the outline itself — the cropped
+  segment, its wall, its stress field — so the viewer sees the whole aorta,
+  arch and all, around the piece that was meshed. Drawn faint and
+  translucent; context only, never coloured. Tests: `test_web_api.py` (+2),
+  `test_web_frontend_assets.py` (+1).
 - **Workbench Demo mode** (D108; presentation layout, off by default). The
   **Demo** switch in the top bar (URL `?demo=1` or `localStorage`
   `meshforge.demo`) sets `body.demo`: the left pane keeps the AAA path's

@@ -9,7 +9,7 @@
   "use strict";
 
   var S = {
-    app: null, viewRef: null, mesh: null, range: null, preset: null, overlay: null, ready: false,
+    app: null, viewRef: null, mesh: null, range: null, preset: null, overlay: null, ghost: null, ready: false,
     // D82 flow section: the server-sampled section state, whether to show it,
     // and the wall's look while it shows (translucent, so the flow reads).
     section: null, sectionState: null, showSection: true, showWall: false, meshProperty: null, wallVisible: null,
@@ -20,6 +20,10 @@
   // Fixed look for the QC overlay (raw source contours): amber unlit lines so
   // they read over any surface colormap.
   var OVERLAY_PROPERTY = { color: [1.0, 0.72, 0.2], lineWidth: 2, lighting: false };
+  // The ghost: the whole AI outline of the aorta (arch and all), drawn faint
+  // and translucent behind the artifact cut from it, so a cropped segment, its
+  // wall or its stress field is seen in place. Context only, never coloured.
+  var GHOST_PROPERTY = { color: [0.78, 0.8, 0.84], opacity: 0.16, specular: 0.0 };
   // The wall around a shown flow section: a faint shell for context.
   var WALL_UNDER_SECTION = { opacity: 0.15 };
   var WALL_OPAQUE = { opacity: 1.0 };
@@ -45,6 +49,7 @@
     S.range = Vue.ref([0, 1]);
     S.preset = Vue.ref("Cool to Warm");
     S.overlay = Vue.ref(null);
+    S.ghost = Vue.ref(null);
     S.section = Vue.ref(null);
     S.meshProperty = Vue.ref(WALL_OPAQUE);
     S.wallVisible = Vue.ref(true);
@@ -66,6 +71,8 @@
           preset: S.preset,
           overlay: S.overlay,
           overlayProperty: OVERLAY_PROPERTY,
+          ghost: S.ghost,
+          ghostProperty: GHOST_PROPERTY,
           section: S.section,
           meshProperty: S.meshProperty,
           wallVisible: S.wallVisible,
@@ -84,6 +91,9 @@
         '  </vtk-geometry-representation>' +
         '  <vtk-geometry-representation v-if="overlay" :property="overlayProperty">' +
         '    <vtk-mesh :state="overlay"></vtk-mesh>' +
+        '  </vtk-geometry-representation>' +
+        '  <vtk-geometry-representation v-if="ghost" :property="ghostProperty">' +
+        '    <vtk-mesh :state="ghost"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
         "</vtk-view>",
     });
@@ -192,6 +202,8 @@
   function load(payload, resetCamera) {
     if (!S.ready || !payload || !payload.state) return;
     S.mesh.value = payload.state;
+    // The ghost rides on the main payload only (a field or frame swap keeps it).
+    if (S.ghost && "ghost" in payload) S.ghost.value = (payload.ghost && payload.ghost.state) || null;
     S.sectionState = payload.section || null;
     applySection();
     if (payload.data_range && payload.data_range.length === 2) {
@@ -218,6 +230,7 @@
   function clear() {
     if (S.ready && S.mesh) S.mesh.value = null;
     if (S.ready && S.overlay) S.overlay.value = null;
+    if (S.ready && S.ghost) S.ghost.value = null;
     S.sectionState = null;
     if (S.ready) applySection();
     disarmPick();
@@ -228,12 +241,17 @@
   function setOverlay(state) {
     if (S.ready && S.overlay) S.overlay.value = state || null;
   }
+  // Show/hide the ghost outline (a serialized surface state, or null).
+  function setGhost(state) {
+    if (S.ready && S.ghost) S.ghost.value = state || null;
+  }
 
   window.MeshforgeViewport = {
     mount: mount,
     load: load,
     clear: clear,
     setOverlay: setOverlay,
+    setGhost: setGhost,
     setSectionVisible: setSectionVisible,
     setWallVisible: setWallVisible,
     setRange: setRange,

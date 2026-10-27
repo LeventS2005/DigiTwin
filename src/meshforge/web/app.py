@@ -48,6 +48,8 @@ class _SessionHolder:
     def __init__(self) -> None:
         self.session = MeshingSession()
         self.last_render: dict[str, Any] | None = None
+        self.ghost_state = None  # serialized AI outline (GET /geometry ghost)
+        self.ghost_for = None  # the outline object it was made from
         # Monotonic session revision. Bumped on every state-changing call so a
         # frontend can cheaply poll GET /state and re-sync when ANOTHER client
         # (or a replay) changed the shared in-process session (auto-refresh).
@@ -380,6 +382,19 @@ def create_app() -> FastAPI:
                     "state": viewport.serialize_overlay(overlay),
                     "label": hints.get("overlay_label"),
                 }
+            # The ghost: the session's AI outline of the whole aorta (kept by
+            # the segment step after the sac/crop steps replace the working
+            # surface), behind every artifact cut from it; not behind itself.
+            # Serialized once per outline (it is the biggest mesh in the
+            # session) and reused until the outline changes.
+            outline = getattr(holder.session, "outline", None)
+            if outline is not None and hints["mesh"] is not outline:
+                if holder.ghost_for is not outline:
+                    holder.ghost_state = viewport.serialize_ghost(outline)
+                    holder.ghost_for = outline
+                payload["ghost"] = {"state": holder.ghost_state, "label": "AI outline"}
+            else:
+                payload["ghost"] = None
             return payload
 
         return _run(work)
