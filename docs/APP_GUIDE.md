@@ -770,14 +770,16 @@ with `?demo=1` (it is also remembered in the browser). On:
   `running` / `running_for`);
 - a **patient atlas** panel above the twin: one patient record, every
   study filed by body region and modality — the page every surgeon would
-  land on, whichever region they treat. A front-view body map of 15
-  regions (head and neck, chest, torso, and the shoulders, arms, hands,
-  upper legs, lower legs and feet by the **patient's** side: the patient's
-  right is on your left, as on a scan; the caption says so). The chips
-  under the header (All · CT · MRI · X-ray · US · Angio) filter the map and
-  the study list alike. A region with studies is lit (accent fill, solid
-  edge, a count badge); one without is dim (dashed edge). Hover a region
-  (or Tab to it) and the line under the figure names it and its studies,
+  land on, whichever region they treat. On the left, a front-view body
+  silhouette of 15 regions (head and neck, chest, torso, and the
+  shoulders, arms, hands, upper legs, lower legs and feet by the
+  **patient's** side: the patient's right is on your left, as on a scan;
+  the caption says so). Beside it, the modality chips (All · CT · MRI ·
+  X-ray · US · Angio), which filter the map and the study list alike, the
+  hover line and the study list. A region with studies is lit (accent
+  fill and edge, a count badge); one without is dim (faint solid edge).
+  Hover a region (or Tab to it): its edge turns white, its name appears on
+  the figure, and the line beside the figure names it and its studies,
   e.g. "Torso (abdomen and pelvis) · 1 CT study · current: CT abdomen +
   pelvis + lower chest · 1.5 mm" or "Right upper leg · no studies on file".
   Click a region to select it (accent 2 px edge): the study list filters

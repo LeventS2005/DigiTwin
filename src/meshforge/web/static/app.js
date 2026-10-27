@@ -1164,7 +1164,7 @@ function paintAtlas() {
       const c = document.createElementNS(SVG_NS, "circle");
       c.setAttribute("cx", region.dataset.cx);
       c.setAttribute("cy", region.dataset.cy);
-      c.setAttribute("r", "7");
+      c.setAttribute("r", "5.5"); // an 11 px badge (1 unit = 1 px)
       const t = document.createElementNS(SVG_NS, "text");
       t.setAttribute("x", region.dataset.cx);
       t.setAttribute("y", region.dataset.cy);
@@ -1219,6 +1219,7 @@ function paintAtlasHover() {
   const el = $("#atlas-hover");
   if (!el) return;
   const id = atlasHovered || atlasSelected;
+  paintAtlasFigureLabel(id);
   if (!id) {
     el.textContent = ATLAS_IDLE_HINT;
     return;
@@ -1234,6 +1235,37 @@ function paintAtlasHover() {
   const count =
     rows.length === 1 ? `1 ${rows[0].modality} study` : `${rows.length} ${mod}studies`;
   el.textContent = `${name} · ${count} · ${current.status}: ${current.modality} ${shownText(current.description || "")}`;
+}
+// The hovered (or selected) region's name ON the figure: a dark pill with
+// white text centred on the region's badge point, kept inside the figure's
+// width, so the eye on the figure reads the name without leaving it. The
+// line under the chips says the same, with the studies.
+const ATLAS_FIG_W = 170;
+function paintAtlasFigureLabel(id) {
+  const layer = document.querySelector("#atlas-panel .atlas-labels");
+  if (!layer) return;
+  layer.innerHTML = "";
+  if (!id) return;
+  const region = document.querySelector(`.atlas-region[data-region="${id}"]`);
+  if (!region) return;
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "atlas-label");
+  const rect = document.createElementNS(SVG_NS, "rect");
+  const text = document.createElementNS(SVG_NS, "text");
+  text.textContent = atlasRegionName(id);
+  g.append(rect, text);
+  layer.appendChild(g);
+  const w = (text.getComputedTextLength ? text.getComputedTextLength() : 7 * text.textContent.length) + 12;
+  const h = 18;
+  const cx = Math.min(Math.max(Number(region.dataset.cx) || 0, w / 2 + 1), ATLAS_FIG_W - w / 2 - 1);
+  const cy = Number(region.dataset.cy) || 0;
+  rect.setAttribute("x", String(cx - w / 2));
+  rect.setAttribute("y", String(cy - h / 2));
+  rect.setAttribute("width", String(w));
+  rect.setAttribute("height", String(h));
+  rect.setAttribute("rx", "4");
+  text.setAttribute("x", String(cx));
+  text.setAttribute("y", String(cy));
 }
 // A NEW result wipes in over ~2 s: a cover over the canvas (CSS clip-path
 // transition) — presentation of the final data, nothing invented.

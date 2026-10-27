@@ -151,12 +151,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   patient record with every study filed by body region and modality: a
   front-view body map of 15 regions (head and neck, chest, torso, and the
   shoulders, arms, hands, upper legs, lower legs and feet by the PATIENT's
-  side — the patient's right is on the viewer's left, as on a scan), a row
-  of modality chips (All · CT · MRI · X-ray · US · Angio) that filters the
-  map and the study list alike, a hover line naming the region and its
-  studies (keyboard focus too), click to select a region and filter the
-  list (click again or Esc clears), and the study list with a count badge
-  per lit region. Honesty rules: every row comes from the new read-only
+  side — the patient's right is on the viewer's left, as on a scan), drawn
+  as a natural silhouette at 170 × 330 px on the left of the panel, with
+  the modality chips (All · CT · MRI · X-ray · US · Angio), the hover line
+  and the study list beside it; a chip filters the map and the list alike;
+  hovering (or keyboard focus) names the region and its studies on the
+  line and as a label on the figure itself; click selects a region and
+  filters the list (click again or Esc clears); a lit region carries an
+  11 px count badge. Region states are sized for a screen recording (dim:
+  neutral fill, faint solid outline; lit: accent fill and outline; hover:
+  brighter fill, white outline; selected: 2 px accent outline). Honesty
+  rules: every row comes from the new read-only
   `GET /atlas` (`meshforge.atlas`), which lists exactly the scans the
   session loaded — today at most the CT the `segment` step outlined,
   `loaded ✓` — with its body coverage declared only for the public demo

@@ -177,37 +177,50 @@
     <template id="atlas-svg">
       <section id="atlas-panel" class="dock-panel atlas" data-modality="All" aria-label="patient atlas">
         <h2 class="panel-title">patient atlas <span id="atlas-patient" class="muted">no patient loaded</span></h2>
-        <div class="atlas-chips" role="group" aria-label="modality">
-          <button type="button" class="atlas-chip on" data-modality="All">All</button>
-          <button type="button" class="atlas-chip" data-modality="CT">CT</button>
-          <button type="button" class="atlas-chip" data-modality="MRI">MRI</button>
-          <button type="button" class="atlas-chip" data-modality="X-ray">X-ray</button>
-          <button type="button" class="atlas-chip" data-modality="US">US</button>
-          <button type="button" class="atlas-chip" data-modality="Angio">Angio</button>
+        <div class="atlas-body">
+          <div class="atlas-fig">
+            <!-- A front-view silhouette with natural lines (deltoids, tapered arms,
+                 waist and hips, thighs, calves, feet), 1 unit = 1 px at its drawn size
+                 (170 x 330). Exactly 15 regions, each its own path, ~2-unit gaps; the
+                 left side is the right side mirrored, so the patient's right is on the
+                 viewer's left. data-cx/cy: the badge and the hovered region's name
+                 label (drawn by app.js, kept inside the figure). -->
+            <svg class="atlas-svg" viewBox="0 0 170 330" role="group" aria-label="body map, front view, 15 regions; the patient's right is on the left">
+              <g class="atlas-regions">
+                <path class="atlas-region" data-region="head" tabindex="0" aria-label="Head and neck" role="button" data-cx="85" data-cy="26" d="M75 58 L76 45.4 A19 22 0 1 1 94 45.4 L95 58 Z"/>
+                <path class="atlas-region" data-region="chest" tabindex="0" aria-label="Chest" role="button" data-cx="85" data-cy="90" d="M57 60 C66 61 76 62 85 62 C94 62 104 61 113 60 C113.5 80 113.5 100 112 120 L58 120 C56.5 100 56.5 80 57 60 Z"/>
+                <path class="atlas-region" data-region="torso" tabindex="0" aria-label="Torso (abdomen and pelvis)" role="button" data-cx="85" data-cy="160" d="M58 122 L112 122 C111 135 109 145 110 155 C112 170 117 182 116 195 C116 199 114 202 112 202 L88 202 L85 196 L82 202 L58 202 C56 202 54 199 54 195 C53 182 58 170 60 155 C61 145 59 135 58 122 Z"/>
+                <path class="atlas-region" data-region="shoulder_r" tabindex="0" aria-label="Right shoulder" role="button" data-cx="40" data-cy="76" d="M54 60 C45 60 34 62 29 70 C25 76 25 86 27 93 L54 93 Z"/>
+                <path class="atlas-region" data-region="shoulder_l" tabindex="0" aria-label="Left shoulder" role="button" data-cx="130" data-cy="76" d="M116 60 C 125 60 136 62 141 70 C 145 76 145 86 143 93 L 116 93 Z"/>
+                <path class="atlas-region" data-region="arm_r" tabindex="0" aria-label="Right arm" role="button" data-cx="39" data-cy="148" d="M28 95 L52 95 C51 115 47 125 47 145 C47 165 49 185 50 202 L34 202 C33 185 29 165 27 145 C26 125 28 110 28 95 Z"/>
+                <path class="atlas-region" data-region="arm_l" tabindex="0" aria-label="Left arm" role="button" data-cx="131" data-cy="148" d="M142 95 L 118 95 C 119 115 123 125 123 145 C 123 165 121 185 120 202 L 136 202 C 137 185 141 165 143 145 C 144 125 142 110 142 95 Z"/>
+                <path class="atlas-region" data-region="hand_r" tabindex="0" aria-label="Right hand" role="button" data-cx="41" data-cy="218" d="M33 204 L49 204 C52 210 54 216 53 222 C52 230 45 233 39 232 C32 231 28 226 29 218 C29 212 31 208 33 204 Z"/>
+                <path class="atlas-region" data-region="hand_l" tabindex="0" aria-label="Left hand" role="button" data-cx="129" data-cy="218" d="M137 204 L 121 204 C 118 210 116 216 117 222 C 118 230 125 233 131 232 C 138 231 142 226 141 218 C 141 212 139 208 137 204 Z"/>
+                <path class="atlas-region" data-region="upper_leg_r" tabindex="0" aria-label="Right upper leg" role="button" data-cx="69" data-cy="231" d="M56 204 L83 204 C83 222 83 240 82 258 L60 258 C57 240 55 222 56 204 Z"/>
+                <path class="atlas-region" data-region="upper_leg_l" tabindex="0" aria-label="Left upper leg" role="button" data-cx="101" data-cy="231" d="M114 204 L 87 204 C 87 222 87 240 88 258 L 110 258 C 113 240 115 222 114 204 Z"/>
+                <path class="atlas-region" data-region="lower_leg_r" tabindex="0" aria-label="Right lower leg" role="button" data-cx="70" data-cy="283" d="M60 260 L82 260 C84 275 83 290 79 306 L64 306 C60 290 56 275 60 260 Z"/>
+                <path class="atlas-region" data-region="lower_leg_l" tabindex="0" aria-label="Left lower leg" role="button" data-cx="100" data-cy="283" d="M110 260 L 88 260 C 86 275 87 290 91 306 L 106 306 C 110 290 114 275 110 260 Z"/>
+                <path class="atlas-region" data-region="foot_r" tabindex="0" aria-label="Right foot" role="button" data-cx="63" data-cy="318" d="M63 308 L80 308 C81 316 81 324 79 328 L52 328 C47 328 45 325 46 321 C48 316 56 312 63 308 Z"/>
+                <path class="atlas-region" data-region="foot_l" tabindex="0" aria-label="Left foot" role="button" data-cx="107" data-cy="318" d="M107 308 L 90 308 C 89 316 89 324 91 328 L 118 328 C 123 328 125 325 124 321 C 122 316 114 312 107 308 Z"/>
+              </g>
+              <g class="atlas-badges" aria-hidden="true"><!-- count badges, from GET /atlas --></g>
+              <g class="atlas-labels" aria-hidden="true"><!-- the hovered region's name, on the figure --></g>
+            </svg>
+          </div>
+          <div class="atlas-side">
+            <div class="atlas-chips" role="group" aria-label="modality">
+              <button type="button" class="atlas-chip on" data-modality="All">All</button>
+              <button type="button" class="atlas-chip" data-modality="CT">CT</button>
+              <button type="button" class="atlas-chip" data-modality="MRI">MRI</button>
+              <button type="button" class="atlas-chip" data-modality="X-ray">X-ray</button>
+              <button type="button" class="atlas-chip" data-modality="US">US</button>
+              <button type="button" class="atlas-chip" data-modality="Angio">Angio</button>
+            </div>
+            <p id="atlas-hover" class="atlas-hover" aria-live="polite">hover a region</p>
+            <h3 class="atlas-list-title">studies · <span id="atlas-scope">all regions</span></h3>
+            <ul id="atlas-studies" class="atlas-studies" aria-live="polite"><!-- from GET /atlas --></ul>
+          </div>
         </div>
-        <svg class="atlas-svg" viewBox="0 0 150 300" role="group" aria-label="body map, front view, 15 regions; the patient's right is on the left">
-          <g class="atlas-regions">
-            <path class="atlas-region" data-region="head" tabindex="0" aria-label="Head and neck" role="button" data-cx="75" data-cy="22" d="M69 48 L69 38.8 A16 16 0 1 1 81 38.8 L81 48 Z"/>
-            <path class="atlas-region" data-region="chest" tabindex="0" aria-label="Chest" role="button" data-cx="75" data-cy="80" d="M62 50 L88 50 L90 74 L89 108 L61 108 L60 74 Z"/>
-            <path class="atlas-region" data-region="torso" tabindex="0" aria-label="Torso (abdomen and pelvis)" role="button" data-cx="75" data-cy="140" d="M60 110 L90 110 L94 150 L92 170 L77 170 L75 161 L73 170 L58 170 L56 150 Z"/>
-            <path class="atlas-region" data-region="shoulder_r" tabindex="0" aria-label="Right shoulder" role="button" data-cx="46" data-cy="62" d="M58 50 L58 72 L34 72 L36 58 Q44 50 58 50 Z"/>
-            <path class="atlas-region" data-region="shoulder_l" tabindex="0" aria-label="Left shoulder" role="button" data-cx="104" data-cy="62" d="M92 50 L92 72 L116 72 L114 58 Q106 50 92 50 Z"/>
-            <path class="atlas-region" data-region="arm_r" tabindex="0" aria-label="Right arm" role="button" data-cx="43" data-cy="115" d="M35 74 L56 74 L52 156 L31 156 Z"/>
-            <path class="atlas-region" data-region="arm_l" tabindex="0" aria-label="Left arm" role="button" data-cx="107" data-cy="115" d="M94 74 L115 74 L119 156 L98 156 Z"/>
-            <path class="atlas-region" data-region="hand_r" tabindex="0" aria-label="Right hand" role="button" data-cx="41" data-cy="172" d="M31 158 L52 158 L52 178 Q52 186 44 186 L37 186 Q29 186 29 178 Z"/>
-            <path class="atlas-region" data-region="hand_l" tabindex="0" aria-label="Left hand" role="button" data-cx="109" data-cy="172" d="M98 158 L119 158 L121 178 Q121 186 113 186 L106 186 Q98 186 98 178 Z"/>
-            <path class="atlas-region" data-region="upper_leg_r" tabindex="0" aria-label="Right upper leg" role="button" data-cx="65" data-cy="200" d="M58 172 L73 172 L73 228 L55 228 Z"/>
-            <path class="atlas-region" data-region="upper_leg_l" tabindex="0" aria-label="Left upper leg" role="button" data-cx="85" data-cy="200" d="M77 172 L92 172 L95 228 L77 228 Z"/>
-            <path class="atlas-region" data-region="lower_leg_r" tabindex="0" aria-label="Right lower leg" role="button" data-cx="64" data-cy="254" d="M56 230 L72 230 L71 278 L58 278 Z"/>
-            <path class="atlas-region" data-region="lower_leg_l" tabindex="0" aria-label="Left lower leg" role="button" data-cx="86" data-cy="254" d="M78 230 L94 230 L92 278 L79 278 Z"/>
-            <path class="atlas-region" data-region="foot_r" tabindex="0" aria-label="Right foot" role="button" data-cx="60" data-cy="288" d="M57 280 L71 280 L71 296 L50 296 Q46 296 47 291 Z"/>
-            <path class="atlas-region" data-region="foot_l" tabindex="0" aria-label="Left foot" role="button" data-cx="90" data-cy="288" d="M79 280 L93 280 L103 291 Q104 296 100 296 L79 296 Z"/>
-          </g>
-          <g class="atlas-badges" aria-hidden="true"><!-- count badges, from GET /atlas --></g>
-        </svg>
-        <p id="atlas-hover" class="atlas-hover" aria-live="polite">hover a region</p>
-        <h3 class="atlas-list-title">studies · <span id="atlas-scope">all regions</span></h3>
-        <ul id="atlas-studies" class="atlas-studies" aria-live="polite"><!-- from GET /atlas --></ul>
         <p id="atlas-caption" class="atlas-caption">atlas · regions without studies are dim · sides are the patient's</p>
       </section>
     </template>

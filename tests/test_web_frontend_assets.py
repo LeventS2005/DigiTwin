@@ -531,10 +531,20 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     assert [rid for rid, _ in regions] == [rid for rid, _ in atlas_mod.REGIONS]
     assert dict(regions) == dict(atlas_mod.REGIONS)  # the aria-labels are the catalogue's names
     assert len(atlas_mod.REGIONS) == 15 and len({rid for rid, _ in atlas_mod.REGIONS}) == 15
-    # sides are the patient's: a right-side region is drawn on the viewer's left
-    xr = int(re.search(r'data-region="hand_r"[^>]*data-cx="(\d+)"', tpl).group(1))
-    xl = int(re.search(r'data-region="hand_l"[^>]*data-cx="(\d+)"', tpl).group(1))
-    assert xr < 75 < xl
+    # sides are the patient's: every right-side region is drawn left of the figure's
+    # centre line (the viewBox's half width), every left-side one right of it
+    vb = re.search(r'class="atlas-svg" viewBox="0 0 (\d+) (\d+)"', tpl)
+    mid = int(vb.group(1)) / 2
+    for rid, cx in re.findall(r'data-region="([a-z_]+)"[^>]*data-cx="(\d+)"', tpl):
+        if rid.endswith("_r"):
+            assert int(cx) < mid, rid
+        elif rid.endswith("_l"):
+            assert int(cx) > mid, rid
+        else:
+            assert int(cx) == mid, rid  # head, chest, torso sit on the centre line
+    # every region has its own closed path; the figure is drawn at 1 unit = 1 px
+    assert ".atlas .atlas-svg { display: block; width: 170px; height: 330px;" in styles_css
+    assert vb.group(1) == "170" and vb.group(2) == "330"
     assert "the patient's right is on the left" in tpl
     chips = re.findall(r'<button type="button" class="atlas-chip( on)?" data-modality="([^"]+)">([^<]+)</button>', tpl)
     assert [m for _, m, _ in chips] == ["All", "CT", "MRI", "X-ray", "US", "Angio"]
