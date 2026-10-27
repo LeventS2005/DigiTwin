@@ -10,13 +10,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Workbench viewport: the patient's own heart as a second ghost** (D108
   addendum 7). The `segment` step asks TotalSegmentator for the whole
-  `heart` of the free `total` task in the SAME call as the aorta
-  (`segment_ct(context_rois=("heart",))`, the default; one run, about the
-  same time) and keeps it apart: the vessel classes are unioned into the
-  source mask as before, each context class becomes its own surface with
-  the same smoothing (`SegmentResult.context_surfaces`, summary key
-  `context` with vertex and face counts and a "context only" role; the
-  heart never enters the aorta mask, `keep_mask` stays the vessel union). A
+  `heart` of the free `total` task in a SECOND call of its own
+  (`segment_ct(context_rois=("heart",))`, the default; summary
+  `totalseg.context_flags` / `context_wall_time_s`) and keeps it apart: the
+  vessel call and its union mask are exactly what they were, each context
+  class becomes its own surface with the same smoothing
+  (`SegmentResult.context_surfaces`, summary key `context` with vertex and
+  face counts and a "context only" role; the heart never enters the aorta
+  mask, `keep_mask` stays the vessel union). Not one call for both: with
+  `--roi_subset` TotalSegmentator crops the CT to a box around the
+  requested classes (a 6 mm pass) before the 1.5 mm model, so adding the
+  heart to the aorta's call enlarged that box and changed the aorta's own
+  outline (on the demo CT the sac volume, the centreline length and the
+  flare landmark all moved and the rebuilt run's wall gate failed). A
   heart outside the field of view is a note (`heart not in field`), not an
   error. The session keeps it as `MeshingSession.context` (filled by
   `segment`, cleared wherever the outline is cleared, so a replayed work

@@ -222,6 +222,7 @@ def run_totalseg(
     timeout: float = DEFAULT_TIMEOUT_S,
     rois: tuple[str, ...] = ("aorta",),
     executable: str | None = None,
+    version: str | None = None,
 ) -> TotalSegRun:
     """Run TotalSegmentator (``total`` task, ``--roi_subset``) on a NIfTI.
 
@@ -229,6 +230,7 @@ def run_totalseg(
     stages them). Argument list, never a shell. The combined stdout/stderr
     log is captured; a non-zero exit, a timeout (the whole process group is
     killed) or a missing mask raises RuntimeError with a scrubbed log tail.
+    ``version`` skips the ``--version`` probe when a previous call read it.
     """
     device, rois, timeout = _check_run_args(device, rois, timeout)
     ct_nifti, out_dir = Path(ct_nifti), Path(out_dir)
@@ -237,7 +239,8 @@ def run_totalseg(
             raise ValueError(f"stage TotalSegmentator paths without spaces: {p}")
     exe = executable or find_totalseg()
     notes = [n for n in (_usage_stats_note(),) if n]
-    version = totalseg_version(exe)
+    if version is None:
+        version = totalseg_version(exe)
     if version is None:
         notes.append("could not read the TotalSegmentator version (--version)")
     flags = ["--roi_subset", *rois, *(["--fast"] if fast else []), "--device", device]
@@ -589,13 +592,20 @@ def segment_ct(
     ``lumen_hu`` (D85) also extracts the contrast blood lumen inside the mask
     (``ct_lumen_surface``) as ``result.lumen_surface``, summary key ``lumen``.
 
-    ``context_rois`` (D108 addendum 7) are asked of the SAME TotalSegmentator
-    call (one run, ``--roi_subset`` vessel + context) but each becomes its
-    own surface in ``result.context_surfaces`` (summary key ``context``),
-    never unioned into the vessel mask: the patient's own heart, drawn as a
-    ghost above the arch. Only ``CONTEXT_ROIS`` (the whole heart from the
-    free ``total`` task) is accepted; an empty context mask — the organ is
-    outside the field of view — is skipped with a note, not an error.
+    ``context_rois`` (D108 addendum 7) are asked of TotalSegmentator in a
+    SECOND call of their own, and each becomes its own surface in
+    ``result.context_surfaces`` (summary key ``context``), never unioned
+    into the vessel mask: the patient's own heart, drawn as a ghost above
+    the arch. A second call, not one call for both: with ``--roi_subset``
+    TotalSegmentator first finds the requested classes with a 6 mm model
+    and runs the 1.5 mm model on a crop around them, so adding the heart to
+    the vessel's call enlarges that crop and CHANGES the vessel's own
+    outline (seen on the demo CT: the sac volume, the centreline length and
+    the flare landmark all moved, and the run's wall gate failed). The
+    vessel call stays exactly what it was without context. Only
+    ``CONTEXT_ROIS`` (the whole heart from the free ``total`` task) is
+    accepted; an empty context mask — the organ is outside the field of
+    view — is skipped with a note, not an error.
     """
     from meshforge.io.image import mask_to_surface
     from meshforge.io.load import file_sha256
@@ -623,10 +633,23 @@ def segment_ct(
             device=device,
             fast=fast,
             timeout=timeout,
-            rois=rois + context_rois,
+            rois=rois,
             executable=exe,
         )
         notes = notes + run.notes
+        crun = None
+        if context_rois:  # its own call: the vessel's crop must not change
+            crun = run_totalseg(
+                staged,
+                stage / "ts_context",
+                device=device,
+                fast=fast,
+                timeout=timeout,
+                rois=context_rois,
+                executable=exe,
+                version=run.version,
+            )
+            notes = notes + [n for n in crun.notes if n not in notes]
         mask = mask_affine = None
         for roi in rois:  # the vessel: one union mask
             m, a = load_mask(run.masks[roi])
@@ -652,7 +675,7 @@ def segment_ct(
         # context organs: each its own mask, loaded while the staging dir lives
         context_masks: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for roi in context_rois:
-            m, a = load_mask(run.masks[roi])
+            m, a = load_mask(crun.masks[roi])
             if not m.any():
                 notes.append(f"{roi} not in field")  # outside the scan: context only
                 continue
@@ -704,9 +727,14 @@ def segment_ct(
             "spacing_mm": [round(float(s), 6) for s in np.linalg.norm(affine[:3, :3], axis=0)],
             "affine_ras_mm": affine.round(6).tolist(),
         },
-        # ``rois`` = the vessel classes unioned into the source; the context
-        # classes rode on the same call (see ``flags``) but stay apart.
-        "totalseg": {**run.summary(), "rois": list(rois), "context_rois": list(context_rois)},
+        # the vessel call (``rois`` unioned into the source) and, apart, the
+        # context call with its own flags and time
+        "totalseg": {
+            **run.summary(),
+            "context_rois": list(context_rois),
+            "context_flags": list(crun.flags) if crun else [],
+            "context_wall_time_s": round(crun.wall_time_s, 2) if crun else None,
+        },
         "mask": {
             key: mprov[key]
             for key in (
@@ -746,7 +774,7 @@ def segment_ct(
         ct_shape=tuple(int(s) for s in grid["shape"]),
         ct_affine=affine,
         input_sha256=sha_before,
-        log=run.log,
+        log=run.log if crun is None else f"{run.log}\n--- context {'+'.join(context_rois)} ---\n{crun.log}",
         notes=notes,
         lumen_surface=lumen_surface,
         context_surfaces=context_surfaces,

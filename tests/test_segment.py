@@ -148,11 +148,14 @@ def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
     mask_out = tmp_path / "keep" / "mask.nii.gz"
     seg = segment_ct(ct_path, device="cpu", fast=True, smoothing=1.0, keep_mask=mask_out)
 
-    # argument passing: one --version probe, then the segmentation call
+    # argument passing: one --version probe, the vessel call, then the heart's
+    # own call (never one call for both: see the context test)
     argv = calls()
-    assert argv[0] == ["--version"]
-    run = argv[1]
-    assert run[run.index("--roi_subset") + 1] == "aorta"
+    assert argv[0] == ["--version"] and argv.count(["--version"]) == 1
+    run, context_run = argv[1], argv[2]
+    assert run[run.index("--roi_subset") + 1 : run.index("--fast")] == ["aorta"]
+    assert context_run[context_run.index("--roi_subset") + 1 : context_run.index("--fast")] == ["heart"]
+    assert context_run[context_run.index("-o") + 1] != run[run.index("-o") + 1]
     assert "--fast" in run and run[run.index("--device") + 1] == "cpu"
     staged_in, staged_out = run[run.index("-i") + 1], run[run.index("-o") + 1]
     assert " " not in staged_in and " " not in staged_out  # staged, space-free
@@ -165,9 +168,12 @@ def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
 
     s = seg.summary
     assert s["totalseg"]["version"] == "2.99.0-fake"
-    # one call: the vessel + the heart as context (D108 addendum 7), kept apart
-    assert s["totalseg"]["flags"] == ["--roi_subset", "aorta", "heart", "--fast", "--device", "cpu"]
+    # the vessel call is what it always was; the heart (D108 addendum 7) is a call apart
+    assert s["totalseg"]["flags"] == ["--roi_subset", "aorta", "--fast", "--device", "cpu"]
     assert s["totalseg"]["rois"] == ["aorta"] and s["totalseg"]["context_rois"] == ["heart"]
+    assert s["totalseg"]["context_flags"] == ["--roi_subset", "heart", "--fast", "--device", "cpu"]
+    assert s["totalseg"]["context_wall_time_s"] >= 0
+    assert "--- context heart ---" in seg.log
     assert s["totalseg"]["task"] == "total" and s["totalseg"]["wall_time_s"] >= 0
     assert s["ct"]["format"] == "nrrd" and s["ct"]["shape"] == list(SHAPE)
     assert s["length_unit"] == "mm" and "RAS" in s["surface"]["frame"]
@@ -195,13 +201,18 @@ def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
 def test_context_heart_is_its_own_surface_never_unioned_and_out_of_field_is_a_note(
     tmp_path, fake_ts, monkeypatch
 ):
-    """D108 addendum 7: ``context_rois`` ride on the same TotalSegmentator call
-    but each is its own surface (``context_surfaces``, summary ``context``),
-    never part of the vessel; a heart outside the field is a note, not an
-    error; only the whole heart of the free task may be asked for."""
+    """D108 addendum 7: ``context_rois`` get a TotalSegmentator call of their
+    own (``--roi_subset`` crops the CT around the requested classes before
+    the 1.5 mm model, so one call for vessel + heart would change the
+    vessel's own outline) and each is its own surface (``context_surfaces``,
+    summary ``context``), never part of the vessel; a heart outside the
+    field is a note, not an error; only the whole heart of the free task may
+    be asked for."""
     exe, calls = fake_ts
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     seg = segment_ct(ct, device="cpu")
+    runs = [c for c in calls() if "-i" in c]
+    assert [c[c.index("--roi_subset") + 1 : c.index("--device")] for c in runs] == [["aorta"], ["heart"]]
     heart = seg.context_surfaces["heart"]
     assert set(seg.context_surfaces) == {"heart"} and heart.n_open_edges == 0
     assert float(heart.volume) > 0 and heart.n_points < seg.surface.n_points
@@ -213,8 +224,11 @@ def test_context_heart_is_its_own_surface_never_unioned_and_out_of_field_is_a_no
     assert not any("heart not in field" in n for n in seg.notes)
     # the vessel's own numbers do not move with the context asked for
     alone = segment_ct(ct, device="cpu", context_rois=())
+    assert len([c for c in calls() if "-i" in c]) == 3  # one more call, the vessel alone
     assert alone.context_surfaces == {} and "context" not in alone.summary
     assert alone.summary["totalseg"]["flags"] == ["--roi_subset", "aorta", "--device", "cpu"]
+    assert alone.summary["totalseg"]["context_flags"] == [] and "--- context" not in alone.log
+    assert alone.summary["totalseg"]["context_wall_time_s"] is None
     assert alone.summary["mask"]["kept_voxels"] == seg.summary["mask"]["kept_voxels"]
     assert alone.surface.n_points == seg.surface.n_points
     # out of the field of view: skipped with a note, the vessel unaffected
@@ -300,7 +314,7 @@ def test_a_fragment_is_never_passed_on_as_the_aorta(tmp_path, fake_ts, monkeypat
 def test_missing_mask_and_timeout_are_loud(tmp_path, fake_ts, monkeypatch):
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     monkeypatch.setenv("FAKE_TS_MODE", "nomask")
-    with pytest.raises(RuntimeError, match=r"wrote no mask for \['aorta', 'heart'\]"):
+    with pytest.raises(RuntimeError, match=r"wrote no mask for \['aorta'\]"):
         segment_ct(ct, device="cpu")
     monkeypatch.setenv("FAKE_TS_MODE", "hang")
     with pytest.raises(RuntimeError, match="timeout"):
