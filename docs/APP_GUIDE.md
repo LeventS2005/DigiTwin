@@ -98,8 +98,13 @@ Layout — three panes:
   view re-syncs itself — no manual ⌘R needed. After the `segment` step, the whole **AI outline** stays as a faint
   translucent **ghost** behind whatever is shown next — the recovered
   sac, the cropped segment, its wall, its stress field — so the piece
-  is seen in the whole aorta (arch and all); it is context only, never
-  coloured, and a non-AI source (synth, a file) has none.
+  is seen in the whole aorta (arch and all). The same AI run also outlines
+  the patient's own **heart** (the whole heart from TotalSegmentator's free
+  `total` task — never a licensed task, never the chambers), drawn as a
+  second ghost above the arch in a slightly warmer tint: context only, its
+  own surface, never part of the vessel, never coloured by data; when the
+  heart lies outside the scan it is simply absent (the step notes `heart
+  not in field`). A non-AI source (synth, a file) has no ghost at all.
 - **Right — twin, log & history:** on top, the **your twin · v0** panel
   (the copilot report's twin card, live — see §3.9c), then the **log**, the
   **history** table (the journal — it mirrors exactly what a `.mfwork` file

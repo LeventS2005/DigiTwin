@@ -48,7 +48,12 @@ INSTALL_HINT = (
     "conda run -n totalseg pip install TotalSegmentator"
 )
 #: ``total``-task classes this step may request (no licensed task, ever).
-ALLOWED_ROIS = ("aorta", "iliac_artery_left", "iliac_artery_right")
+#: The vessel classes are unioned into the one source mask; ``heart`` (the
+#: whole heart — never the licensed ``heartchambers_highres`` task) is
+#: CONTEXT only: its own surface, drawn as a ghost, never part of the vessel.
+VESSEL_ROIS = ("aorta", "iliac_artery_left", "iliac_artery_right")
+CONTEXT_ROIS = ("heart",)
+ALLOWED_ROIS = VESSEL_ROIS + CONTEXT_ROIS
 DEVICES = ("mps", "cpu")
 #: Defaults from the M0 benchmark (outputs/break-the-barrier/totalseg_benchmark_m0.md).
 DEFAULT_DEVICE = "mps"
@@ -303,6 +308,27 @@ def _check_run_args(device, rois, timeout):
     return device, rois, timeout
 
 
+def _check_context_rois(rois: tuple[str, ...], context_rois) -> tuple[str, ...]:
+    """The vessel classes stay vessel classes and the context classes stay
+    context: ``heart`` may never be unioned into the source, and only the
+    whole heart of the free ``total`` task may be asked for as context."""
+    overlap = [r for r in rois if r in CONTEXT_ROIS]
+    if overlap:
+        raise ValueError(
+            f"{overlap} is context (its own ghost surface), not part of the vessel "
+            f"— pass it as context_rois, not rois"
+        )
+    context_rois = tuple(str(r) for r in (context_rois or ()))
+    bad = [r for r in context_rois if r not in CONTEXT_ROIS]
+    if bad or len(set(context_rois)) != len(context_rois):
+        raise ValueError(
+            f"context roi(s) {bad or '(duplicate)'} not allowed; context is only "
+            f"{', '.join(CONTEXT_ROIS)} (the whole heart from the 'total' task — no "
+            f"licensed task, no chambers)"
+        )
+    return context_rois
+
+
 # ---------------------------------------------------------------------------
 # CT staging (NRRD -> NIfTI) and mask loading
 # ---------------------------------------------------------------------------
@@ -535,6 +561,10 @@ class SegmentResult:
     log: str
     notes: list[str]
     lumen_surface: Any = None  # D85: contrast lumen (CT threshold), when asked
+    #: D108 addendum 7: context organs (``heart``) as their own surfaces, same
+    #: smoothing, never unioned into the vessel; an organ outside the field is
+    #: left out (a note in ``notes``), not an error.
+    context_surfaces: dict[str, Any] = field(default_factory=dict)
 
 
 def segment_ct(
@@ -545,6 +575,7 @@ def segment_ct(
     smoothing: float = 1.0,
     timeout: float = DEFAULT_TIMEOUT_S,
     rois: tuple[str, ...] = ("aorta",),
+    context_rois: tuple[str, ...] = ("heart",),
     executable: str | None = None,
     keep_mask: str | Path | None = None,
     lumen_hu: float | None = None,
@@ -557,6 +588,14 @@ def segment_ct(
     checksummed before and after: a change on disk is a loud error (rule 1).
     ``lumen_hu`` (D85) also extracts the contrast blood lumen inside the mask
     (``ct_lumen_surface``) as ``result.lumen_surface``, summary key ``lumen``.
+
+    ``context_rois`` (D108 addendum 7) are asked of the SAME TotalSegmentator
+    call (one run, ``--roi_subset`` vessel + context) but each becomes its
+    own surface in ``result.context_surfaces`` (summary key ``context``),
+    never unioned into the vessel mask: the patient's own heart, drawn as a
+    ghost above the arch. Only ``CONTEXT_ROIS`` (the whole heart from the
+    free ``total`` task) is accepted; an empty context mask — the organ is
+    outside the field of view — is skipped with a note, not an error.
     """
     from meshforge.io.image import mask_to_surface
     from meshforge.io.load import file_sha256
@@ -569,6 +608,7 @@ def segment_ct(
             f"unsupported CT input {path.name!r}; supported: {', '.join(CT_SUFFIXES)}"
         )
     device, rois, timeout = _check_run_args(device, rois, timeout)
+    context_rois = _check_context_rois(rois, context_rois)
     smoothing = float(smoothing)
     if not np.isfinite(smoothing) or smoothing < 0:
         raise ValueError(f"smoothing must be >= 0 voxels, got {smoothing}")
@@ -583,13 +623,13 @@ def segment_ct(
             device=device,
             fast=fast,
             timeout=timeout,
-            rois=rois,
+            rois=rois + context_rois,
             executable=exe,
         )
         notes = notes + run.notes
         mask = mask_affine = None
-        for roi, mpath in run.masks.items():
-            m, a = load_mask(mpath)
+        for roi in rois:  # the vessel: one union mask
+            m, a = load_mask(run.masks[roi])
             if mask is None:
                 mask, mask_affine = m, a
             elif m.shape != mask.shape or not np.allclose(a, mask_affine, atol=1e-4):
@@ -609,6 +649,14 @@ def segment_ct(
             raise ValueError(EMPTY_MASK_MESSAGE)
         voxel_ml = abs(float(np.linalg.det(mask_affine[:3, :3]))) / 1000.0
         _refuse_fragment(int(np.count_nonzero(mask)), voxel_ml, "")
+        # context organs: each its own mask, loaded while the staging dir lives
+        context_masks: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for roi in context_rois:
+            m, a = load_mask(run.masks[roi])
+            if not m.any():
+                notes.append(f"{roi} not in field")  # outside the scan: context only
+                continue
+            context_masks[roi] = (m, a)
         if keep_mask is not None:
             nib = _nib()
             keep_mask = Path(keep_mask)
@@ -629,6 +677,20 @@ def segment_ct(
         )
     del mask
     notes = notes + list(mprov["notes"])
+    context_surfaces: dict[str, Any] = {}
+    context_summary: dict[str, Any] = {}
+    for roi, (m, a) in context_masks.items():
+        csurf, cprov = mask_to_surface(m, a, sigma=smoothing)
+        context_surfaces[roi] = csurf
+        context_summary[roi] = {
+            "n_points": cprov["n_points"],
+            "n_triangles": cprov["n_triangles"],
+            "watertight": cprov["watertight"],
+            "mask_volume_ml": round(cprov["mask_volume"] / 1000.0, 3),
+            "role": "context only (viewport ghost), not part of the vessel",
+        }
+        notes = notes + [f"{roi}: {n}" for n in cprov["notes"]]
+    del context_masks
     if file_sha256(path) != sha_before:
         raise RuntimeError(f"input changed on disk during segmentation: {path}")
 
@@ -642,7 +704,9 @@ def segment_ct(
             "spacing_mm": [round(float(s), 6) for s in np.linalg.norm(affine[:3, :3], axis=0)],
             "affine_ras_mm": affine.round(6).tolist(),
         },
-        "totalseg": run.summary(),
+        # ``rois`` = the vessel classes unioned into the source; the context
+        # classes rode on the same call (see ``flags``) but stay apart.
+        "totalseg": {**run.summary(), "rois": list(rois), "context_rois": list(context_rois)},
         "mask": {
             key: mprov[key]
             for key in (
@@ -674,6 +738,8 @@ def segment_ct(
     }
     if lumen_summary is not None:
         summary["lumen"] = lumen_summary
+    if context_rois:
+        summary["context"] = context_summary  # {} when every organ was out of field
     return SegmentResult(
         surface=surface,
         summary=summary,
@@ -683,4 +749,5 @@ def segment_ct(
         log=run.log,
         notes=notes,
         lumen_surface=lumen_surface,
+        context_surfaces=context_surfaces,
     )

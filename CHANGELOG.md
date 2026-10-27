@@ -8,6 +8,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench viewport: the patient's own heart as a second ghost** (D108
+  addendum 7). The `segment` step asks TotalSegmentator for the whole
+  `heart` of the free `total` task in the SAME call as the aorta
+  (`segment_ct(context_rois=("heart",))`, the default; one run, about the
+  same time) and keeps it apart: the vessel classes are unioned into the
+  source mask as before, each context class becomes its own surface with
+  the same smoothing (`SegmentResult.context_surfaces`, summary key
+  `context` with vertex and face counts and a "context only" role; the
+  heart never enters the aorta mask, `keep_mask` stays the vessel union). A
+  heart outside the field of view is a note (`heart not in field`), not an
+  error. The session keeps it as `MeshingSession.context` (filled by
+  `segment`, cleared wherever the outline is cleared, so a replayed work
+  file brings it back), and `GET /geometry`'s `ghost` is now a LIST of
+  `{state, label, kind}`: the AI outline (`AI outline · aorta`, only behind
+  an artifact that is not the outline itself) plus one entry per context
+  surface (`AI outline · heart`, always while the session holds it), each
+  serialized once per surface and cached on the holder; `null` when there
+  is none. The viewport draws one faint representation per entry: the aorta
+  in its grey, the heart in a slightly warmer tint at the same opacity,
+  fieldless, never coloured by data. Only the whole heart is ever requested
+  — never the licensed `heartchambers_highres` task — and `heart` is
+  refused as a vessel class. The `segment` CLI command still writes the
+  vessel alone (`context_rois=()`). Tests: `test_segment.py` (+1, the fake
+  TotalSegmentator now writes one mask per requested roi and can leave the
+  heart out of the field), `test_web_api.py` (ghost test rewritten for the
+  list), `test_web_frontend_assets.py` (viewport pins).
 - **Workbench viewport ghost: the whole AI outline behind the piece being
   shown.** The `segment` step now keeps its outline on the session
   (`MeshingSession.outline`; every other source step clears it) after the

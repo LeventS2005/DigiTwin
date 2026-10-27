@@ -4,7 +4,9 @@ The fake is a tiny Python script written into tmp_path, made executable and
 pointed to via MESHFORGE_TOTALSEG. It records its argv, thresholds the staged
 CT (a bright synthetic tube) into ``aorta.nii.gz`` with the input's affine,
 and can be told (env FAKE_TS_MODE) to fail, return an empty mask, write
-nothing, or hang. The real TotalSegmentator runs only in the opt-in test at
+nothing, leave the heart out of the field (``noheart``), or hang. It writes
+one mask per requested roi: ``aorta.nii.gz`` is the thresholded tube, any
+other roi (the ``heart`` context) a small blob beside it. The real TotalSegmentator runs only in the opt-in test at
 the bottom (MESHFORGE_ZENODO_AAA_DIR + a real executable).
 """
 from __future__ import annotations
@@ -61,8 +63,16 @@ if mode == "empty":
 if mode == "speck":  # the M0 finding: a few voxels, nowhere near an aorta
     mask[:] = 0
     mask[2:5, 2:5, 2:5] = 1
-nib.save(nib.Nifti1Image(mask, img.affine, img.header), os.path.join(out, "aorta.nii.gz"))
-print("fake TotalSegmentator: wrote aorta.nii.gz")
+rois = args[args.index("--roi_subset") + 1:]
+rois = rois[:rois.index("--fast")] if "--fast" in rois else rois[:rois.index("--device")]
+for roi in rois:
+    m = mask
+    if roi != "aorta":  # a context organ: a small blob above the tube, or nothing
+        m = np.zeros_like(mask)
+        if mode != "noheart":
+            m[36:46, 2:12, 20:28] = 1  # outside the tube's disk (centre (24, 21), r 9)
+    nib.save(nib.Nifti1Image(m, img.affine, img.header), os.path.join(out, roi + ".nii.gz"))
+    print("fake TotalSegmentator: wrote " + roi + ".nii.gz")
 '''
 
 
@@ -155,7 +165,9 @@ def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
 
     s = seg.summary
     assert s["totalseg"]["version"] == "2.99.0-fake"
-    assert s["totalseg"]["flags"] == ["--roi_subset", "aorta", "--fast", "--device", "cpu"]
+    # one call: the vessel + the heart as context (D108 addendum 7), kept apart
+    assert s["totalseg"]["flags"] == ["--roi_subset", "aorta", "heart", "--fast", "--device", "cpu"]
+    assert s["totalseg"]["rois"] == ["aorta"] and s["totalseg"]["context_rois"] == ["heart"]
     assert s["totalseg"]["task"] == "total" and s["totalseg"]["wall_time_s"] >= 0
     assert s["ct"]["format"] == "nrrd" and s["ct"]["shape"] == list(SHAPE)
     assert s["length_unit"] == "mm" and "RAS" in s["surface"]["frame"]
@@ -177,6 +189,49 @@ def test_segment_nrrd_end_to_end_with_the_fake(tmp_path, fake_ts):
     kept = nib.load(str(mask_out))
     assert np.asanyarray(kept.dataobj).sum() == s["mask"]["kept_voxels"]
     np.testing.assert_allclose(kept.affine, seg.ct_affine, atol=1e-3)
+    assert np.asanyarray(kept.dataobj)[36:46, 2:12, 20:28].sum() == 0  # the heart was NOT unioned in
+
+
+def test_context_heart_is_its_own_surface_never_unioned_and_out_of_field_is_a_note(
+    tmp_path, fake_ts, monkeypatch
+):
+    """D108 addendum 7: ``context_rois`` ride on the same TotalSegmentator call
+    but each is its own surface (``context_surfaces``, summary ``context``),
+    never part of the vessel; a heart outside the field is a note, not an
+    error; only the whole heart of the free task may be asked for."""
+    exe, calls = fake_ts
+    ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
+    seg = segment_ct(ct, device="cpu")
+    heart = seg.context_surfaces["heart"]
+    assert set(seg.context_surfaces) == {"heart"} and heart.n_open_edges == 0
+    assert float(heart.volume) > 0 and heart.n_points < seg.surface.n_points
+    # the blob lies beside the tube: at higher i, so (LPS x negated) at higher RAS x
+    assert heart.bounds[0] > seg.surface.bounds[1]
+    c = seg.summary["context"]["heart"]
+    assert c["watertight"] is True and c["mask_volume_ml"] == pytest.approx(0.768, abs=0.01)
+    assert "context only" in c["role"] and "not part of the vessel" in c["role"]
+    assert not any("heart not in field" in n for n in seg.notes)
+    # the vessel's own numbers do not move with the context asked for
+    alone = segment_ct(ct, device="cpu", context_rois=())
+    assert alone.context_surfaces == {} and "context" not in alone.summary
+    assert alone.summary["totalseg"]["flags"] == ["--roi_subset", "aorta", "--device", "cpu"]
+    assert alone.summary["mask"]["kept_voxels"] == seg.summary["mask"]["kept_voxels"]
+    assert alone.surface.n_points == seg.surface.n_points
+    # out of the field of view: skipped with a note, the vessel unaffected
+    monkeypatch.setenv("FAKE_TS_MODE", "noheart")
+    out = segment_ct(ct, device="cpu")
+    assert out.context_surfaces == {} and out.summary["context"] == {}
+    assert "heart not in field" in out.notes and "heart not in field" in out.summary["notes"]
+    assert out.surface.n_points == seg.surface.n_points
+    monkeypatch.delenv("FAKE_TS_MODE")
+    # the heart is context, never the vessel; chambers are a licensed task
+    with pytest.raises(ValueError, match="context"):
+        segment_ct(ct, device="cpu", rois=("aorta", "heart"))
+    with pytest.raises(ValueError, match="not allowed"):
+        segment_ct(ct, device="cpu", context_rois=("heartchambers_highres",))
+    with pytest.raises(ValueError, match="not allowed"):
+        segment_ct(ct, device="cpu", context_rois=("heart", "heart"))
+    assert segmod.CONTEXT_ROIS == ("heart",) and "heart" in segmod.ALLOWED_ROIS
 
 
 def test_segment_nifti_input_with_negative_ras_axes(tmp_path, fake_ts):
@@ -245,7 +300,7 @@ def test_a_fragment_is_never_passed_on_as_the_aorta(tmp_path, fake_ts, monkeypat
 def test_missing_mask_and_timeout_are_loud(tmp_path, fake_ts, monkeypatch):
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     monkeypatch.setenv("FAKE_TS_MODE", "nomask")
-    with pytest.raises(RuntimeError, match=r"wrote no mask for \['aorta'\]"):
+    with pytest.raises(RuntimeError, match=r"wrote no mask for \['aorta', 'heart'\]"):
         segment_ct(ct, device="cpu")
     monkeypatch.setenv("FAKE_TS_MODE", "hang")
     with pytest.raises(RuntimeError, match="timeout"):
@@ -291,6 +346,8 @@ def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch)
     r = s.compute_segment(path=f'"{ct}"', device="cpu", fast=1)  # quoted, like a paste
     assert r.summary["segment"]["surface"]["watertight"] is True
     assert "TotalSegmentator 2.99.0-fake" in r.text and "fast on cpu" in r.text
+    assert "roi aorta," in r.text and "context heart:" in r.text  # the heart, apart
+    assert set(s.context) == {"heart"} and s.context["heart"] is not s.outline
     assert s.length_unit == "mm"
     assert s.cfd_presets()["speed"][0]["unit"] == "mm/s"
     rec = s.journal[-1]
@@ -301,6 +358,9 @@ def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch)
     out = replay(fresh)
     assert [x.step for x in out] == ["segment"]
     assert fresh.surface.n_cells == s.surface.n_cells
+    assert set(fresh.context) == {"heart"}  # the replay brings the heart back too
+    s.generate_synth("straight_tube")
+    assert s.outline is None and s.context == {}  # cleared with the outline
 
 
 def test_web_segment_endpoint(tmp_path, fake_ts):

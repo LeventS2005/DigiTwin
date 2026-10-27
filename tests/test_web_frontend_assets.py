@@ -593,14 +593,22 @@ def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
 
 
 def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
-    """GET /geometry's ``ghost`` (the whole AI outline) is a third, faint
-    translucent representation behind the mesh and the QC overlay; load()
-    takes it from the main payload only, clear() drops it."""
+    """GET /geometry's ``ghost`` list (the whole AI outline, and the patient's
+    own heart from the same run) is drawn as faint translucent representations
+    behind the mesh and the QC overlay, one per entry, each in the fixed look
+    of its kind (the aorta grey, the heart a warmer tint at the same opacity —
+    never coloured by data); load() takes the list from the main payload only,
+    clear() drops it."""
     vp_js = (_static_dir() / "viewport.js").read_text()
     assert "var GHOST_PROPERTY = { color: [0.78, 0.8, 0.84], opacity: 0.16" in vp_js
-    assert '<vtk-geometry-representation v-if="ghost" :property="ghostProperty">' in vp_js
-    assert vp_js.index('v-if="ghost"') > vp_js.index('v-if="overlay"')  # drawn after, behind by opacity
-    assert 'if (S.ghost && "ghost" in payload) S.ghost.value = (payload.ghost && payload.ghost.state) || null;' in vp_js
-    assert "if (S.ready && S.ghost) S.ghost.value = null;" in vp_js  # clear()
-    assert "setGhost: setGhost," in vp_js
+    assert "var HEART_GHOST_PROPERTY = { color: [0.88, 0.74, 0.72], opacity: 0.16" in vp_js
+    assert "var GHOST_PROPERTIES = { aorta: GHOST_PROPERTY, heart: HEART_GHOST_PROPERTY };" in vp_js
+    assert '<vtk-geometry-representation v-for="g in ghosts" :key="g.kind" :property="g.property">' in vp_js
+    assert '<vtk-mesh :state="g.state"></vtk-mesh>' in vp_js
+    assert vp_js.index('v-for="g in ghosts"') > vp_js.index('v-if="overlay"')  # drawn after, behind by opacity
+    assert 'if (S.ghosts && "ghost" in payload) S.ghosts.value = ghostList(payload.ghost);' in vp_js
+    assert "property: GHOST_PROPERTIES[kind] || GHOST_PROPERTY" in vp_js
+    assert "if (S.ready && S.ghosts) S.ghosts.value = [];" in vp_js  # clear()
+    assert "setGhosts: setGhosts," in vp_js
+    assert "color-map-preset" not in vp_js[vp_js.index('v-for="g in ghosts"'):vp_js.index("</vtk-view>")]
 

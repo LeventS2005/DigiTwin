@@ -2028,6 +2028,7 @@ def _cmd_segment(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             keep_mask=mask_path,
             lumen_hu=args.lumen_hu if args.lumen_out is not None else None,
+            context_rois=(),  # the CLI writes the vessel; the heart ghost is the Workbench's
         )
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
