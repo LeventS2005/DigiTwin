@@ -55,6 +55,7 @@ def test_compute_routes_are_serialised_but_state_polls_are_not(client, monkeypat
     assert started.wait(20)
     assert client.get("/state").status_code == 200  # not held up by the step
     assert client.get("/twin").status_code == 200  # nor is the twin panel (M6)
+    assert client.get("/atlas").status_code == 200  # nor the patient atlas (D108 add. 6)
     got: list[int] = []
     geo = threading.Thread(target=lambda: got.append(client.get("/geometry").status_code))
     geo.start()
@@ -361,33 +362,93 @@ def test_viewport_display_copy_leaves_the_session_mesh_alone_and_labels_every_dt
 def test_geometry_ghost_is_the_ai_outline_behind_artifacts_cut_from_it(client: TestClient) -> None:
     """The segment step keeps the whole AI outline on the session (``outline``)
     after the sac/crop steps replace the working surface; GET /geometry sends
-    it as a faint ghost behind every artifact that is not the outline itself,
-    serialized once per outline. A session without an outline (synth, a file)
-    sends ``ghost: null``."""
+    it in the ``ghost`` list behind every artifact that is not the outline
+    itself, serialized once per outline. The context organs of the same run
+    (``session.context``: the patient's own heart, D108 addendum 7) are
+    further entries, drawn whenever the session holds them — behind the
+    outline itself too. A session with neither (synth, a file) sends
+    ``ghost: null``."""
+    import pyvista as pv
+
     assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
     session = client.app.state.holder.session
-    assert session.outline is None  # a synth source is not an AI outline
+    assert session.outline is None and session.context == {}  # a synth source is not an AI outline
     assert client.get("/geometry").json()["ghost"] is None
     # stand in for the segment step: the current surface IS the outline
     session.outline = session.surface
     assert client.get("/geometry").json()["ghost"] is None  # not behind itself
+    heart = pv.Sphere(radius=20.0, center=(0.0, 0.0, 80.0))
+    session.context = {"heart": heart}
+    [h] = client.get("/geometry").json()["ghost"]  # the heart shows even then
+    assert h["kind"] == "heart" and h["label"] == "AI outline · heart"
+    assert "mesh" in h["state"] and "field" not in h["state"]
     for step in ("centerline", "sections", "wall"):  # the same source, cut further
         assert client.post(f"/step/{step}", json={}).status_code == 200
     assert client.post("/step/volmesh", json={"n_axial": 30}).status_code == 200
     body = client.get("/geometry").json()
-    ghost = body["ghost"]
-    assert ghost and ghost["label"] == "AI outline"
-    assert "mesh" in ghost["state"] and "points" in ghost["state"]["mesh"]
-    assert "field" not in ghost["state"]  # one faint colour, never a colormap
+    aorta, heart_entry = body["ghost"]
+    assert aorta["label"] == "AI outline · aorta" and aorta["kind"] == "aorta"
+    assert heart_entry["kind"] == "heart"
+    assert "mesh" in aorta["state"] and "points" in aorta["state"]["mesh"]
+    assert "field" not in aorta["state"]  # one faint colour, never a colormap
     holder = client.app.state.holder
-    assert holder.ghost_for is session.outline
-    first = holder.ghost_state
+    assert holder.ghosts["aorta"][0] is session.outline and holder.ghosts["heart"][0] is heart
+    first = holder.ghosts["aorta"][1]
     client.get("/geometry", params={"field": "region"})
-    assert holder.ghost_state is first  # serialized once per outline
-    # a new source drops the outline and the ghost with it
+    assert holder.ghosts["aorta"][1] is first  # serialized once per outline
+    # no context (the heart was out of field): the outline alone, no stale cache
+    session.context = {}
+    [only] = client.get("/geometry").json()["ghost"]
+    assert only["kind"] == "aorta" and set(holder.ghosts) == {"aorta"}
+    # a new source drops the outline, the context and the ghosts with them
     assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
     assert client.app.state.holder.session.outline is None
-    assert client.get("/geometry").json()["ghost"] is None
+    assert client.get("/geometry").json()["ghost"] is None and holder.ghosts == {}
+
+
+def test_atlas_lists_only_the_scan_the_session_loaded(client: TestClient, tmp_path: Path) -> None:
+    """D108 addendum 6: GET /atlas is the 15-region catalogue, the modalities
+    and the studies the session REALLY holds — none on a fresh session, none
+    for a synthetic tube or an STL (not scans), one CT once the segment step
+    loaded one (the AI outline it keeps is the marker), its body coverage
+    declared only for the public demo CT, by checksum; any other CT is listed
+    with its coverage unassigned. No date, no prior, no folder, no second
+    patient, ever."""
+    import json
+
+    from meshforge import atlas as atlas_mod
+
+    body = client.get("/atlas").json()
+    assert [r["id"] for r in body["regions"]] == [rid for rid, _ in atlas_mod.REGIONS]
+    assert [r["name"] for r in body["regions"]] == [name for _, name in atlas_mod.REGIONS]
+    assert len(body["regions"]) == 15
+    assert body["modalities"] == ["CT", "MRI", "X-ray", "US", "Angio"]
+    assert body["studies"] == [] and body["patient"] is None and body["n_patients"] == 0
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    assert client.get("/atlas").json()["studies"] == []  # a synthetic tube is not a scan
+    session = client.app.state.holder.session
+    # what the segment step leaves behind: the outline it keeps, the CT's path and checksum
+    session.outline = session.surface
+    session.input_path = tmp_path / "ct.nii.gz"
+    session.input_sha256 = "0" * 64
+    body = client.get("/atlas").json()
+    [study] = body["studies"]
+    assert study["modality"] == "CT" and study["loaded"] is True and study["status"] == "current"
+    assert study["date"] == "date withheld" and study["patient"] is None
+    assert study["regions"] == [] and study["coverage"] == "unassigned"
+    assert study["file"] == "ct.nii.gz" and str(tmp_path) not in json.dumps(body)  # no folder on screen
+    assert body["n_patients"] == 1 and "unassigned" in body["patient"]
+    # the public demo CT, by checksum: chest + torso, subject s1364, with its credit
+    session.input_sha256 = atlas_mod.DEMO_CT_SHA256
+    body = client.get("/atlas").json()
+    [study] = body["studies"]
+    assert study["regions"] == ["chest", "torso"] and study["coverage"] == "declared"
+    assert study["description"] == "abdomen + pelvis + lower chest · 1.5 mm" and study["patient"] == "s1364"
+    assert body["patient"] == "1 patient on file · s1364 · de-identified (TotalSegmentator v2, CC BY 4.0)"
+    assert {r for s_ in body["studies"] for r in s_["regions"]} <= {r["id"] for r in body["regions"]}
+    # a new source drops the outline and the study with it
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    assert client.get("/atlas").json() == {**body, "studies": [], "patient": None, "n_patients": 0}
 
 
 def test_viewport_ghost_is_decimated_fieldless_and_leaves_the_outline_alone() -> None:

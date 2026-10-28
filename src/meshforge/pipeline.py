@@ -962,6 +962,11 @@ class MeshingSession:
         # stays so a front-end can draw the whole vessel behind that piece
         # (the Workbench's ghost). Cleared by every other source step.
         self.outline = None
+        # D108 addendum 7: context organs from the same TotalSegmentator run
+        # (``heart``: its own surface, never part of the vessel), drawn as
+        # ghosts beside the outline. Filled by ``segment``, cleared with
+        # ``outline`` wherever that is cleared.
+        self.context: dict[str, Any] = {}
         # D93: the surface the last crop cut, and what it produced; a crop of
         # that unchanged output re-crops the source instead
         self._crop_source = None
@@ -996,6 +1001,7 @@ class MeshingSession:
         self.input_path = path
         self.truth = None
         self.outline = None  # not an AI outline
+        self.context = {}
         self._invalidate_downstream()
         self.length_unit = None  # STL/VTK/... carry no unit
         report = inspect_surface(self.surface, path=str(path), sha256=self.input_sha256)
@@ -1016,6 +1022,7 @@ class MeshingSession:
         self.surface, self.truth = generate(shape, **params)
         self.input_path = None
         self.outline = None  # not an AI outline
+        self.context = {}
         self.input_sha256 = None
         self._invalidate_downstream()
         self.length_unit = None  # synthetic shapes are unitless
@@ -1366,6 +1373,7 @@ class MeshingSession:
         self.input_path = Path(path)
         self.truth = None
         self.outline = None  # not an AI outline
+        self.context = {}
         self._invalidate_downstream()
         # DICOM patient coordinates are millimetres by the standard; NIfTI
         # follows its xyzt_units (mm, converted, or assumed with a note —
@@ -1482,6 +1490,7 @@ class MeshingSession:
         self.input_path = Path(path)
         self.truth = None
         self.outline = None  # not an AI outline
+        self.context = {}
         self._invalidate_downstream()
         self.length_unit = "mm"  # CSO world coordinates are millimetres
         # V40: reuse the validated centreline at the volmesh step (None => the
@@ -1577,6 +1586,7 @@ class MeshingSession:
             seg.lumen_surface.save(lumen_out)
         self.surface = seg.surface
         self.outline = seg.surface  # the whole vessel, kept through sac/crop
+        self.context = dict(seg.context_surfaces)  # the heart, as a ghost
         self.input_path = Path(path)
         self.input_sha256 = seg.input_sha256
         self.truth = None
@@ -1597,6 +1607,12 @@ class MeshingSession:
             f"  surface: {surf['n_points']} pts, {surf['n_triangles']} tris, "
             f"watertight {surf['watertight']}, frame {surf['frame']}\n"
         )
+        for roi, c in summ.get("context", {}).items():
+            text += (
+                f"  context {roi}: {c['n_points']} pts, {c['n_triangles']} tris, "
+                f"{c['mask_volume_ml']:.1f} mL — a ghost in the viewport, not part of "
+                f"the vessel\n"
+            )
         for note in summ["notes"]:
             text += f"  note: {note}\n"
         if lumen_out:

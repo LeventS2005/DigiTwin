@@ -8,6 +8,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench viewport: the patient's own heart as a second ghost** (D108
+  addendum 7). The `segment` step asks TotalSegmentator for the whole
+  `heart` of the free `total` task in a SECOND call of its own
+  (`segment_ct(context_rois=("heart",))`, the default; summary
+  `totalseg.context_flags` / `context_wall_time_s`) and keeps it apart: the
+  vessel call and its union mask are exactly what they were, each context
+  class becomes its own surface with the same smoothing
+  (`SegmentResult.context_surfaces`, summary key `context` with vertex and
+  face counts and a "context only" role; the heart never enters the aorta
+  mask, `keep_mask` stays the vessel union). Not one call for both: with
+  `--roi_subset` TotalSegmentator crops the CT to a box around the
+  requested classes (a 6 mm pass) before the 1.5 mm model, so adding the
+  heart to the aorta's call enlarged that box and changed the aorta's own
+  outline (on the demo CT the sac volume, the centreline length and the
+  flare landmark all moved and the rebuilt run's wall gate failed). A
+  heart outside the field of view is a note (`heart not in field`), not an
+  error. The session keeps it as `MeshingSession.context` (filled by
+  `segment`, cleared wherever the outline is cleared, so a replayed work
+  file brings it back), and `GET /geometry`'s `ghost` is now a LIST of
+  `{state, label, kind}`: the AI outline (`AI outline · aorta`, only behind
+  an artifact that is not the outline itself) plus one entry per context
+  surface (`AI outline · heart`, always while the session holds it), each
+  serialized once per surface and cached on the holder; `null` when there
+  is none. The viewport draws one faint representation per entry: the aorta
+  in its grey, the heart in a slightly warmer tint at the same opacity,
+  fieldless, never coloured by data. Only the whole heart is ever requested
+  — never the licensed `heartchambers_highres` task — and `heart` is
+  refused as a vessel class. The `segment` CLI command still writes the
+  vessel alone (`context_rois=()`). Tests: `test_segment.py` (+1, the fake
+  TotalSegmentator now writes one mask per requested roi and can leave the
+  heart out of the field), `test_web_api.py` (ghost test rewritten for the
+  list), `test_web_frontend_assets.py` (viewport pins).
 - **Workbench viewport ghost: the whole AI outline behind the piece being
   shown.** The `segment` step now keeps its outline on the session
   (`MeshingSession.outline`; every other source step clears it) after the
@@ -32,10 +64,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   box and the history table are hidden; a NEW result wipes in over ~2 s
   (a cover over the canvas, presentation of the final data only); the step
   running on the server shows bottom-left with its elapsed seconds; and a
-  **planned-coverage** panel above the twin shows the body outline with
+  **planned-coverage** panel above the twin showed the body outline with
   Circulatory (CT/MRI/PET) · Skeletal (X-ray) · Brain (MRI/PET) layers to
   toggle, the aorta lit as the live module, captioned "illustration, not
-  data". Off, every rule is inert and the Workbench is unchanged.
+  data" (since replaced by the patient atlas — see Changed). Off, every
+  rule is inert and the Workbench is unchanged.
   - `GET /state` now carries `running` (the step holding the session lock,
     its STEP_KNOBS name) and `running_for` (seconds), both `null` when idle,
     so a Workbench driven from outside (the copilot over HTTP) can show it.
@@ -145,6 +178,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Workbench Demo mode: the planned-coverage illustration becomes the
+  patient atlas** (D108 addendum 6). The panel above the twin is now one
+  patient record with every study filed by body region and modality: a
+  front-view body map of 15 regions (head and neck, chest, torso, and the
+  shoulders, arms, hands, upper legs, lower legs and feet by the PATIENT's
+  side — the patient's right is on the viewer's left, as on a scan), drawn
+  as a natural silhouette at 170 × 330 px on the left of the panel, with
+  the modality chips (All · CT · MRI · X-ray · US · Angio), the hover line
+  and the study list beside it; a chip filters the map and the list alike;
+  hovering (or keyboard focus) names the region and its studies on the
+  line and as a label on the figure itself; click selects a region and
+  filters the list (click again or Esc clears); a lit region carries an
+  11 px count badge. Region states are sized for a screen recording (dim:
+  neutral fill, faint solid outline; lit: accent fill and outline; hover:
+  brighter fill, white outline; selected: 2 px accent outline). Honesty
+  rules: every row comes from the new read-only
+  `GET /atlas` (`meshforge.atlas`), which lists exactly the scans the
+  session loaded — today at most the CT the `segment` step outlined,
+  `loaded ✓` — with its body coverage declared only for the public demo
+  CT (TotalSegmentator v2 s1364, by checksum: chest + torso, "abdomen +
+  pelvis + lower chest · 1.5 mm") and `unassigned` for any other CT; no
+  prior, no other patient, no date (withheld, no PHI); regions without
+  studies are dim and the empty state says what would list there. Tests:
+  `test_web_frontend_assets.py` (the coverage guard becomes the atlas
+  guard: 15 regions pinned to the Python catalogue, six chips, real rows
+  only, hover/selected rules only under `body.demo`), `test_web_api.py`
+  (+1: `/atlas` lists only the loaded scan; the lock test polls it).
 - Public tree slimmed to what someone *using* meshforge needs. The agent and
   session machinery (`CLAUDE.md`, `AGENT_GROUNDUP_PROMPT.md`, `DECISIONS.md`,
   `BACKLOG.md`, `INPUTS.md`) and the 72 per-milestone design documents under

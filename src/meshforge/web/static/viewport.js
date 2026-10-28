@@ -9,7 +9,7 @@
   "use strict";
 
   var S = {
-    app: null, viewRef: null, mesh: null, range: null, preset: null, overlay: null, ghost: null, ready: false,
+    app: null, viewRef: null, mesh: null, range: null, preset: null, overlay: null, ghosts: null, ready: false,
     // D82 flow section: the server-sampled section state, whether to show it,
     // and the wall's look while it shows (translucent, so the flow reads).
     section: null, sectionState: null, showSection: true, showWall: false, meshProperty: null, wallVisible: null,
@@ -20,10 +20,14 @@
   // Fixed look for the QC overlay (raw source contours): amber unlit lines so
   // they read over any surface colormap.
   var OVERLAY_PROPERTY = { color: [1.0, 0.72, 0.2], lineWidth: 2, lighting: false };
-  // The ghost: the whole AI outline of the aorta (arch and all), drawn faint
+  // The ghosts: the whole AI outline of the aorta (arch and all), drawn faint
   // and translucent behind the artifact cut from it, so a cropped segment, its
-  // wall or its stress field is seen in place. Context only, never coloured.
+  // wall or its stress field is seen in place; and the patient's own heart
+  // from the same AI run, above the arch, in a slightly warmer tint at the
+  // same opacity. Context only, never coloured by data (fieldless states).
   var GHOST_PROPERTY = { color: [0.78, 0.8, 0.84], opacity: 0.16, specular: 0.0 };
+  var HEART_GHOST_PROPERTY = { color: [0.88, 0.74, 0.72], opacity: 0.16, specular: 0.0 };
+  var GHOST_PROPERTIES = { aorta: GHOST_PROPERTY, heart: HEART_GHOST_PROPERTY };
   // The wall around a shown flow section: a faint shell for context.
   var WALL_UNDER_SECTION = { opacity: 0.15 };
   var WALL_OPAQUE = { opacity: 1.0 };
@@ -49,7 +53,7 @@
     S.range = Vue.ref([0, 1]);
     S.preset = Vue.ref("Cool to Warm");
     S.overlay = Vue.ref(null);
-    S.ghost = Vue.ref(null);
+    S.ghosts = Vue.ref([]);
     S.section = Vue.ref(null);
     S.meshProperty = Vue.ref(WALL_OPAQUE);
     S.wallVisible = Vue.ref(true);
@@ -71,8 +75,7 @@
           preset: S.preset,
           overlay: S.overlay,
           overlayProperty: OVERLAY_PROPERTY,
-          ghost: S.ghost,
-          ghostProperty: GHOST_PROPERTY,
+          ghosts: S.ghosts,
           section: S.section,
           meshProperty: S.meshProperty,
           wallVisible: S.wallVisible,
@@ -92,8 +95,8 @@
         '  <vtk-geometry-representation v-if="overlay" :property="overlayProperty">' +
         '    <vtk-mesh :state="overlay"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
-        '  <vtk-geometry-representation v-if="ghost" :property="ghostProperty">' +
-        '    <vtk-mesh :state="ghost"></vtk-mesh>' +
+        '  <vtk-geometry-representation v-for="g in ghosts" :key="g.kind" :property="g.property">' +
+        '    <vtk-mesh :state="g.state"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
         "</vtk-view>",
     });
@@ -202,8 +205,8 @@
   function load(payload, resetCamera) {
     if (!S.ready || !payload || !payload.state) return;
     S.mesh.value = payload.state;
-    // The ghost rides on the main payload only (a field or frame swap keeps it).
-    if (S.ghost && "ghost" in payload) S.ghost.value = (payload.ghost && payload.ghost.state) || null;
+    // The ghosts ride on the main payload only (a field or frame swap keeps them).
+    if (S.ghosts && "ghost" in payload) S.ghosts.value = ghostList(payload.ghost);
     S.sectionState = payload.section || null;
     applySection();
     if (payload.data_range && payload.data_range.length === 2) {
@@ -230,7 +233,7 @@
   function clear() {
     if (S.ready && S.mesh) S.mesh.value = null;
     if (S.ready && S.overlay) S.overlay.value = null;
-    if (S.ready && S.ghost) S.ghost.value = null;
+    if (S.ready && S.ghosts) S.ghosts.value = [];
     S.sectionState = null;
     if (S.ready) applySection();
     disarmPick();
@@ -241,9 +244,23 @@
   function setOverlay(state) {
     if (S.ready && S.overlay) S.overlay.value = state || null;
   }
-  // Show/hide the ghost outline (a serialized surface state, or null).
-  function setGhost(state) {
-    if (S.ready && S.ghost) S.ghost.value = state || null;
+  // GET /geometry's `ghost`: a list of {state, label, kind} (null = none; a
+  // single object is taken as a list of one) -> the representations to draw,
+  // each with the fixed look of its kind (unknown kinds get the aorta grey).
+  function ghostList(raw) {
+    var items = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var g = items[i];
+      if (!g || !g.state) continue;
+      var kind = g.kind || "aorta";
+      out.push({ kind: kind, state: g.state, property: GHOST_PROPERTIES[kind] || GHOST_PROPERTY });
+    }
+    return out;
+  }
+  // Show/hide the ghosts (the payload's list, or null).
+  function setGhosts(list) {
+    if (S.ready && S.ghosts) S.ghosts.value = ghostList(list);
   }
 
   window.MeshforgeViewport = {
@@ -251,7 +268,7 @@
     load: load,
     clear: clear,
     setOverlay: setOverlay,
-    setGhost: setGhost,
+    setGhosts: setGhosts,
     setSectionVisible: setSectionVisible,
     setWallVisible: setWallVisible,
     setRange: setRange,

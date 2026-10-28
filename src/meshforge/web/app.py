@@ -48,8 +48,10 @@ class _SessionHolder:
     def __init__(self) -> None:
         self.session = MeshingSession()
         self.last_render: dict[str, Any] | None = None
-        self.ghost_state = None  # serialized AI outline (GET /geometry ghost)
-        self.ghost_for = None  # the outline object it was made from
+        # GET /geometry ghosts, serialized once per surface: kind -> (the
+        # surface object it was made from, its vtk.js state). "aorta" is the
+        # session's AI outline, every other key a context organ (the heart).
+        self.ghosts: dict[str, tuple[Any, dict[str, Any]]] = {}
         # Monotonic session revision. Bumped on every state-changing call so a
         # frontend can cheaply poll GET /state and re-sync when ANOTHER client
         # (or a replay) changed the shared in-process session (auto-refresh).
@@ -270,6 +272,16 @@ def create_app() -> FastAPI:
 
         return twin_from_journal(list(holder.session.journal))
 
+    # -- patient atlas (D108 addendum 6): the body regions and the studies --
+    # the session really holds (meshforge.atlas; at most the CT the segment
+    # step loaded). Read-only and VTK-free (session attributes only), so it
+    # stays outside the session lock like /state and /twin.
+    @app.get("/atlas")
+    def get_atlas():
+        from meshforge.atlas import atlas_for
+
+        return atlas_for(holder.session)
+
     # The copilot's --flow-metrics over --server: the session journals the
     # pre-computed CFD numbers as their own flow_metrics record (nothing is
     # computed, no VTK), so GET /twin and the report print the same flow
@@ -322,6 +334,7 @@ def create_app() -> FastAPI:
             loaded = load_workfile(body.path)
             results = replay(loaded) if body.replay else []
             holder.session = loaded  # only after a clean load+replay
+            holder.ghosts = {}
             holder.rev += 1
             # Show the replayed artifact in the viewport: cache the last result
             # that carries a mesh (fall back to clearing if the replay was empty).
@@ -341,6 +354,7 @@ def create_app() -> FastAPI:
     def session_reset():
         holder.session = MeshingSession()
         holder.last_render = None
+        holder.ghosts = {}
         holder.rev += 1
         return {"ok": True}
 
@@ -382,19 +396,32 @@ def create_app() -> FastAPI:
                     "state": viewport.serialize_overlay(overlay),
                     "label": hints.get("overlay_label"),
                 }
-            # The ghost: the session's AI outline of the whole aorta (kept by
+            # The ghosts: the session's AI outline of the whole aorta (kept by
             # the segment step after the sac/crop steps replace the working
-            # surface), behind every artifact cut from it; not behind itself.
-            # Serialized once per outline (it is the biggest mesh in the
-            # session) and reused until the outline changes.
+            # surface), behind every artifact cut from it — not behind itself
+            # — and the context organs of the same run (the patient's own
+            # heart, D108 addendum 7), whenever the session holds them. Each
+            # is serialized once per surface object (the outline is the
+            # biggest mesh in the session) and reused until it changes.
             outline = getattr(holder.session, "outline", None)
+            context = getattr(holder.session, "context", None) or {}
+            current: dict[str, Any] = {"aorta": outline}
+            current.update((str(k), v) for k, v in context.items() if v is not None)
+            # drop cache entries whose surface left the session (a new source, a reset)
+            for stale in [k for k, (obj, _) in holder.ghosts.items() if current.get(k) is not obj]:
+                del holder.ghosts[stale]
+            wanted: list[tuple[str, Any]] = []
             if outline is not None and hints["mesh"] is not outline:
-                if holder.ghost_for is not outline:
-                    holder.ghost_state = viewport.serialize_ghost(outline)
-                    holder.ghost_for = outline
-                payload["ghost"] = {"state": holder.ghost_state, "label": "AI outline"}
-            else:
-                payload["ghost"] = None
+                wanted.append(("aorta", outline))
+            wanted.extend((k, v) for k, v in current.items() if k != "aorta")
+            ghosts = []
+            for kind, surf in wanted:
+                cached = holder.ghosts.get(kind)
+                if cached is None or cached[0] is not surf:
+                    cached = (surf, viewport.serialize_ghost(surf))
+                    holder.ghosts[kind] = cached
+                ghosts.append({"state": cached[1], "label": f"AI outline · {kind}", "kind": kind})
+            payload["ghost"] = ghosts or None
             return payload
 
         return _run(work)
