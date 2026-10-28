@@ -11,6 +11,7 @@ exporter calls) on client-supplied write paths.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,10 +48,17 @@ class _SessionHolder:
     def __init__(self) -> None:
         self.session = MeshingSession()
         self.last_render: dict[str, Any] | None = None
+        self.ghost_state = None  # serialized AI outline (GET /geometry ghost)
+        self.ghost_for = None  # the outline object it was made from
         # Monotonic session revision. Bumped on every state-changing call so a
         # frontend can cheaply poll GET /state and re-sync when ANOTHER client
         # (or a replay) changed the shared in-process session (auto-refresh).
         self.rev = 0
+        # The step running under the session lock right now (its STEP_KNOBS
+        # name) and when it started: GET /state reports both so a Workbench
+        # driven from outside (the copilot over HTTP) can show "meshing… 12 s".
+        self.running: str | None = None
+        self.running_since: float | None = None
 
 
 class SynthBody(BaseModel):
@@ -225,8 +233,15 @@ def create_app() -> FastAPI:
     @app.get("/state")
     def get_state():
         s = holder.session
+        running_for = (
+            round(time.monotonic() - holder.running_since, 1)
+            if holder.running is not None and holder.running_since is not None
+            else None
+        )
         return {
             "rev": holder.rev,
+            "running": holder.running,
+            "running_for": running_for,
             "input_path": str(s.input_path) if s.input_path else None,
             "input_sha256": s.input_sha256,
             "journal_len": len(s.journal),
@@ -367,6 +382,19 @@ def create_app() -> FastAPI:
                     "state": viewport.serialize_overlay(overlay),
                     "label": hints.get("overlay_label"),
                 }
+            # The ghost: the session's AI outline of the whole aorta (kept by
+            # the segment step after the sac/crop steps replace the working
+            # surface), behind every artifact cut from it; not behind itself.
+            # Serialized once per outline (it is the biggest mesh in the
+            # session) and reused until the outline changes.
+            outline = getattr(holder.session, "outline", None)
+            if outline is not None and hints["mesh"] is not outline:
+                if holder.ghost_for is not outline:
+                    holder.ghost_state = viewport.serialize_ghost(outline)
+                    holder.ghost_for = outline
+                payload["ghost"] = {"state": holder.ghost_state, "label": "AI outline"}
+            else:
+                payload["ghost"] = None
             return payload
 
         return _run(work)
@@ -451,7 +479,11 @@ def _make_step_endpoint(holder: _SessionHolder, step: str, model: type):
             if step == "screenshot" and params.get("path"):
                 _guard_write(session, _clean_path(params["path"]))
             method = getattr(session, f"compute_{step}")
-            return _capture(holder, method(**params))
+            holder.running, holder.running_since = step, time.monotonic()
+            try:
+                return _capture(holder, method(**params))
+            finally:
+                holder.running, holder.running_since = None, None
 
         return _run(work)
 

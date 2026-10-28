@@ -47,6 +47,51 @@ def available_fields(mesh: Any) -> list[str]:
     return seen
 
 
+# numpy dtype of the bytes actually shipped → the JS TypedArray that reads
+# them. trame-vtk 2.11's ``vtk_mesh`` compacts an integer field to the
+# smallest dtype that holds its values (an all-ones int32 ``region`` ships as
+# one byte per cell) but labels ``type`` from the SOURCE dtype (Int32Array),
+# so the browser read a quarter of the cells and vtk.js crashed its renderer
+# (the canvas stayed black from the wall mesh on until a reload). Floats are
+# shipped as-is and were never affected. Display passthrough only.
+_JS_TYPE_OF_DTYPE = {
+    "int8": "Int8Array", "uint8": "Uint8Array",
+    "int16": "Int16Array", "uint16": "Uint16Array",
+    "int32": "Int32Array", "uint32": "Uint32Array",
+    "float32": "Float32Array", "float64": "Float64Array",
+}
+
+
+def _label_field_by_its_bytes(state: Any) -> Any:
+    """Make a serialized state's ``field.type`` name the TypedArray of the
+    bytes it carries (``field.values.dtype``). Returns the same state."""
+    field = state.get("field") if isinstance(state, dict) else None
+    values = field.get("values") if isinstance(field, dict) else None
+    dtype = values.get("dtype") if isinstance(values, dict) else None
+    js = _JS_TYPE_OF_DTYPE.get(str(dtype)) if dtype is not None else None
+    if js is not None:
+        field["type"] = js
+    return state
+
+
+def _point_field_for_display(surf: Any, field: str | None) -> Any:
+    """vue-vtk's mesh component (trame-vtk 2.11) colours by POINT data only: a
+    cell-only field (the wall mesh's ``region``, the stress mesh's end-zone
+    mask, the cropped lumen's cap ids) threw inside vtk.js's ``mapScalars``
+    and killed the renderer — the canvas stayed black from that artifact on
+    until a page reload. Such a field gets a point version (cell → point
+    average, float32) on a shallow display copy; the session's mesh and every
+    point field are untouched."""
+    if field is None or field in surf.point_data or field not in surf.cell_data:
+        return surf
+    import numpy as np
+
+    shown = surf.copy(deep=False)  # its own attribute containers, shared arrays
+    averaged = surf.cell_data_to_point_data(pass_cell_data=False)
+    shown.point_data[field] = np.asarray(averaged.point_data[field], dtype=np.float32)
+    return shown
+
+
 def _state_range(state: Any) -> list[float] | None:
     field_meta = state.get("field") if isinstance(state, dict) else None
     rng = field_meta.get("dataRange") if field_meta else None
@@ -88,11 +133,12 @@ def serialize(
         )
     if field is None and fields:
         field = fields[0]
+    surf = _point_field_for_display(surf, field)
 
     # Lazy import: keeps `import meshforge.web.app` (and the CLI) trame-free.
     from trame_vtk.modules.vtk import vtk_mesh
 
-    state = vtk_mesh(surf, field_to_keep=field)
+    state = _label_field_by_its_bytes(vtk_mesh(surf, field_to_keep=field))
     data_range = _state_range(state)
     payload = {
         "kind": kind,
@@ -104,7 +150,7 @@ def serialize(
     if section is not None and field is not None:
         probed = section_view(mesh, section)
         if field in probed.point_data:
-            sec_state = vtk_mesh(probed, field_to_keep=field)
+            sec_state = _label_field_by_its_bytes(vtk_mesh(probed, field_to_keep=field))
             sec_range = _state_range(sec_state)
             if data_range and sec_range:
                 payload["data_range"] = [
@@ -123,6 +169,20 @@ def serialize(
             if hi > lo:
                 payload["section_range"] = [float(lo), float(hi)]
     return payload
+
+
+def serialize_ghost(mesh: Any, target_reduction: float = 0.6) -> dict[str, Any]:
+    """The ghost outline → its bare vtk.js state: the triangulated surface
+    decimated for transport (it is the whole aorta, the session's largest
+    surface) with every field dropped — the canvas paints it in one faint
+    translucent colour behind the artifact. Display passthrough only; the
+    session's outline is not touched (decimate returns a new mesh)."""
+    from trame_vtk.modules.vtk import vtk_mesh
+
+    tri = mesh.triangulate() if mesh.n_cells else mesh
+    ghost = tri.decimate(target_reduction) if tri.n_cells > 2000 else tri.copy(deep=False)
+    ghost.clear_data()
+    return vtk_mesh(ghost)
 
 
 def serialize_overlay(mesh: Any) -> dict[str, Any]:

@@ -135,6 +135,7 @@ async function refreshViewport(resetCamera) {
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
   window.MeshforgeViewport.load(payload, resetCamera);
+  if (resetCamera) playReveal(); // demo mode only (no-op otherwise)
   populateFields(payload.fields || [], payload.field);
   updateColorbar(payload);
   setupFrames(payload);
@@ -302,6 +303,7 @@ async function refreshTwin() {
 }
 
 function renderTwin(twin) {
+  noteDemoTwin(twin); // demo mode only (no-op otherwise)
   $("#twin").dataset.lit = twin.lit ? "1" : "0";
   $("#twin-scan").textContent = twin.scan || "no scan yet";
   const mods = $("#twin-modules");
@@ -352,6 +354,7 @@ function renderTwin(twin) {
 // ---- history + state ---------------------------------------------------
 async function refreshHistory() {
   const { journal } = await apiGet("/journal");
+  noteDemoJournal(journal); // demo mode only (no-op otherwise)
   const tbody = $("#history tbody");
   tbody.innerHTML = "";
   for (const rec of journal) {
@@ -406,6 +409,7 @@ function startAutoRefresh() {
     pollBusy = true;
     try {
       const st = await apiGet("/state");
+      updateBusyLine(st); // demo mode only (no-op otherwise)
       if (lastRev !== null && st.rev !== lastRev) {
         log("session changed — resyncing view");
         await refreshHistory();
@@ -888,6 +892,233 @@ async function resetSession() {
 }
 
 // ---- init --------------------------------------------------------------
+
+// ---- Demo mode (D108): presentation layout ---------------------------------
+// Off = the Workbench exactly as before. On (the top-bar switch; URL ?demo=1;
+// localStorage meshforge.demo) = the AAA path's six steps as numbered tabs on
+// the left, in the order the copilot runs them, each marked waiting / running
+// / done (or failed, when the wall gate refused the mesh); a result reveal in
+// the viewport; the running step with its elapsed
+// seconds; and the planned-coverage panel above the twin. Nothing here calls
+// a compute route or changes what any step does (rule 4): it only shows the
+// same results.
+// [step, tab title, one-line hint] — the step's own panel (its knobs, its Run
+// button) is the tab; the hint is for a viewer who does not know the step.
+const DEMO_STEPS = [
+  ["segment", "Load scan", "CT in · AI outline of the aorta"],
+  ["crop", "Crop aneurysm", "neck → sac → above the bifurcation"],
+  ["volmesh", "Mesh wall", "1.5 mm hex wall · quality gate"],
+  ["aaa_stress", "Wall stress · FEA", "finite elements at 140 / 120 mmHg"],
+  ["tissue_index", "Strength index", "stress against lab strength · investigational"],
+  ["cfd", "Blood flow · CFD", "steady resting flow in the lumen"],
+];
+// Steps that run inside a tab's turn and have no tab of their own (the sac
+// recovery runs right after the AI outline), and journal records that fill a
+// tab without being its step (the copilot's pre-computed flow metrics).
+const DEMO_STEP_OF = { sac: "segment", flow_metrics: "cfd" };
+const DEMO_VERBS = {
+  import_image: "loading the scan",
+  import_cso: "loading the contours",
+  segment: "contouring the aorta (AI outline)",
+  sac: "recovering the sac from the CT",
+  crop: "cropping the aneurysm",
+  wall: "meshing the wall",
+  volmesh: "meshing the wall",
+  aaa_stress: "solving the wall stress (finite elements)",
+  tissue_index: "computing the investigational index",
+  cfd: "solving the flow (CFD)",
+};
+function isDemo() {
+  return document.body.classList.contains("demo");
+}
+function readDemoPref() {
+  try {
+    const q = new URLSearchParams(window.location.search).get("demo");
+    if (q !== null) return q === "1" || q === "true" || q === "on";
+    return localStorage.getItem("meshforge.demo") === "1";
+  } catch (err) {
+    return false; // private mode / no storage: plain Workbench
+  }
+}
+function applyDemo(on) {
+  document.body.classList.toggle("demo", on);
+  const t = $("#demo-toggle");
+  if (t) t.checked = on;
+  try {
+    localStorage.setItem("meshforge.demo", on ? "1" : "0");
+  } catch (err) {
+    // private mode — the URL still carries it
+  }
+  try {
+    const url = new URL(window.location.href);
+    if (on) url.searchParams.set("demo", "1");
+    else url.searchParams.delete("demo");
+    history.replaceState(null, "", url.toString());
+  } catch (err) {
+    // no history API — nothing to keep
+  }
+  if (on) {
+    buildCoveragePanel();
+    closeDemoPanels();
+    paintDemoTabs();
+  } else {
+    removeCoveragePanel();
+    hideBusyLine();
+  }
+}
+// Tag the demo steps' panels and give each its tab: number, title, hint and a
+// state mark. The panels keep their STEP_ORDER places (the run order); the
+// CSS hides the untagged ones and, under body.demo, shows the tab in place of
+// the step's name. The knobs and the Run button are untouched underneath.
+function decorateDemoPanels() {
+  const host = $("#step-panels");
+  DEMO_STEPS.forEach(([step, title, hint], i) => {
+    const box = host.querySelector(`details.step-box[data-step="${step}"]`);
+    if (!box) return;
+    box.dataset.demo = "1";
+    box.dataset.demoState = "waiting";
+    const summary = box.querySelector("summary");
+    const raw = document.createElement("span");
+    raw.className = "step-name";
+    raw.textContent = summary.textContent; // the step's own name, shown off-demo
+    const tab = document.createElement("span");
+    tab.className = "demo-tab";
+    const num = document.createElement("span");
+    num.className = "demo-num";
+    num.textContent = String(i + 1);
+    const lab = document.createElement("span");
+    lab.className = "demo-title";
+    lab.textContent = title;
+    const sub = document.createElement("span");
+    sub.className = "demo-hint";
+    sub.textContent = hint;
+    const mark = document.createElement("span");
+    mark.className = "demo-mark";
+    mark.setAttribute("aria-hidden", "true");
+    tab.append(num, lab, sub, mark);
+    summary.textContent = "";
+    summary.append(raw, tab);
+  });
+}
+// Demo shows the tabs closed (six lines, the whole path at a glance); a click
+// still opens a tab's knobs.
+function closeDemoPanels() {
+  for (const box of document.querySelectorAll('#step-panels details.step-box[data-demo="1"]')) box.open = false;
+}
+// Each tab's state: "running" = the step holding the session lock right now
+// (GET /state `running`, also when the copilot drives the server); "done" = a
+// record for it is in the journal (so a re-run upstream, which truncates the
+// journal, puts the tabs after it back to waiting — the journal is the truth);
+// else "waiting". Painted on every journal refresh and every /state poll.
+// "failed" (the Mesh wall tab only): the twin's wall slot carries the note
+// "last wall gate FAIL: … mm along the normal" while the copilot's last
+// mesh_wall call failed its quality gate (GET /twin, computed by the report
+// code from the same journal). The volmesh record IS in the journal then — the
+// step ran, the gate refused the wall — so "done" alone would read as a pass.
+// The wording is the report's own (copilot/report.py); the asset test pins
+// the two together.
+const WALL_GATE_FAIL_NOTE = "last wall gate FAIL";
+let demoDoneSteps = new Set();
+let demoWallFailed = false;
+function noteDemoJournal(journal) {
+  demoDoneSteps = new Set((journal || []).map((rec) => DEMO_STEP_OF[rec.step] || rec.step));
+  paintDemoTabs();
+}
+function noteDemoTwin(twin) {
+  const wall = (twin.slots || []).find((s) => s.key === "wall");
+  demoWallFailed = Boolean(wall && String(wall.note || "").startsWith(WALL_GATE_FAIL_NOTE));
+  paintDemoTabs();
+}
+function paintDemoTabs() {
+  const running = busyStep ? DEMO_STEP_OF[busyStep] || busyStep : null;
+  for (const box of document.querySelectorAll('#step-panels details.step-box[data-demo="1"]')) {
+    const step = box.dataset.step;
+    box.dataset.demoState =
+      step === running ? "running"
+      : step === "volmesh" && demoWallFailed ? "failed"
+      : demoDoneSteps.has(step) ? "done"
+      : "waiting";
+  }
+}
+// The coverage panel is cloned from the inert <template> in index.html while
+// Demo is on and removed when it is off, so it is not in the DOM otherwise.
+function buildCoveragePanel() {
+  if ($("#coverage-panel")) return;
+  const tpl = $("#coverage-svg");
+  const twin = $("#twin-panel");
+  if (!tpl || !twin) return;
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  twin.parentElement.insertBefore(node, twin);
+  for (const btn of node.querySelectorAll(".cov-btn")) {
+    btn.addEventListener("click", () => {
+      node.dataset.layer = btn.dataset.layer;
+      for (const b of node.querySelectorAll(".cov-btn")) b.classList.toggle("on", b === btn);
+    });
+  }
+}
+function removeCoveragePanel() {
+  const p = $("#coverage-panel");
+  if (p) p.remove();
+}
+// A NEW result wipes in over ~2 s: a cover over the canvas (CSS clip-path
+// transition) — presentation of the final data, nothing invented.
+let revealTimer = null;
+function playReveal() {
+  if (!isDemo()) return;
+  const cover = $("#vp-reveal");
+  if (!cover) return;
+  clearTimeout(revealTimer);
+  cover.classList.remove("go");
+  cover.hidden = false;
+  void cover.offsetWidth; // restart the transition from the covered state
+  cover.classList.add("go");
+  revealTimer = setTimeout(() => {
+    cover.hidden = true;
+    cover.classList.remove("go");
+  }, 2600);
+}
+// The step running on the server right now (GET /state `running`, set while
+// the step holds the session lock — also when the copilot drives it over HTTP)
+// with its elapsed seconds, ticking locally between polls.
+let busyTicker = null;
+let busyStart = null;
+let busyStep = null;
+function updateBusyLine(st) {
+  if (!isDemo() || !st || !st.running) {
+    hideBusyLine();
+    return;
+  }
+  if (busyStep !== st.running) {
+    busyStep = st.running;
+    busyStart = Date.now() - 1000 * (Number(st.running_for) || 0);
+    paintDemoTabs();
+  }
+  if (!busyTicker) busyTicker = setInterval(tickBusyLine, 250);
+  tickBusyLine();
+}
+function tickBusyLine() {
+  const el = $("#vp-busy");
+  if (!el || !busyStep) return;
+  const secs = Math.max(0, Math.round((Date.now() - busyStart) / 1000));
+  el.textContent = `${DEMO_VERBS[busyStep] || busyStep + " running"}… ${secs} s`;
+  el.hidden = false;
+}
+function hideBusyLine() {
+  const el = $("#vp-busy");
+  if (el) el.hidden = true;
+  if (busyTicker) clearInterval(busyTicker);
+  busyTicker = null;
+  const wasRunning = busyStep !== null;
+  busyStep = null;
+  busyStart = null;
+  if (wasRunning) paintDemoTabs();
+}
+function initDemoMode() {
+  const t = $("#demo-toggle");
+  if (t) t.addEventListener("change", () => applyDemo(t.checked));
+  applyDemo(readDemoPref());
+}
+
 async function init() {
   // Source dropdown + panel order from /catalog (rule-4-safe: served by the
   // API, not hardcoded here). One fetch so the panel builder below can use
@@ -933,6 +1164,9 @@ async function init() {
   } catch (err) {
     onError(err);
   }
+
+  decorateDemoPanels(); // tags the demo steps + their tabs (inert until body.demo)
+  initDemoMode();
 
   // Native "Browse…" for the source/session path fields (desktop shell);
   // and the one-line explanation when there's no bridge to drive them.

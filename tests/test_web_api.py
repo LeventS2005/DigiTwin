@@ -305,6 +305,107 @@ def test_geometry_volmesh_has_region_field(client: TestClient) -> None:
     assert body["data_range"] and len(body["data_range"]) == 2
 
 
+def test_geometry_cell_field_is_served_as_point_data_with_a_matching_label(client: TestClient) -> None:
+    """Two viewport defects found on the demo path (27 Oct 2026), both in the
+    display layer. (1) vue-vtk's mesh component (trame-vtk 2.11) colours by
+    POINT data only: a cell-only field such as the wall mesh's ``region`` threw
+    in vtk.js's mapScalars and killed the renderer (a black canvas from the
+    wall mesh on until a reload), so a cell-only field is served as a point
+    version. (2) trame-vtk compacts an integer field to the smallest dtype
+    that holds its values but labels ``type`` from the source dtype (an
+    all-ones int32 shipped one byte per cell under "Int32Array"), so the label
+    must name the TypedArray of the bytes actually sent."""
+    import base64
+
+    import numpy as np
+
+    from meshforge.web.viewport import _JS_TYPE_OF_DTYPE
+
+    _drive_to_volmesh(client)
+    assert client.post("/step/volmesh", json={"n_axial": 30}).status_code == 200
+    body = client.get("/geometry", params={"field": "region"}).json()
+    assert "region" in body["fields"]
+    field = body["state"]["field"]
+    assert field["name"] == "region" and field["location"] == "PointData"
+    dtype = field["values"]["dtype"]
+    assert field["type"] == _JS_TYPE_OF_DTYPE[dtype], (field["type"], dtype)
+    n_values = len(base64.b64decode(field["values"]["bvals"])) // np.dtype(dtype).itemsize
+    n_points = body["state"]["mesh"]["points"]["shape"][0]
+    assert n_values == n_points, (n_values, n_points)
+    assert body["data_range"] == [1.0, 1.0]  # the averaged constant is still 1
+
+
+def test_viewport_display_copy_leaves_the_session_mesh_alone_and_labels_every_dtype() -> None:
+    import base64
+
+    import numpy as np
+    import pyvista as pv
+
+    from meshforge.web import viewport
+
+    m = pv.Sphere(theta_resolution=8, phi_resolution=8)
+    for dt in (np.uint8, np.int32, np.int64, np.float32, np.float64):
+        m.cell_data["region"] = np.ones(m.n_cells, dtype=dt)
+        f = viewport.serialize(m, "surface", field="region")["state"]["field"]
+        assert f["location"] == "PointData", dt
+        item = np.dtype(f["values"]["dtype"]).itemsize
+        assert f["type"] == viewport._JS_TYPE_OF_DTYPE[f["values"]["dtype"]], dt
+        assert len(base64.b64decode(f["values"]["bvals"])) // item == m.n_points, dt
+        assert "region" not in m.point_data  # the display copy never touches the session's mesh
+    # a point field is served as it is (no averaging, dtype kept)
+    m.point_data["v"] = np.full(m.n_points, 0.5)
+    f = viewport.serialize(m, "surface", field="v")["state"]["field"]
+    assert f["location"] == "PointData" and f["type"] == "Float64Array"
+
+
+def test_geometry_ghost_is_the_ai_outline_behind_artifacts_cut_from_it(client: TestClient) -> None:
+    """The segment step keeps the whole AI outline on the session (``outline``)
+    after the sac/crop steps replace the working surface; GET /geometry sends
+    it as a faint ghost behind every artifact that is not the outline itself,
+    serialized once per outline. A session without an outline (synth, a file)
+    sends ``ghost: null``."""
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    session = client.app.state.holder.session
+    assert session.outline is None  # a synth source is not an AI outline
+    assert client.get("/geometry").json()["ghost"] is None
+    # stand in for the segment step: the current surface IS the outline
+    session.outline = session.surface
+    assert client.get("/geometry").json()["ghost"] is None  # not behind itself
+    for step in ("centerline", "sections", "wall"):  # the same source, cut further
+        assert client.post(f"/step/{step}", json={}).status_code == 200
+    assert client.post("/step/volmesh", json={"n_axial": 30}).status_code == 200
+    body = client.get("/geometry").json()
+    ghost = body["ghost"]
+    assert ghost and ghost["label"] == "AI outline"
+    assert "mesh" in ghost["state"] and "points" in ghost["state"]["mesh"]
+    assert "field" not in ghost["state"]  # one faint colour, never a colormap
+    holder = client.app.state.holder
+    assert holder.ghost_for is session.outline
+    first = holder.ghost_state
+    client.get("/geometry", params={"field": "region"})
+    assert holder.ghost_state is first  # serialized once per outline
+    # a new source drops the outline and the ghost with it
+    assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    assert client.app.state.holder.session.outline is None
+    assert client.get("/geometry").json()["ghost"] is None
+
+
+def test_viewport_ghost_is_decimated_fieldless_and_leaves_the_outline_alone() -> None:
+    import numpy as np
+    import pyvista as pv
+
+    from meshforge.web import viewport
+
+    m = pv.Sphere(theta_resolution=80, phi_resolution=80)  # 12k triangles
+    m.point_data["v"] = np.full(m.n_points, 0.5)
+    n_cells, n_arrays = m.n_cells, len(m.array_names)
+    state = viewport.serialize_ghost(m)
+    assert "field" not in state
+    polys = state["mesh"]["polys"]["shape"][0]
+    assert polys < 4 * n_cells * 0.6  # decimated (4 ints per triangle)
+    assert m.n_cells == n_cells and len(m.array_names) == n_arrays  # untouched
+
+
 def test_geometry_unknown_field_is_loud_400(client: TestClient) -> None:
     assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
     _drive_to_volmesh(client)
@@ -751,3 +852,30 @@ def test_twin_flow_is_serialised_like_every_journal_writer(client, monkeypatch) 
     flow.join(20)
     assert got == [200]
     assert [rec["step"] for rec in session.journal] == ["generate_synth", "centerline", "flow_metrics"]
+
+
+def test_state_reports_the_running_step_while_it_holds_the_lock(client, monkeypatch) -> None:
+    """D108: GET /state carries ``running`` (a STEP_KNOBS name) and
+    ``running_for`` (seconds) while a step runs under the session lock, and
+    both are None otherwise — so a Workbench driven from outside (the copilot
+    over HTTP) can show "meshing… 12 s"."""
+    from meshforge.pipeline import MeshingSession
+
+    holder = client.app.state.holder
+    assert client.get("/state").json()["running"] is None
+    assert client.get("/state").json()["running_for"] is None
+
+    seen: dict[str, object] = {}
+
+    def fake_centerline(self, **params):
+        seen["running"] = holder.running
+        seen["since_is_set"] = holder.running_since is not None
+        raise ValueError("stop here (no artifact needed)")
+
+    monkeypatch.setattr(MeshingSession, "compute_centerline", fake_centerline)
+    r = client.post("/step/centerline", json={})
+    assert r.status_code == 400  # the domain error is mapped, loudly
+    assert seen == {"running": "centerline", "since_is_set": True}
+    # cleared in `finally`, even on the error path
+    st = client.get("/state").json()
+    assert st["running"] is None and st["running_for"] is None

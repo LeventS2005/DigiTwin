@@ -95,7 +95,11 @@ Layout — three panes:
 - The Workbench **auto-refreshes**: it polls the session revision every
   couple of seconds, so when another client (a second tab, the desktop
   window, or a script driving the same server) changes the session, the
-  view re-syncs itself — no manual ⌘R needed.
+  view re-syncs itself — no manual ⌘R needed. After the `segment` step, the whole **AI outline** stays as a faint
+  translucent **ghost** behind whatever is shown next — the recovered
+  sac, the cropped segment, its wall, its stress field — so the piece
+  is seen in the whole aorta (arch and all); it is context only, never
+  coloured, and a non-AI source (synth, a file) has none.
 - **Right — twin, log & history:** on top, the **your twin · v0** panel
   (the copilot report's twin card, live — see §3.9c), then the **log**, the
   **history** table (the journal — it mirrors exactly what a `.mfwork` file
@@ -737,6 +741,41 @@ The right-pane **history** table lists journaled steps (step | params | summary)
 `replay` or `meshforge replay` reproduces the session exactly.
 
 ---
+
+### 3.13 Demo mode  (presentation layout; the Demo switch in the top bar)
+
+For a demo or a recording. Flip **Demo** in the top bar, or open the page
+with `?demo=1` (it is also remembered in the browser). On:
+
+- the left pane shows the AAA path's six steps as numbered tabs, in the
+  order the copilot runs them, and nothing else — **1 Load scan**
+  (`segment`: the CT goes in, the AI outlines the aorta; the `sac` recovery
+  runs in its turn), **2 Crop aneurysm** (`crop`), **3 Mesh wall**
+  (`volmesh`), **4 Wall stress · FEA** (`aaa_stress`), **5 Strength index**
+  (`tissue_index`), **6 Blood flow · CFD** (`cfd`; the copilot's pre-computed
+  flow metrics fill it). Each tab is the step's own panel, closed: a click
+  opens its knobs and Run button. Its mark shows waiting, running (the step
+  holding the session, red, pulsing) or done (green ✓: a record for it is in
+  the journal, so a re-run upstream puts the tabs after it back to waiting);
+  the Mesh wall tab shows failed (red ✕) while the copilot's last `mesh_wall`
+  call failed its quality gate — the twin's wall slot says the same, in the
+  same words — until a re-mesh lands.
+  Quick start, the synth source box and the history table are hidden (the
+  session panel stays: Save work file);
+- a **new result wipes in** over about two seconds instead of appearing at
+  once (a cover over the viewport; the mesh underneath is the final one);
+- the **step running on the server** shows bottom-left of the viewport with
+  its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
+  the copilot drives the server over `--server` (from `GET /state`
+  `running` / `running_for`);
+- a **planned coverage** panel above the twin: the body outline with the
+  circulatory system (CT, MRI, PET), the skeletal system (X-ray) and brain
+  tissue (MRI, PET) as layers you toggle; the aorta stays lit as the live
+  module. It is an illustration of what the twin is meant to cover, not
+  data, and the panel says so.
+
+Off, the Workbench is exactly the one described above. Demo mode changes
+nothing about what any step computes.
 
 ### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
 `meshforge copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands

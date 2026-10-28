@@ -8,6 +8,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench viewport ghost: the whole AI outline behind the piece being
+  shown.** The `segment` step now keeps its outline on the session
+  (`MeshingSession.outline`; every other source step clears it) after the
+  `sac` and `crop` steps replace the working surface, and `GET /geometry`
+  sends it as `ghost` (decimated, fieldless, serialized once per outline)
+  behind every artifact that is not the outline itself — the cropped
+  segment, its wall, its stress field — so the viewer sees the whole aorta,
+  arch and all, around the piece that was meshed. Drawn faint and
+  translucent; context only, never coloured. Tests: `test_web_api.py` (+2),
+  `test_web_frontend_assets.py` (+1).
+- **Workbench Demo mode** (D108; presentation layout, off by default). The
+  **Demo** switch in the top bar (URL `?demo=1` or `localStorage`
+  `meshforge.demo`) sets `body.demo`: the left pane keeps the AAA path's
+  six step panels as numbered tabs, in the order the copilot runs them —
+  1 Load scan (`segment`), 2 Crop aneurysm (`crop`), 3 Mesh wall
+  (`volmesh`), 4 Wall stress · FEA (`aaa_stress`), 5 Strength index
+  (`tissue_index`), 6 Blood flow · CFD (`cfd`) — closed, each with a
+  one-line hint and a state mark (waiting · running · done: running from
+  `GET /state`, done from the journal, so a re-run upstream puts the tabs
+  after it back to waiting; the `sac` step and the journaled flow metrics
+  count for tabs 1 and 6); the other panels, Quick start, the synth source
+  box and the history table are hidden; a NEW result wipes in over ~2 s
+  (a cover over the canvas, presentation of the final data only); the step
+  running on the server shows bottom-left with its elapsed seconds; and a
+  **planned-coverage** panel above the twin shows the body outline with
+  Circulatory (CT/MRI/PET) · Skeletal (X-ray) · Brain (MRI/PET) layers to
+  toggle, the aorta lit as the live module, captioned "illustration, not
+  data". Off, every rule is inert and the Workbench is unchanged.
+  - `GET /state` now carries `running` (the step holding the session lock,
+    its STEP_KNOBS name) and `running_for` (seconds), both `null` when idle,
+    so a Workbench driven from outside (the copilot over HTTP) can show it.
+  - Nothing in `pipeline`, `solve` or `copilot` changed; the natural path
+    and its numbers are untouched. Tests: `test_web_frontend_assets.py`
+    (+7 structural guards), `test_web_api.py` (+1).
 - Demo freeze (M6) for the copilot's twin card and report.
   - **Workbench twin panel:** the report's "your twin" card, live in the right
     pane (`GET /twin`). Every slot waits ("not run yet") until its step lands,
@@ -136,6 +170,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against a live session driven through the tutorial's own happy path.
 
 ### Fixed
+
+- **Workbench viewport: a cell-data colour field killed the renderer.** Two
+  display-layer defects, found on the demo path on 27 Oct 2026 (the canvas
+  went black from the cropped lumen / wall mesh on and the stress field never
+  showed until a page reload; the twin panel kept filling, so the numbers
+  were never affected). (1) vue-vtk's mesh component (trame-vtk 2.11) colours
+  by POINT data only: a cell-only field — the wall mesh's `region`, the stress
+  mesh's end-zone mask, the cropped lumen's cap ids — threw inside vtk.js's
+  `mapScalars` and the renderer stayed dead. `web/viewport.py` now serves
+  such a field as a point version (cell → point average, float32) on a
+  shallow display copy; point fields and the session's mesh are untouched.
+  (2) trame-vtk compacts an integer field to the smallest dtype that holds
+  its values but labels its TypedArray from the source dtype (an all-ones
+  int32 shipped one byte per cell under "Int32Array"); every serialized
+  field is now labelled by the bytes it actually carries (the flow section's
+  too). Tests: `test_web_api.py` (+2).
 
 - The copilot's wall gate let a peak stress sit on a locally thin wall.
   - **Cause:** the gate checked only the MEDIAN wall thickness along the
