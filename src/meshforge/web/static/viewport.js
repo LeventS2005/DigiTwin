@@ -34,6 +34,15 @@
   // A press-release that moved further than this (CSS px) was a rotate-drag,
   // not a pick — the browser still fires "click" after a drag.
   var PICK_SLOP_PX = 5;
+  // D111 demo-mode turntable: left alone for IDLE_MS, the view spins slowly
+  // about the camera's up axis through the focal point (one turn in 45 s),
+  // and stops the moment the canvas is pressed, scrolled, touched or typed
+  // on; hovering does not stop it. Demo mode only (body.demo), never while a
+  // pick is armed, never without a mesh, never when the OS asks for reduced
+  // motion. Pure camera motion: the mesh and its data are untouched.
+  var IDLE_MS = 3000;
+  var SPIN_DEG_PER_S = 8;
+  var R = { timer: null, raf: null, last: 0, spinning: false };
 
   function available() {
     return !!(window.Vue && window.vue_vtk);
@@ -106,6 +115,7 @@
     S.app.use(window.vue_vtk);
     S.app.mount("#" + elId);
     S.ready = true;
+    watchIdle(host); // D111: the demo-mode turntable
     return true;
   }
 
@@ -147,6 +157,105 @@
     }
   }
 
+  // ---- demo-mode turntable (D111) -----------------------------------------
+  function demoOn() {
+    return document.body.classList.contains("demo");
+  }
+  function reducedMotion() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (err) {
+      return false;
+    }
+  }
+  // Rotate the camera position about the view-up axis through the focal
+  // point (a turntable), keeping distance and up; vue_vtk's setCamera repaints.
+  function orbit(view, deg) {
+    var cam = view.getCamera();
+    var fp = cam && cam.focalPoint, pos = cam && cam.position, up = cam && cam.viewUp;
+    if (!fp || !pos || !up) return false;
+    var ul = Math.sqrt(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]) || 1;
+    var ux = up[0] / ul, uy = up[1] / ul, uz = up[2] / ul;
+    var vx = pos[0] - fp[0], vy = pos[1] - fp[1], vz = pos[2] - fp[2];
+    var a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    var dot = ux * vx + uy * vy + uz * vz;
+    var cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+    var rx = vx * c + cx * s + ux * dot * (1 - c);
+    var ry = vy * c + cy * s + uy * dot * (1 - c);
+    var rz = vz * c + cz * s + uz * dot * (1 - c);
+    view.setCamera({ position: [fp[0] + rx, fp[1] + ry, fp[2] + rz], focalPoint: fp, viewUp: up });
+    return true;
+  }
+  function spinStep(ts) {
+    if (!R.spinning) return;
+    var v = S.viewRef && S.viewRef.value;
+    var hasMesh = !!(S.mesh && S.mesh.value);
+    if (!v || !v.getCamera || !v.setCamera || !hasMesh || !demoOn()) {
+      spinStop();
+      return;
+    }
+    var dt = R.last ? Math.min(ts - R.last, 100) / 1000 : 0; // a stalled tab does not jump
+    R.last = ts;
+    try {
+      if (dt > 0 && !orbit(v, SPIN_DEG_PER_S * dt)) {
+        spinStop();
+        return;
+      }
+    } catch (err) {
+      console.warn("[viewport] turntable stopped", err);
+      spinStop();
+      return;
+    }
+    R.raf = window.requestAnimationFrame(spinStep);
+  }
+  function spinStart() {
+    R.timer = null;
+    if (R.spinning || !S.ready || !demoOn() || reducedMotion()) return;
+    if (!(S.mesh && S.mesh.value)) return;
+    if (S.pickCb) return; // a pick is armed: the view holds still for the click
+    R.spinning = true;
+    R.last = 0;
+    R.raf = window.requestAnimationFrame(spinStep);
+  }
+  function spinStop() {
+    R.spinning = false;
+    if (R.raf) window.cancelAnimationFrame(R.raf);
+    R.raf = null;
+  }
+  function idleDisarm() {
+    if (R.timer) window.clearTimeout(R.timer);
+    R.timer = null;
+  }
+  // (Re)start the idle clock: the spin begins IDLE_MS from now if nothing
+  // touches the canvas (demo mode only; a no-op otherwise).
+  function idleArm() {
+    idleDisarm();
+    if (!S.ready || !demoOn()) return;
+    R.timer = window.setTimeout(spinStart, IDLE_MS);
+  }
+  // Any input on the canvas: stop, and start the clock again.
+  function touched() {
+    spinStop();
+    idleArm();
+  }
+  // app.js calls this when demo mode is switched (on: arm; off: stop).
+  function wake() {
+    spinStop();
+    idleArm();
+  }
+  function watchIdle(host) {
+    var evs = ["pointerdown", "wheel", "touchstart", "keydown"];
+    for (var i = 0; i < evs.length; i++) host.addEventListener(evs[i], touched, true);
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) {
+        spinStop();
+        idleDisarm();
+      } else {
+        idleArm();
+      }
+    });
+  }
+
   // ---- flow section (D82) -------------------------------------------------
   function applySection() {
     var on = !!(S.showSection && S.sectionState);
@@ -177,12 +286,15 @@
     S.pickCb = cb;
     S.pickMiss = onMiss || null;
     S.pickModes.value = ["click"];
+    spinStop();
+    idleDisarm();
     return true;
   }
   function disarmPick() {
     S.pickCb = null;
     S.pickMiss = null;
     if (S.ready) S.pickModes.value = [];
+    idleArm();
   }
   function onPick(e) {
     if (!S.pickCb) return;
@@ -226,6 +338,7 @@
         if (dir) aimAlong(v, dir);
         else aimThreeQuarter(v);
         v.resetCamera();
+        idleArm();
       }, 60);
     }
   }
@@ -237,6 +350,8 @@
     S.sectionState = null;
     if (S.ready) applySection();
     disarmPick();
+    spinStop();
+    idleDisarm();
   }
 
   // Show/hide the QC overlay (a serialized polyline state, or null). Kept
@@ -274,6 +389,7 @@
     setRange: setRange,
     armPick: armPick,
     disarmPick: disarmPick,
+    wake: wake,
     available: available,
   };
 })();

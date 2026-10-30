@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workbench viewport: a demo-mode turntable** (D111). In Demo mode, a
+  view left alone for 3 s starts to spin slowly about the camera's up axis
+  through the focal point (one turn in 45 s) and stops the moment the canvas
+  is pressed, scrolled, touched or typed on; hovering does not stop it, and
+  the clock restarts after each touch. Pure camera motion in `viewport.js`
+  (`IDLE_MS`, `SPIN_DEG_PER_S`, `orbit()` via vue_vtk's `getCamera` /
+  `setCamera`): the mesh, its data and the server are untouched. Never
+  outside Demo mode, never while a pick is armed, never without a mesh,
+  never when the OS asks for reduced motion, paused while the tab is hidden;
+  `MeshforgeViewport.wake()` follows the Demo switch. Built for the
+  competition recording, where the vision is spoken over the finished run.
+
 - **Workbench viewport: the patient's own heart as a second ghost** (D108
   addendum 7). The `segment` step asks TotalSegmentator for the whole
   `heart` of the free `total` task in a SECOND call of its own

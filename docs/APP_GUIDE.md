@@ -804,6 +804,14 @@ with `?demo=1` (it is also remembered in the browser). On:
   state says what *would* list there ("no studies on file for Right foot —
   X-ray, CT, MRI, US would list here"). Loading a study from the atlas is
   not wired (no button); the list is a record, not a launcher.
+- the **viewport turns by itself when left alone** (D111): three seconds
+  after the last press, scroll, touch or key on the canvas, the view starts
+  a slow turntable spin about its up axis (one turn in 45 s) and stops the
+  moment the canvas is touched again; moving the pointer over it does not
+  stop it, so a hand can rest on the atlas or the twin card while the 3-D
+  view keeps moving. Camera only: the mesh, its colours and the server are
+  untouched. It never runs with a pick armed, with nothing loaded, with the
+  tab hidden, or when the system asks for reduced motion.
 
 Off, the Workbench is exactly the one described above. Demo mode changes
 nothing about what any step computes.
