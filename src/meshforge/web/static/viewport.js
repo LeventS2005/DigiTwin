@@ -14,8 +14,9 @@
     // and the wall's look while it shows (translucent, so the flow reads).
     section: null, sectionState: null, showSection: true, showWall: false, meshProperty: null, wallVisible: null,
     // D112 step reveal: the previous artifact, drawn as a faint shell while
-    // the new one sweeps in.
-    base: null,
+    // the new one sweeps in; and the layer switch's persistent shell (the
+    // wall around the flow), kept until the layer changes.
+    base: null, shell: null,
     // D80 pick mode: armed for ONE click, then disarmed.
     pickModes: null, pickCb: null, pickMiss: null, downXY: null, upXY: null,
   };
@@ -57,6 +58,7 @@
   // load or a clear cancels it.
   var SWEEP_MS = 2400;
   var BASE_PROPERTY = { color: [0.6, 0.62, 0.66], opacity: 0.28, specular: 0.0 };
+  var SHELL_PROPERTY = { color: [0.74, 0.76, 0.8], opacity: 0.22, specular: 0.0 };
   var W = { raf: null, start: 0, items: null, done: null };
 
   function available() {
@@ -80,6 +82,7 @@
     S.ghosts = Vue.ref([]);
     S.section = Vue.ref(null);
     S.base = Vue.ref(null);
+    S.shell = Vue.ref(null);
     S.meshProperty = Vue.ref(WALL_OPAQUE);
     S.wallVisible = Vue.ref(true);
     S.pickModes = Vue.ref([]);
@@ -104,6 +107,8 @@
           section: S.section,
           base: S.base,
           baseProperty: BASE_PROPERTY,
+          shell: S.shell,
+          shellProperty: SHELL_PROPERTY,
           meshProperty: S.meshProperty,
           wallVisible: S.wallVisible,
           pickModes: S.pickModes,
@@ -121,6 +126,9 @@
         '  </vtk-geometry-representation>' +
         '  <vtk-geometry-representation v-if="base" :property="baseProperty">' +
         '    <vtk-mesh :state="base"></vtk-mesh>' +
+        '  </vtk-geometry-representation>' +
+        '  <vtk-geometry-representation v-if="shell" :property="shellProperty">' +
+        '    <vtk-mesh :state="shell"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
         '  <vtk-geometry-representation v-if="overlay" :property="overlayProperty">' +
         '    <vtk-mesh :state="overlay"></vtk-mesh>' +
@@ -508,7 +516,10 @@
       if (!animate) return;
       applySection(); // the wall's own look again (opacity back)
       var ghostsNew = !hadGhosts && !!(S.ghosts.value && S.ghosts.value.length);
-      sweepStart(sweepItems(payload, ghostsNew), previous, function () { applySection(); });
+      // with a shell standing (the wall around the flow) the previous
+      // artifact is already on screen as that shell: no second ghost of it
+      var base = S.shell && S.shell.value ? null : previous;
+      sweepStart(sweepItems(payload, ghostsNew), base, function () { applySection(); });
     };
     if (resetCamera) {
       var dir = payload.view_dir && payload.view_dir.length === 3 ? payload.view_dir : null;
@@ -533,8 +544,17 @@
     }
   }
 
+  // The layer switch's shell (D112): a serialized state drawn as a
+  // translucent fieldless surface around the main mesh — the wall around
+  // the flow — or null to drop it. Kept across sweeps until changed.
+  function setShell(state) {
+    if (!S.ready || !S.shell) return;
+    S.shell.value = state && state.mesh ? { mesh: state.mesh } : null;
+  }
+
   function clear() {
     sweepStop(false);
+    if (S.ready && S.shell) S.shell.value = null;
     if (S.ready && S.mesh) S.mesh.value = null;
     if (S.ready && S.overlay) S.overlay.value = null;
     if (S.ready && S.ghosts) S.ghosts.value = [];
@@ -575,6 +595,7 @@
     clear: clear,
     setOverlay: setOverlay,
     setGhosts: setGhosts,
+    setShell: setShell,
     setSectionVisible: setSectionVisible,
     setWallVisible: setWallVisible,
     setRange: setRange,

@@ -133,6 +133,7 @@ function initViewport() {
 async function refreshViewport(resetCamera) {
   if (!viewportUp) return;
   vpLayer = null; // the session's current artifact again
+  window.MeshforgeViewport.setShell(null);
   const url = "/geometry" + (viewportField ? `?field=${encodeURIComponent(viewportField)}` : "");
   const res = await fetch(url);
   if (res.status === 204) return clearViewport(); // nothing rendered yet
@@ -211,8 +212,16 @@ async function showLayer(layer) {
     return;
   }
   const payload = await res.json();
+  // the flow is seen inside the wall: the stress result stays as a
+  // translucent shell around it (the whole-aorta ghosts stay as always)
+  let shell = null;
+  if (layer === "cfd") {
+    const wall = await fetch("/geometry?artifact=stress");
+    if (wall.ok) shell = (await wall.json()).state || null;
+  }
   vpLayer = layer;
   viewportField = null;
+  window.MeshforgeViewport.setShell(shell);
   window.MeshforgeViewport.load(payload, false, true);
   showPayload(payload);
 }

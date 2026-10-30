@@ -951,11 +951,16 @@ def main(argv: list[str] | None = None) -> int:
     p_cop.add_argument("--reset", action="store_true",
                        help="empty a Workbench that is already running at --server before the "
                        "run (a fresh take from grey tabs)")
+    p_cop.add_argument("--flow-live", action="store_true",
+                       help="after the strength index, build an OpenFOAM case from THIS crop's "
+                       "blood lumen (the crop step's lumen, tet-filled; 1 L/min at the neck, "
+                       "blood viscosity) and let the session's cfd step solve it (about 20 s), "
+                       "so the flow sits on the same crop as the wall stress")
     p_cop.add_argument("--flow-case", type=_path_arg, default=None,
                        help="a complete OpenFOAM case of this scan's blood lumen (system/, "
-                       "constant/polyMesh, 0/); after the strength index the session re-solves "
-                       "a copy of it (the cfd step, about 15 s), so the twin's flow slot fills "
-                       "and the Workbench can switch between the stress and the flow")
+                       "constant/polyMesh, 0/); the session re-solves a copy of it (the cfd "
+                       "step) after the strength index — with --flow-live, only when the live "
+                       "build fails")
     p_cop.add_argument("--open", dest="open_report", action="store_true", default=None,
                        help="open report.html when the run ends (default: when stdout is a "
                        "terminal)")
@@ -2884,30 +2889,58 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
         return 1
     flow_error = ""
     flow_note = ""
-    if flow_case is not None and run.complete:
-        # D112: the scan's blood lumen, solved live by the session's own cfd
-        # step on a fresh copy of the case (its earlier results left out), so
-        # the Workbench holds a flow result next to the stress; journaled as
-        # `cfd`, before the metrics below, so the twin reads both.
+    if run.complete and (args.flow_live or flow_case is not None):
+        # D112: the blood flow in the SAME session as the stress, journaled as
+        # `cfd` before the metrics below so the twin reads both. --flow-live
+        # builds the case from this crop's own lumen; --flow-case re-solves a
+        # given case (the fallback when the live build fails, or alone).
         from meshforge.copilot import launch
         from meshforge.copilot.backend import StepOutcome
 
-        t1 = _time.perf_counter()
-        try:
-            staged = launch.stage_case(flow_case, out_dir / "work" / "flow_case")
-            cfd = backend.run("cfd", {"case": str(staged)})
-        except (OSError, ValueError, RuntimeError) as exc:
-            cfd = StepOutcome(False, {}, "", str(exc))
-        secs = _time.perf_counter() - t1
-        if cfd.ok:
-            solver = cfd.summary.get("solver") or "simpleFoam"
-            cells = cfd.summary.get("n_cells")
-            flow_note = (f"the scan's blood-lumen case re-solved live: OpenFOAM {solver}"
-                         + (f", {cells} cells" if cells else "") + f", {secs:.0f} s")
+        def solve(case_dir: Path, what: str) -> tuple[StepOutcome, float]:
+            t1 = _time.perf_counter()
+            try:
+                cfd = backend.run("cfd", {"case": str(case_dir)})
+            except RuntimeError as exc:  # the Workbench is gone
+                cfd = StepOutcome(False, {}, "", str(exc))
+            secs = _time.perf_counter() - t1
+            if cfd.ok:
+                solver = cfd.summary.get("solver") or "simpleFoam"
+                cells = cfd.summary.get("n_cells")
+                return cfd, secs, (f"{what}: OpenFOAM {solver}"
+                                   + (f", {cells} cells" if cells else "") + f", {secs:.0f} s")
+            return cfd, secs, ""
+
+        cfd = None
+        if args.flow_live:
+            from meshforge.copilot import flow as liveflow
+
+            try:
+                built = liveflow.build_lumen_case(tools.crop_lumen, out_dir / "work" / "flow_case_live")
+                print(f"flow        : this crop's blood channel filled: {built['n_cells']} cells, "
+                      f"inflow at the neck {built['inflow_speed_mm_s']} mm/s for {built['q_lmin']:g} L/min",
+                      flush=True)
+                cfd, _secs, flow_note = solve(Path(built["case"]), "this crop's blood channel solved live")
+                if not cfd.ok:
+                    flow_error = f"the live flow case did not run: {cfd.error}"
+            except (OSError, ValueError, RuntimeError) as exc:
+                flow_error = f"the live flow case could not be built: {exc}"
+            if flow_error:
+                print(f"error: {flow_error}", file=sys.stderr)
+        if (cfd is None or not cfd.ok) and flow_case is not None:
+            try:
+                staged = launch.stage_case(flow_case, out_dir / "work" / "flow_case")
+                cfd, _secs, flow_note = solve(staged, "the scan's pre-built lumen case re-solved live")
+                if cfd.ok:
+                    flow_error = ""  # the fallback carried the flow
+                else:
+                    flow_error = f"the flow case did not run: {cfd.error}"
+            except (OSError, ValueError, RuntimeError) as exc:
+                flow_error = f"the flow case could not be staged: {exc}"
+            if flow_error:
+                print(f"error: {flow_error}", file=sys.stderr)
+        if flow_note:
             print(f"flow        : {flow_note}", flush=True)
-        else:
-            flow_error = f"the flow case did not run: {cfd.error}"
-            print(f"error: {flow_error}", file=sys.stderr)
     if flow is not None:
         # the session journals the metrics as its own flow_metrics record
         # BEFORE the report is written (and before session.mfwork is saved),
@@ -2926,8 +2959,11 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
                   flush=True)
     replay = ""
     if isinstance(backend, SessionBackend):
-        wf = backend.session.save_workfile(out_dir / "session.mfwork")
-        replay = f"meshforge replay {shown_path(wf)}"  # no local folder on screen
+        try:
+            wf = backend.session.save_workfile(out_dir / "session.mfwork")
+            replay = f"meshforge replay {shown_path(wf)}"  # no local folder on screen
+        except ValueError as exc:  # an empty journal (no step landed): nothing to replay
+            print(f"replay      : none ({exc})", flush=True)
     md, page = render_report(
         request=args.request, ct_name=args.ct.name if args.ct else "(in the request)",
         credit=args.credit, results=run.results, calls=run.calls,

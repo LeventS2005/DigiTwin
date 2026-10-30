@@ -171,6 +171,26 @@ def serialize(
     return payload
 
 
+def robust_range(mesh: Any, kind: str, field: str) -> list[float] | None:
+    """The 2nd-98th percentile of ``field`` on the rendered surface (vector
+    fields by magnitude), or None when it is flat or absent. Display only:
+    a colour range, never a result."""
+    import numpy as np
+
+    surf = _point_field_for_display(_renderable(mesh, kind), field)
+    data = surf.point_data if field in surf.point_data else surf.cell_data
+    if field not in data:
+        return None
+    vals = np.asarray(data[field], dtype=float)
+    if vals.ndim == 2:
+        vals = np.linalg.norm(vals, axis=1)
+    vals = vals[np.isfinite(vals)]
+    if vals.size < 2:
+        return None
+    lo, hi = np.percentile(vals, [2.0, 98.0])
+    return [float(lo), float(hi)] if hi > lo else None
+
+
 def serialize_ghost(mesh: Any, target_reduction: float = 0.6) -> dict[str, Any]:
     """The ghost outline → its bare vtk.js state: the triangulated surface
     decimated for transport (it is the whole aorta, the session's largest

@@ -428,8 +428,14 @@ def create_app() -> FastAPI:
                 hints["mesh"], hints.get("kind", "surface"), chosen,
                 section=hints.get("section"),
             )
-            if hints.get("view_dir") is not None:
-                payload["view_dir"] = list(hints["view_dir"])
+            if hints.get("label") == "cfd results" and hints.get("section") is None and payload.get("field"):
+                # the flow seen from outside: the inlet's stagnation pins the
+                # full range and paints the lumen one colour; a robust range
+                # (2nd-98th percentile, display only) shows the gradient
+                robust = viewport.robust_range(hints["mesh"], hints.get("kind", "volume"), payload["field"])
+                if robust:
+                    payload["data_range"] = robust
+                    payload["range_note"] = "2nd–98th percentile"
             frames = hints.get("frames")
             payload["label"] = hints.get("label")
             payload["n_frames"] = len(frames) if frames else 0
