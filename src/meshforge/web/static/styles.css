@@ -555,20 +555,24 @@ details.step-box[data-demo-state="failed"] .demo-mark::before { content: "✕"; 
 details.step-box[data-demo-state="done"] .demo-num { background: #2f8f5b; color: #fff; }
 details.step-box[data-demo-state="done"] .demo-mark::before { content: "✓"; width: auto; height: auto; border-radius: 0; background: none; color: #5fd08a; font: 700 12px/1 var(--ui); }
 
-/* result reveal: a cover over the canvas that wipes off top-to-bottom over ~2 s */
+/* the result reveal is geometric now (D112, viewport.js): a new artifact is
+   drawn in from the top down, cell by cell; no cover over the canvas */
 .viewport-slot { position: relative; }
-.vp-reveal {
-  position: absolute; inset: 0; z-index: 5; pointer-events: none;
-  background: #101012;
-  clip-path: inset(0 0 0 0);
-  transition: clip-path 2.2s cubic-bezier(.45, 0, .2, 1);
+
+/* layer switch (D112): wall stress | blood flow, Demo mode only, once the
+   session holds both results. Off-demo the group stays hidden (app.js). */
+.vp-layer { gap: 0; margin-left: auto; }
+.vp-layer-btn {
+  height: 20px; padding: 0 10px; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--field); color: var(--ink-dim);
+  font: 600 11px/1 var(--ui); letter-spacing: .02em;
 }
-.vp-reveal.go { clip-path: inset(100% 0 0 0); }
-.vp-reveal::after {                      /* the sweeping edge */
-  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
-  background: #ff5d55; box-shadow: 0 0 14px 3px rgba(255, 93, 85, .55);
-}
-.vp-reveal[hidden] { display: none; }
+.vp-layer-btn:first-child { border-radius: 10px 0 0 10px; }
+.vp-layer-btn:last-child { border-radius: 0 10px 10px 0; border-left: 0; }
+.vp-layer-btn.on { background: #ff5d55; border-color: #ff5d55; color: #fff; }
+.vp-layer-btn:disabled { opacity: .45; cursor: default; }
+.vp-layer-btn:focus-visible { outline: 2px solid #ff5d55; outline-offset: 1px; }
+body:not(.demo) #vp-layer-ctl { display: none; }
 
 /* the running step with its elapsed seconds (GET /state `running`) */
 .vp-busy {

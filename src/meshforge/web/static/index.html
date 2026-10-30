@@ -83,6 +83,12 @@
               <input type="checkbox" id="vp-fit" checked />
               <span>fit colours</span>
             </label>
+            <!-- Demo mode only (D112): switch the view between the wall-stress
+                 result and the CFD result the session holds; nothing computed. -->
+            <div class="vp-ctl vp-layer" id="vp-layer-ctl" hidden role="group" aria-label="shown result">
+              <button type="button" class="vp-layer-btn" data-layer="stress" aria-pressed="false" title="the finite-element wall stress">wall stress</button>
+              <button type="button" class="vp-layer-btn" data-layer="cfd" aria-pressed="false" title="the blood-flow (CFD) result">blood flow</button>
+            </div>
             <div id="vp-colorbar" class="vp-colorbar" hidden>
               <span id="vp-cb-min" class="vp-cb-lim">0</span>
               <span class="vp-cb-gradient" aria-hidden="true"></span>
@@ -93,10 +99,9 @@
           <div id="vtk-canvas" class="vtk-canvas">
             <p id="vp-empty" class="viewport-note">run a step to render its mesh</p>
           </div>
-          <!-- Demo mode only: a cover that wipes off a NEW result over ~2 s (pure
-               presentation of the final data), and the running step with its
-               elapsed seconds (from GET /state `running`). -->
-          <div id="vp-reveal" class="vp-reveal" hidden aria-hidden="true"></div>
+          <!-- Demo mode only: the running step with its elapsed seconds (from
+               GET /state `running`). A NEW result is drawn in from the top down
+               by viewport.js itself (D112). -->
           <div id="vp-busy" class="vp-busy" hidden aria-live="polite"></div>
           <div id="vp-anim" class="vp-anim" hidden>
             <button type="button" id="vp-play" class="run" title="play / pause">▶</button>

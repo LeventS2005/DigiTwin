@@ -467,6 +467,44 @@ def test_viewport_ghost_is_decimated_fieldless_and_leaves_the_outline_alone() ->
     assert m.n_cells == n_cells and len(m.array_names) == n_arrays  # untouched
 
 
+def test_geometry_artifact_serves_a_held_result_or_says_why_not(client: TestClient) -> None:
+    """D112: GET /geometry?artifact=stress|cfd serialises a result the session
+    HOLDS (display only) so the demo's layer switch can show either; 404
+    when the session has no such result, 400 for an unknown name; the CFD
+    layer opens on the pressure when the grid carries one."""
+    from types import SimpleNamespace as NS
+
+    import pyvista as pv
+
+    assert client.get("/geometry?artifact=stress").status_code == 404
+    assert client.get("/geometry?artifact=cfd").status_code == 404
+    r = client.get("/geometry?artifact=bogus")
+    assert r.status_code == 400 and "cfd" in r.json()["detail"] and "stress" in r.json()["detail"]
+    state = client.get("/state").json()["artifacts"]
+    assert state["aaa_stress"] is False and state["cfd"] is False
+    holder = client.app.state.holder
+    grid = pv.ImageData(dimensions=(3, 3, 3)).cast_to_unstructured_grid()
+    grid.point_data["U"] = [[1.0, 0.0, 0.0]] * grid.n_points
+    grid.point_data["p"] = list(range(grid.n_points))
+    holder.session.cfd = NS(grid=grid)
+    holder.session.aaa_stress = NS(grid=pv.Sphere().delaunay_3d())
+    body = client.get("/geometry?artifact=cfd").json()
+    assert body["label"] == "cfd results" and body["kind"] == "volume"
+    assert body["field"] == "p" and set(body["fields"]) >= {"U", "p"}   # the layer's own default
+    assert client.get("/geometry?artifact=cfd&field=U").json()["field"] == "U"  # a field still wins
+    stress = client.get("/geometry?artifact=stress").json()
+    assert stress["label"] == "wall stress (investigational)"
+    state = client.get("/state").json()["artifacts"]
+    assert state["aaa_stress"] is True and state["cfd"] is True
+    assert holder.last_render is None  # nothing rendered "last": the held views leave it alone
+    # the CURRENT artifact, when it is a CFD result without a section, opens on p too
+    holder.last_render = {"mesh": grid, "kind": "volume", "label": "cfd results"}
+    assert client.get("/geometry").json()["field"] == "p"
+    holder.last_render = {"mesh": grid, "kind": "volume", "label": "cfd results", "section": None}
+    assert client.get("/geometry?field=U").json()["field"] == "U"
+    holder.last_render = None
+
+
 def test_geometry_unknown_field_is_loud_400(client: TestClient) -> None:
     assert client.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
     _drive_to_volmesh(client)

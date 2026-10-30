@@ -345,7 +345,7 @@ def test_report_text_shows_n_and_the_caveat():
     rep = index_band_report(0.25)
     txt = index_band_text(rep, pws_source="placeholder")
     assert "open strength data : 7 aneurysms, 13 strips" in txt
-    assert "our lab narrows this" in txt
+    assert "our lab will narrow this" in txt
     assert CAVEAT in txt
     assert DOI in txt and "CC BY 4.0" in txt
     assert set(rep["sensitivity"]) == {

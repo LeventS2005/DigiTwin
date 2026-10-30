@@ -127,16 +127,23 @@ function initViewport() {
 }
 
 // Fetch the current artifact's geometry and (re)paint the canvas. resetCamera
-// frames a NEW artifact; a field swap keeps the camera put.
+// frames a NEW artifact; a field swap keeps the camera put. In Demo mode a
+// NEW artifact (not the same one served again after a journal-only step) is
+// drawn in from the top down (D112, viewport.js).
 async function refreshViewport(resetCamera) {
   if (!viewportUp) return;
+  vpLayer = null; // the session's current artifact again
   const url = "/geometry" + (viewportField ? `?field=${encodeURIComponent(viewportField)}` : "");
   const res = await fetch(url);
   if (res.status === 204) return clearViewport(); // nothing rendered yet
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
-  window.MeshforgeViewport.load(payload, resetCamera);
-  if (resetCamera) playReveal(); // demo mode only (no-op otherwise)
+  const changed = !sameArtifact(vpPayload, payload);
+  window.MeshforgeViewport.load(payload, resetCamera, resetCamera && changed);
+  showPayload(payload);
+}
+// Paint the toolbar for a payload (fields, colour bar, frames, overlay, section).
+function showPayload(payload) {
   populateFields(payload.fields || [], payload.field);
   updateColorbar(payload);
   setupFrames(payload);
@@ -144,6 +151,14 @@ async function refreshViewport(resetCamera) {
   setupSection(payload);
   vpPayload = payload;
   applyColourRange();
+  paintLayerButtons();
+}
+// The same artifact served again (a journal-only step bumped the revision):
+// same label, kind and point count. Its reveal is not replayed.
+function sameArtifact(a, b) {
+  if (!a || !b) return false;
+  const pts = (p) => (p.state && p.state.mesh && p.state.mesh.points && p.state.mesh.points.shape) || null;
+  return a.label === b.label && a.kind === b.kind && JSON.stringify(pts(a)) === JSON.stringify(pts(b));
 }
 
 // Colour range: the full field range, or (fit colours) the flow inside the
@@ -169,7 +184,49 @@ function clearViewport() {
   $("#vp-fit-ctl").hidden = true;
   vpPayload = null;
   vpOverlay = null;
+  vpLayer = null;
+  paintLayerButtons();
   stopPlay();
+}
+
+// ---- demo-mode layer switch (D112) ----------------------------------------
+// Demo mode only: once the session holds a wall-stress result and a CFD
+// result, two buttons over the canvas switch the view between them (GET
+// /geometry?artifact=stress|cfd — the server serialises a result it already
+// holds; nothing is computed). The camera stays put and the chosen layer is
+// drawn in from the top down. null = the session's current artifact.
+let vpLayer = null;
+let vpHeld = {}; // GET /state artifacts: which results the session holds
+const LAYER_LABEL = { stress: "wall stress (investigational)", cfd: "cfd results" };
+function initLayerSwitch() {
+  for (const btn of document.querySelectorAll("#vp-layer-ctl .vp-layer-btn")) {
+    btn.addEventListener("click", () => showLayer(btn.dataset.layer).catch(onError));
+  }
+}
+async function showLayer(layer) {
+  if (!viewportUp || !layer) return;
+  const res = await fetch(`/geometry?artifact=${encodeURIComponent(layer)}`);
+  if (!res.ok) {
+    log(`layer ${layer}: ${res.status === 404 ? "no such result in the session yet" : "unavailable"}`, true);
+    return;
+  }
+  const payload = await res.json();
+  vpLayer = layer;
+  viewportField = null;
+  window.MeshforgeViewport.load(payload, false, true);
+  showPayload(payload);
+}
+function paintLayerButtons() {
+  const ctl = $("#vp-layer-ctl");
+  if (!ctl) return;
+  const held = { stress: Boolean(vpHeld.aaa_stress), cfd: Boolean(vpHeld.cfd) };
+  ctl.hidden = !(isDemo() && held.stress && held.cfd);
+  const shown = vpLayer || (vpPayload && Object.keys(LAYER_LABEL).find((k) => LAYER_LABEL[k] === vpPayload.label)) || null;
+  for (const btn of ctl.querySelectorAll(".vp-layer-btn")) {
+    btn.disabled = !held[btn.dataset.layer];
+    btn.classList.toggle("on", btn.dataset.layer === shown);
+    btn.setAttribute("aria-pressed", btn.dataset.layer === shown ? "true" : "false");
+  }
 }
 
 // Flow section (D82): a CFD result carries a section along the vessel
@@ -379,6 +436,8 @@ async function refreshState() {
   const st = await apiGet("/state");
   lastRev = st.rev; // this client is now current with the session
   $("#state-input").textContent = st.input_path ? shortPath(st.input_path) : "no source";
+  vpHeld = st.artifacts || {};
+  paintLayerButtons();
   const box = $("#state-artifacts");
   box.innerHTML = "";
   for (const [name, present] of Object.entries(st.artifacts || {})) {
@@ -901,9 +960,10 @@ async function resetSession() {
 // Off = the Workbench exactly as before. On (the top-bar switch; URL ?demo=1;
 // localStorage meshforge.demo) = the AAA path's six steps as numbered tabs on
 // the left, in the order the copilot runs them, each marked waiting / running
-// / done (or failed, when the wall gate refused the mesh); a result reveal in
-// the viewport; the running step with its elapsed
-// seconds; and the patient atlas above the twin. Nothing here calls
+// / done (or failed, when the wall gate refused the mesh); a result drawn in
+// from the top down in the viewport (D112, viewport.js); the running step
+// with its elapsed seconds; the stress / flow layer switch over the canvas
+// once both results exist (D112); and the patient atlas above the twin. Nothing here calls
 // a compute route or changes what any step does (rule 4): it only shows the
 // same results.
 // [step, tab title, one-line hint] — the step's own panel (its knobs, its Run
@@ -971,6 +1031,7 @@ function applyDemo(on) {
   }
   // D111: the viewport's idle turntable follows the switch (arms on, stops off).
   if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();
+  paintLayerButtons(); // D112: the layer switch shows in Demo mode only
 }
 // Tag the demo steps' panels and give each its tab: number, title, hint and a
 // state mark. The panels keep their STEP_ORDER places (the run order); the
@@ -1269,23 +1330,9 @@ function paintAtlasFigureLabel(id) {
   text.setAttribute("x", String(cx));
   text.setAttribute("y", String(cy));
 }
-// A NEW result wipes in over ~2 s: a cover over the canvas (CSS clip-path
-// transition) — presentation of the final data, nothing invented.
-let revealTimer = null;
-function playReveal() {
-  if (!isDemo()) return;
-  const cover = $("#vp-reveal");
-  if (!cover) return;
-  clearTimeout(revealTimer);
-  cover.classList.remove("go");
-  cover.hidden = false;
-  void cover.offsetWidth; // restart the transition from the covered state
-  cover.classList.add("go");
-  revealTimer = setTimeout(() => {
-    cover.hidden = true;
-    cover.classList.remove("go");
-  }, 2600);
-}
+// The result reveal lives in viewport.js (D112): a NEW artifact is drawn in
+// from the top down, cell by cell, in Demo mode (refreshViewport passes the
+// sweep flag). The D108 curtain over the canvas is gone.
 // The step running on the server right now (GET /state `running`, set while
 // the step holds the session lock — also when the copilot drives it over HTTP)
 // with its elapsed seconds, ticking locally between polls.
@@ -1441,6 +1488,7 @@ async function init() {
   $("#btn-reset").addEventListener("click", () => resetSession().catch(onError));
 
   initViewport();
+  initLayerSwitch();
   await refreshPresets();
   await refreshHistory();
   await refreshState();

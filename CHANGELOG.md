@@ -8,6 +8,58 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **One terminal command runs the demo** (D112). `meshforge copilot --server
+  URL` now starts a Workbench on that port when nothing answers there
+  (`python -m meshforge.web.server`, its own process group, log in the run
+  folder) and opens its window in Demo mode (a Chrome app window on a Mac
+  with Chrome, else the default browser); `--reset` empties a Workbench that
+  is already running first (a fresh take from grey tabs); `--no-launch`
+  keeps the old loud error. `--flow-case DIR` takes a complete OpenFOAM case
+  of the scan's blood lumen: after the strength index the session re-solves
+  a fresh copy of it (its earlier results and logs left out; the `cfd`
+  step, about 15 s), so the twin's flow slot fills from the session's own
+  result and the Workbench can switch between the stress and the flow. When
+  the run ends, `report.html` opens by itself whenever stdout is a terminal
+  (`--open` / `--no-open`). The plumbing lives in `copilot/launch.py`; a
+  missing API key is now a readable error instead of a traceback.
+
+- **Workbench viewport: results are drawn in from the top down** (D112). In
+  Demo mode a NEW artifact (the AI outline with its ghosts, the cropped sac,
+  the wall, the stress field, the flow) appears cell by cell from the
+  patient's superior end over 2.4 s: `viewport.js` sorts the serialized
+  polygons by their highest z and grows the connectivity as a prefix of that
+  order; the points, the colour field and the range are untouched, so what
+  stands at the end is exactly the state the server sent. The previous
+  artifact stays as a faint grey shell meanwhile. Never outside Demo mode,
+  never under reduced motion; the same artifact served again after a
+  journal-only step is not replayed; a field or frame swap, a new load or a
+  clear cancels it. The D108 curtain over the canvas is gone.
+
+- **Workbench viewport: a stress / flow layer switch** (D112). Demo mode
+  only, once the session holds a wall-stress result and a CFD result: two
+  buttons over the canvas show either, drawn in from the top down with the
+  camera kept. `GET /geometry?artifact=stress|cfd` serialises a result the
+  session already holds (display only, nothing computed; 404 without one,
+  400 for an unknown name); the CFD layer opens on the pressure field, where
+  the no-slip wall's velocity is zero. `GET /state` now reports `aaa_stress`
+  among the artifacts.
+
+- **The copilot report reads top-down** (D112). `report.html` opens with the
+  copilot's summary under "In plain words" (a paragraph that opens with a
+  short label and a colon gets the label in bold), then the three headline
+  tiles, the twin card, and "What the pipeline did": the tool calls as
+  numbered steps with plain names and one line of tool numbers each (a
+  failed quality gate says what the check found), the live blood-flow solve
+  as the last step; the Results and Pipeline tables sit behind a fold. The
+  copilot's system prompt asks for three short paragraphs — "What the scan
+  shows:", "What lowering the pressure does:", "How much to trust this:" —
+  in plain words, no tool or method names, at most two numbers a sentence.
+
+### Changed
+
+- The twin card and the strength text say "our lab will narrow" (the lab is
+  planned, not built): `report.py`, `tissue/strength.py` `LAB_LINE`.
+
 - **Workbench viewport: a demo-mode turntable** (D111). In Demo mode, a
   view left alone for 3 s starts to spin slowly about the camera's up axis
   through the focal point (one turn in 45 s) and stops the moment the canvas

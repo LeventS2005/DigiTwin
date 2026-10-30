@@ -124,13 +124,13 @@ def twin_card(results: dict[str, dict], flow: dict | None = None,
     stress = slot("stress", "Stress", "finite elements under blood pressure", bool(st), [
         st and f"{_n(st.get('pws_systolic_kpa'))} kPa peak at {_n(st.get('systolic_mmhg'))} mmHg",
     ], "thrombus modelled" if st and st.get("thrombus_modelled") else "")
-    n = (f"open data, {idx['n_aneurysms']} aneurysms / {idx['n_strips']} strips"
+    n = (f"open data, {_n(idx.get('n_aneurysms'))} aneurysms / {_n(idx.get('n_strips'))} strips"
          if idx and idx.get("n_aneurysms") is not None else "")
     strength = slot("strength", "Strength", "lab v0 — " + n if n else "lab v0", bool(idx), [
         sys_band and (f"index P50 {_n(sys_band['index_p50'])} (P10 {_n(sys_band['index_p10'])} – "
                       f"P90 {_n(sys_band['index_p90'])})"
                       + (f" at {_n(st['systolic_mmhg'])} mmHg" if st else "")),
-    ], "wide band: our lab narrows it")
+    ], "wide band: our lab will narrow it")
     bf = (flow or {}).get("sac_backflow_volume_fraction")
     q = (flow or {}).get("q_lmin")
     flows = slot("flow", "Blood flow", "CFD (steady, resting flow)", flow is not None, [
@@ -397,7 +397,7 @@ def _results_rows(seg, crop, wall, st, idx, bands) -> list[tuple[str, str]]:
                      f"P10 {_n(b['index_p10'])} · P50 {_n(b['index_p50'])} · P90 {_n(b['index_p90'])}"))
     if idx:
         rows.append(("Strength", f"open tensile data from {_n(idx.get('n_aneurysms'))} aneurysms, "
-                                 f"{_n(idx.get('n_strips'))} strips — our lab narrows this band"))
+                                 f"{_n(idx.get('n_strips'))} strips — our lab will narrow this band"))
     return rows
 
 
@@ -460,6 +460,21 @@ background:#eef6f1;color:var(--ok)}.guard.warn{background:#fdf3f2;color:var(--ba
 .caveat{border-left:3px solid var(--red);padding:8px 14px;background:var(--red-soft);border-radius:0 8px 8px 0}
 .caveats ul{margin:0;padding-left:18px}.caveats li{margin:2px 0}
 .repro code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card);padding:3px 7px;border-radius:5px}
+.lede{margin:0 0 6px;color:var(--muted);font-size:15px}
+.plain{border:1px solid var(--rule);border-radius:14px;padding:18px 22px 16px;background:#fff}
+.plain p{margin:0 0 11px;font-size:16.5px;line-height:1.6;max-width:70ch}.plain p:last-of-type{margin-bottom:0}
+.plain p b{color:var(--red)}.plain .none{color:var(--muted);font-style:italic}
+.steps{list-style:none;margin:0;padding:0;counter-reset:step}
+.steps li{display:grid;grid-template-columns:30px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--rule);counter-increment:step}
+.steps .n{width:26px;height:26px;border-radius:13px;background:var(--ink);color:#fff;font-size:13px;font-weight:700;
+display:flex;align-items:center;justify-content:center;margin-top:1px}
+.steps .n::before{content:counter(step)}
+.steps li.fail .n{background:var(--bad)}.steps li.flow .n{background:#2a6fb0}
+.steps .t{font-weight:650;font-size:15px}.steps .d{color:var(--muted);font-size:13px}
+.steps .r{margin-top:3px;font-size:14px}.steps li.fail .r{color:var(--bad)}
+details.more{border-top:1px solid var(--rule);padding-top:10px}
+details.more summary{cursor:pointer;font-size:13px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:12px}
+details.more h2{margin-top:14px}
 footer{border-top:1px solid var(--rule);padding-top:12px;color:var(--muted);font-size:12.5px}
 @media (max-width:640px){.page{padding:22px 16px 36px}.twin{flex-direction:column;align-items:center}
 .twin-fig{flex:none}.kpis,.slots{grid-template-columns:1fr}h1{font-size:25px}
@@ -486,8 +501,10 @@ def _input_text(args: dict[str, Any]) -> str:
 def render_report(*, request: str, ct_name: str, credit: str, results: dict[str, dict],
                   calls: list[dict], summary_text: str | None, guard_note: str,
                   model: str, flow: dict | None = None,
-                  replay_hint: str = "") -> tuple[str, str]:
-    """(markdown, html) of the run, from the tool outputs only."""
+                  replay_hint: str = "", flow_note: str = "") -> tuple[str, str]:
+    """(markdown, html) of the run, from the tool outputs only. ``flow_note``
+    (D112) says how the session's own blood-flow result was made, when the
+    run solved one."""
     seg = results.get("segment_aorta", {})
     crop = results.get("crop_aneurysm", {})
     wall = results.get("mesh_wall", {})
@@ -515,8 +532,10 @@ def render_report(*, request: str, ct_name: str, credit: str, results: dict[str,
         md.append(f"- Index ({k.replace('_', ' ')}): P10 {b['index_p10']} · P50 {b['index_p50']} · "
                   f"P90 {b['index_p90']}")
     if idx:
-        md.append(f"- Strength: open tensile data from {idx['n_aneurysms']} aneurysms, "
-                  f"{idx['n_strips']} strips — our lab narrows this band")
+        md.append(f"- Strength: open tensile data from {_fmt(idx.get('n_aneurysms'))} aneurysms, "
+                  f"{_fmt(idx.get('n_strips'))} strips — our lab will narrow this band")
+    if flow_note:
+        md.append(f"- Blood flow: {flow_note}")
     md += ["", "## Pipeline (every action journaled)", "",
            "| # | tool | input | result | s |", "|---|---|---|---|---|"]
     for i, c in enumerate(calls, 1):
@@ -531,13 +550,116 @@ def render_report(*, request: str, ct_name: str, credit: str, results: dict[str,
         request=request, ct_name=ct_name, credit=credit, results=results, calls=calls,
         summary_text=summary_text, guard_note=guard_note, model=model, flow=flow,
         replay_hint=replay_hint, rows=_results_rows(seg, crop, wall, st, idx, bands),
+        flow_note=flow_note,
     )
 
 
+#: The pipeline's tools as the report names them for a reader who does not
+#: know the tools: (title, what the step does).
+STEP_NAMES = {
+    "segment_aorta": ("Find the aorta on the scan",
+                      "the AI model outlines the aorta on the CT; the aneurysm sac is recovered around it"),
+    "crop_aneurysm": ("Cut out the aneurysm", "two flat cuts: below the kidney arteries and above the fork"),
+    "mesh_wall": ("Build the wall", "a 1.5 mm wall of small blocks; a quality check measures it"),
+    "wall_stress": ("Compute the wall stress", "finite elements under the two blood pressures"),
+    "strength_index": ("Compare with wall strength",
+                       "the stress against open lab measurements of aneurysm-wall strength"),
+}
+
+
+def _band_mmhg(key: str) -> str:
+    """``systolic_140mmhg`` -> ``140``."""
+    return key.rsplit("_", 1)[-1].replace("mmhg", "")
+
+
+def _step_line(c: dict) -> str:
+    """One plain line for a tool call, from its payload only (so every number
+    traces to a tool); a failed quality gate says what the check found."""
+    p, tool, ok = c.get("payload") or {}, c.get("tool"), bool(c.get("ok"))
+    if tool == "segment_aorta" and ok:
+        return (f"sac {_n(p.get('sac_max_diameter_mm'))} mm at its widest · thrombus + wall up to "
+                f"{_n(p.get('thrombus_plus_wall_thickness_mm_max'))} mm · AI {_n(p.get('ai_seconds'))} s")
+    if tool == "crop_aneurysm" and ok:
+        return (f"sac {_n(p.get('sac_diameter_mm'))} mm, neck {_n(p.get('neck_diameter_mm'))} mm "
+                f"(ratio {_n(p.get('sac_to_neck_ratio'))})" + (" · parallel cuts" if p.get("parallel_caps") else ""))
+    if tool == "mesh_wall" and p:
+        if ok:
+            return (f"{_n(p.get('hex_cells'))} blocks · {_n(p.get('inverted_cells'))} inverted · "
+                    f"{_n(p.get('wall_thickness_measured_mm'))} mm thick · gate {_n(p.get('gate'))}")
+        return (f"{_n(p.get('wall_thickness_measured_mm'))} mm thick ({_n(p.get('wall_thickness_off_percent'))} % "
+                f"off) · gate {_n(p.get('gate'))} — the quality check stopped the run here: a wall this far "
+                f"off would misstate the stress, so the aneurysm was cut again and the wall rebuilt")
+    if tool == "wall_stress" and ok:
+        return (f"{_n(p.get('pws_systolic_kpa'))} kPa at {_n(p.get('systolic_mmhg'))} mmHg · "
+                f"{_n(p.get('pws_whatif_kpa'))} kPa at {_n(p.get('whatif_mmhg'))} mmHg "
+                f"({_n(p.get('pws_change_percent'))} %)" + (" · thrombus modelled" if p.get("thrombus_modelled") else ""))
+    if tool == "strength_index" and ok:
+        parts = []
+        for key, b in p.items():
+            if isinstance(b, dict) and key.endswith("mmhg"):
+                band = (f" (band {_n(b.get('index_p10'))} to {_n(b.get('index_p90'))})"
+                        if key.startswith("systolic") else "")
+                parts.append(f"index {_n(b.get('index_p50'))}{band} at {_band_mmhg(key)} mmHg")
+        if p.get("n_aneurysms") is not None:
+            parts.append(f"open data: {_n(p.get('n_aneurysms'))} aneurysms, {_n(p.get('n_strips'))} strips")
+        return " · ".join(parts)
+    if not ok:
+        return "failed: " + _first_sentence(c.get("error") or "")
+    return ""
+
+
+def _steps_html(calls: list[dict], flow_note: str) -> str:
+    e = html.escape
+    rows = []
+    for c in calls:
+        title, detail = STEP_NAMES.get(c.get("tool"), (str(c.get("tool")), ""))
+        line = _step_line(c)
+        rows.append(
+            f'<li class="{"" if c.get("ok") else "fail"}"><span class="n" aria-hidden="true"></span><div>'
+            f'<div class="t">{e(title)}</div><div class="d">{e(detail)}</div>'
+            + (f'<div class="r">{e(line)}</div>' if line else "") + "</div></li>"
+        )
+    if flow_note:
+        rows.append(
+            '<li class="flow"><span class="n" aria-hidden="true"></span><div>'
+            '<div class="t">Blood flow (CFD)</div><div class="d">steady, resting flow through the lumen</div>'
+            f'<div class="r">{e(flow_note)}</div></div></li>'
+        )
+    return f'<ol class="steps">{"".join(rows)}</ol>'
+
+
+_LABEL = re.compile(r"^([^:\d\n]{3,48}):\s*(\S.*)$", re.S)
+
+
+def _plain_html(summary_text: str | None, guard_note: str) -> str:
+    """The copilot's summary as readable paragraphs: a paragraph that opens
+    with a short label and a colon gets the label in bold."""
+    e = html.escape
+    if not summary_text:
+        paras = ['<p class="none">No copilot summary in this report.</p>']
+    else:
+        chunks = [c.strip() for c in re.split(r"\n\s*\n", summary_text) if c.strip()]
+        if len(chunks) == 1 and "\n" in chunks[0]:
+            chunks = [c.strip() for c in chunks[0].split("\n") if c.strip()]
+        paras = []
+        for chunk in chunks:
+            m = _LABEL.match(chunk)
+            if m:
+                paras.append(f"<p><b>{e(m.group(1).strip())}:</b> {e(m.group(2).strip())}</p>")
+            else:
+                paras.append(f"<p>{e(chunk)}</p>")
+    guard_cls = ("" if summary_text else
+                 " warn" if any(w in guard_note for w in ("withheld", "declined")) else " neutral")
+    return ("".join(paras) + f'<span class="guard{guard_cls}">{e(guard_note)}</span>')
+
+
 def _render_html(*, request, ct_name, credit, results, calls, summary_text, guard_note, model,
-                 flow, replay_hint, rows) -> str:
-    """The report as a real page. Every string from a tool, Claude or the
-    command line goes through html.escape; no script, no external fetch."""
+                 flow, replay_hint, rows, flow_note="") -> str:
+    """The report as a real page, in reading order: the plain-words summary,
+    the three headline numbers, the twin card, the steps in plain names, then
+    every number and every call behind a fold. Every string from a tool,
+    Claude or the command line goes through html.escape; no script, no
+    external fetch."""
     e = html.escape
     st = results.get("wall_stress", {})
     idx = results.get("strength_index", {})
@@ -568,12 +690,6 @@ def _render_html(*, request, ct_name, credit, results, calls, summary_text, guar
             f'<td><code>{e(str(c["tool"]))}</code></td><td><code>{e(_input_text(c["input"]))}</code></td>'
             f'<td class="res">{res}</td><td class="num">{e(_n(c.get("seconds")))}</td></tr>'
         )
-    if summary_text:
-        summary = "".join(f"<p>{e(p.strip())}</p>" for p in summary_text.split("\n\n") if p.strip())
-    else:
-        summary = '<p class="none">No copilot summary in this report.</p>'
-    guard_cls = ("" if summary_text else
-                 " warn" if any(w in guard_note for w in ("withheld", "declined")) else " neutral")
     caveats = "".join(f"<li>{e(c)}</li>" for c in CAVEATS)
     repro = (f'<section class="repro" id="reproduce"><h2>Reproduce</h2><code>{e(replay_hint)}</code>'
              f"</section>" if replay_hint else "")
@@ -583,18 +699,21 @@ def _render_html(*, request, ct_name, credit, results, calls, summary_text, guar
         f"<title>Aorta twin report — {e(ct_name)}</title><style>{_CSS}</style></head><body>"
         "<main class='page'>"
         "<header><p class='eyebrow'>meshforge · investigational biomechanics report</p>"
-        "<h1>Aorta twin</h1><dl class='meta'>"
-        f"<dt>Request</dt><dd>{e(request)}</dd>"
+        "<h1>Aorta twin</h1>"
+        f"<p class='lede'>{e(request)}</p>"
+        "<dl class='meta'>"
         f"<dt>Scan</dt><dd>{e(ct_name)} — {e(credit)}</dd>"
         f"<dt>Copilot</dt><dd>{e(model)}</dd></dl></header>"
-        f"<section>{twin_card_html(results, flow, calls)}</section>"
+        f'<section class="plain" id="summary"><h2>In plain words</h2>{_plain_html(summary_text, guard_note)}</section>'
         f"{kpis}"
+        f"<section>{twin_card_html(results, flow, calls)}</section>"
+        f'<section id="steps"><h2>What the pipeline did</h2>{_steps_html(calls, flow_note)}</section>'
+        '<details class="more" id="details"><summary>Every number and every call</summary>'
         f'<section id="results"><h2>Results</h2><table class="grid">{result_rows}</table></section>'
         '<section id="pipeline" class="pipeline"><h2>Pipeline · every action journaled</h2>'
         '<table class="grid"><thead><tr><th>#</th><th>tool</th><th>input</th><th>result</th>'
         f'<th>s</th></tr></thead><tbody>{"".join(pipe_rows)}</tbody></table></section>'
-        f'<section class="summary" id="summary"><h2>Copilot summary</h2>{summary}'
-        f'<span class="guard{guard_cls}">{e(guard_note)}</span></section>'
+        "</details>"
         '<section class="caveats" id="caveats"><h2>Caveats</h2><div class="caveat">'
         "<b>Investigational index</b>: peak wall stress divided by lab-measured wall strength. "
         "It is not a diagnosis and not a rupture prediction.</div>"
