@@ -44,7 +44,7 @@ from meshforge.tissue import mechanics as mech
 LIBRARY_RESOURCE = "strength_v0.csv"
 DATASET_NAMES = {"10.17632/x64srrc39p.3": "USP AAA, Mendeley Data"}
 CAVEAT = "investigational index, not a diagnosis"
-LAB_LINE = "our lab narrows this"
+LAB_LINE = "our lab will narrow this"
 QUANTILES = (0.1, 0.5, 0.9)
 #: Implausible for an aortic wall in MPa — almost certainly kPa or Pa.
 PWS_MAX_MPA = 5.0

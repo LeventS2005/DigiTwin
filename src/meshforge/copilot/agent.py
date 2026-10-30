@@ -29,11 +29,20 @@ gate gives no reportable stress: read the error, fix the cause it names, and run
 affected steps again. Use the blood pressures the user gives; otherwise 140 mmHg \
 systolic with a 120 mmHg what-if.
 
-When the pipeline is done, write a summary of four to six plain sentences. Quote only \
-numbers that appear in the tool results, in the same units. Say how much open strength \
-data the band rests on, and call the index an investigational index, not a diagnosis. \
-If a quality gate failed and you recovered, say so in one sentence. Do not estimate a \
-rupture probability or a time to rupture."""
+When the pipeline is done, write the summary a clinician reads in thirty seconds: three \
+short paragraphs, each opening with its label and a colon, in this order — "What the scan \
+shows:", "What lowering the pressure does:", "How much to trust this:". Plain words and short \
+sentences; at most two numbers in a sentence; no tool names and no method words (no sweep, \
+caps, parallel, hex, mesh, centreline, P10 or P90). Quote only numbers that appear in the \
+tool results, in the same units. First paragraph: the sac's widest diameter and the peak wall \
+stress at the given pressure. Second: the stress at the what-if pressure and the change in \
+percent, then one sentence that this model scales stress with pressure, so the drop shows the \
+direction of the effect, not a benefit measured in this patient. Third: the investigational \
+index at P50 written as "0.43 (band 0.22 to 0.92)" style, how many aneurysms and strips the \
+open strength data comes from, that it is an investigational index and not a diagnosis, and, \
+if a quality gate failed and you recovered, one sentence that the quality check caught a wall \
+that came out too thin and the wall was rebuilt before any stress was computed. Do not \
+estimate a rupture probability or a time to rupture."""
 
 
 @dataclass
@@ -62,7 +71,12 @@ def _client():
             "`conda install -n meshforge -c conda-forge anthropic` "
             "(or `pip install 'meshforge[copilot]'`)"
         ) from exc
-    return anthropic.Anthropic()
+    try:
+        return anthropic.Anthropic()
+    except Exception as exc:  # noqa: BLE001 - the SDK's own "no api_key" error, whatever its class
+        raise RuntimeError(
+            f"the copilot needs an API key in the environment (ANTHROPIC_API_KEY): {exc}"
+        ) from None
 
 
 def _dump(block) -> dict[str, Any]:
@@ -96,17 +110,28 @@ def run_copilot(
     usage = {"input_tokens": 0, "output_tokens": 0}
 
     def ask():
-        resp = client.beta.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM,
-            tools=TOOLS,
-            messages=messages,
-            thinking={"type": "adaptive"},
-            output_config={"effort": effort},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
-        )
+        try:
+            resp = client.beta.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS,
+                system=SYSTEM,
+                tools=TOOLS,
+                messages=messages,
+                thinking={"type": "adaptive"},
+                output_config={"effort": effort},
+                betas=[FALLBACK_BETA],
+                fallbacks="default",
+            )
+        except Exception as exc:  # noqa: BLE001 - only the credential failures are re-worded
+            name = type(exc).__name__
+            if name in ("AuthenticationError", "PermissionDeniedError") or (
+                isinstance(exc, TypeError) and "authentication" in str(exc).lower()
+            ):
+                raise RuntimeError(
+                    "the copilot could not authenticate with the API — set ANTHROPIC_API_KEY in "
+                    f"this shell (read -s ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY): {exc}"
+                ) from None
+            raise
         u = getattr(resp, "usage", None)
         for key in usage:
             usage[key] += int(getattr(u, key, 0) or 0)

@@ -768,8 +768,24 @@ with `?demo=1` (it is also remembered in the browser). On:
   same words — until a re-mesh lands.
   Quick start, the synth source box and the history table are hidden (the
   session panel stays: Save work file);
-- a **new result wipes in** over about two seconds instead of appearing at
-  once (a cover over the viewport; the mesh underneath is the final one);
+- a **new result is drawn in from the top down** over about 2.4 s instead
+  of appearing at once (D112): the viewport sorts the result's polygons by
+  their highest z (the patient's superior end) and grows the surface cell by
+  cell in that order; the points, the colour field and the colour range are
+  untouched, so what stands at the end is exactly what the server sent. The
+  artifact shown before stays as a faint grey shell meanwhile. The AI
+  outline's ghosts are drawn in with the first artifact, a flow section with
+  its result. The same artifact served again after a journal-only step (the
+  strength index) is not replayed; a field or frame swap, a new load or a
+  clear cancels it; under `prefers-reduced-motion` nothing animates;
+- once the session holds **both a wall-stress and a CFD result**, two
+  buttons over the canvas — **wall stress** · **blood flow** — switch the view
+  between them (D112), the camera kept and the chosen layer drawn in from
+  the top down. `GET /geometry?artifact=stress|cfd` serialises the result
+  the session already holds (display only, nothing computed); the flow
+  layer opens coloured by pressure on the lumen wall (the no-slip wall's
+  velocity is zero). The next session change returns the view to the
+  current artifact. Off-demo the buttons do not exist;
 - the **step running on the server** shows bottom-left of the viewport with
   its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
   the copilot drives the server over `--server` (from `GET /state`
@@ -843,11 +859,21 @@ How it behaves:
     asked for on the default crop.
 - **The report** (`report.html`/`.md`) is built from the tool outputs alone.
   `report.html` is a real page (no script, no web fetch, prints cleanly,
-  one column on a phone): header, twin card, headline tiles (PWS, what-if,
-  investigational index), results and pipeline tables (a failed gate stays
-  in red), the summary with its numbers-guard note, the caveats and the data
-  credit. Every string from a tool, Claude or the command line is
-  HTML-escaped. The Reproduce line names the work file only (no folder).
+  one column on a phone) that reads top-down (D112): **In plain words**
+  (Claude's summary; a paragraph that opens with a short label and a colon
+  gets the label in bold), the three headline tiles (PWS, what-if,
+  investigational index), the twin card, **What the pipeline did** (the
+  tool calls as numbered steps with plain names — "Find the aorta on the
+  scan", "Cut out the aneurysm", "Build the wall", "Compute the wall
+  stress", "Compare with wall strength", and "Blood flow (CFD)" when the run
+  solved one — each with one line of tool numbers; a failed gate says what
+  the check found, in red), then **Every number and every call** behind a
+  fold (the Results and Pipeline tables), the caveats and the data credit.
+  Every string from a tool, Claude or the command line is HTML-escaped. The
+  Reproduce line names the work file only (no folder). The system prompt
+  asks Claude for three short paragraphs — "What the scan shows:", "What
+  lowering the pressure does:", "How much to trust this:" — in plain words,
+  no tool or method names, at most two numbers a sentence.
   - **Twin card:** a body outline with the aorta lit as module 1 and heart and
     kidneys "next". Its data-layer slots are shape, wall + thrombus, stress,
     strength (with n), flow (from `--flow-metrics`), BP what-if, and growth,
@@ -871,9 +897,32 @@ How it behaves:
     report says so.
 - **The trail:** `transcript.json` (every request, tool call and result) and,
   in-process, `session.mfwork`. `meshforge replay` reproduces every number.
-- **Live view:** `--server http://127.0.0.1:8765` runs the steps on a running
-  Workbench (`meshforge web`), so its viewport shows each artifact as it
-  lands.
+- **Live view, one command (D112):** `--server http://127.0.0.1:8765` runs
+  the steps on a Workbench at that address, so its viewport shows each
+  artifact as it lands. When nothing answers there the copilot **starts the
+  Workbench itself** (`python -m meshforge.web.server --port <port>`, its
+  own process group, `workbench.log` in the run folder, `/health` polled up
+  to 60 s) and **opens its window in Demo mode** — a Chrome app window on a
+  Mac with Chrome, else the default browser — then prints `workbench :
+  started … (pid N …); window opened …`. The server outlives the run (the
+  window stays live; the kill line is printed at the end). `--reset` empties
+  a Workbench that is already running first (a fresh take from grey tabs);
+  `--no-launch` keeps the old loud "not reachable" error.
+- **The blood flow, solved live (D112):** `--flow-case DIR` names a complete
+  OpenFOAM case of the scan's blood lumen (`system/`, `constant/polyMesh`,
+  `0/`; the demo uses the M4 s1364 lumen case: tet mesh of the cropped
+  lumen, simpleFoam, 1 L/min at the neck, about 15 s). After the strength
+  index the CLI copies the case without its earlier results and logs
+  (`copilot/launch.py` `stage_case`) and runs the session's own `cfd` step
+  on the copy through the same backend, then attaches the `--flow-metrics`,
+  so the journal reads `cfd` then `flow_metrics`, the twin's flow slot
+  fills, and the Workbench holds the flow field next to the stress (the
+  layer switch, §3.13). The terminal, the report's steps list and
+  `report.md` say "the scan's blood-lumen case re-solved live: OpenFOAM
+  simpleFoam, N cells, S s". A failed solve is loud and fails the exit code;
+  a folder that is no case is refused before any API call.
+- **The report opens by itself** when stdout is a terminal (`--open` /
+  `--no-open`), the same way as the Workbench window.
 
 Needs the Anthropic SDK (`pip install 'meshforge[copilot]'`, or conda-forge
 `anthropic`) and credentials in the environment (`ANTHROPIC_API_KEY`). Every

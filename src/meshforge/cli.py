@@ -942,6 +942,25 @@ def main(argv: list[str] | None = None) -> int:
     p_cop.add_argument("--out-dir", type=_path_arg, default=None,
                        help="run folder (default: <outputs>/copilot/<timestamp>)")
     p_cop.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
+    # D112: one command runs the whole demo from a terminal
+    p_cop.add_argument("--launch", dest="launch", action="store_true", default=True,
+                       help="when nothing answers at --server, start a Workbench there and open "
+                       "its window in Demo mode (the default)")
+    p_cop.add_argument("--no-launch", dest="launch", action="store_false",
+                       help="never start a Workbench or open a window")
+    p_cop.add_argument("--reset", action="store_true",
+                       help="empty a Workbench that is already running at --server before the "
+                       "run (a fresh take from grey tabs)")
+    p_cop.add_argument("--flow-case", type=_path_arg, default=None,
+                       help="a complete OpenFOAM case of this scan's blood lumen (system/, "
+                       "constant/polyMesh, 0/); after the strength index the session re-solves "
+                       "a copy of it (the cfd step, about 15 s), so the twin's flow slot fills "
+                       "and the Workbench can switch between the stress and the flow")
+    p_cop.add_argument("--open", dest="open_report", action="store_true", default=None,
+                       help="open report.html when the run ends (default: when stdout is a "
+                       "terminal)")
+    p_cop.add_argument("--no-open", dest="open_report", action="store_false",
+                       help="leave the report closed")
 
     p_aaa = sub.add_parser(
         "aaa-stress",
@@ -2814,9 +2833,41 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
             why = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else exc
             print(f"error: --flow-metrics {args.flow_metrics.name}: {why}", file=sys.stderr)
             return 1
+    flow_case: Path | None = args.flow_case
+    if flow_case is not None and not (flow_case / "system" / "controlDict").is_file():
+        print(f"error: --flow-case {flow_case.name}: not an OpenFOAM case (no system/controlDict)",
+              file=sys.stderr)
+        return 1
     out_dir: Path = args.out_dir or (args.outputs / "copilot" / _time.strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     request = args.request + (f"\nCT: {args.ct}" if args.ct is not None else "")
+    # D112: the Workbench this run drives — already up (emptied on --reset), or
+    # started here with its window, so one terminal command runs the demo.
+    workbench = None
+    if args.server:
+        from meshforge.copilot import launch
+
+        if launch.health(args.server):
+            if args.reset:
+                try:
+                    launch.reset_workbench(args.server)
+                except RuntimeError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    return 1
+                print(f"workbench   : running at {args.server}; session emptied for this run",
+                      flush=True)
+            else:
+                print(f"workbench   : running at {args.server}", flush=True)
+        elif args.launch:
+            try:
+                workbench, secs = launch.start_workbench(args.server, out_dir / "workbench.log")
+            except (RuntimeError, ValueError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            where = launch.open_window(args.server)
+            print(f"workbench   : started at {args.server} in {secs:.1f} s (pid {workbench.pid}, "
+                  f"log {shown_path(out_dir / 'workbench.log')}); window opened in the {where}",
+                  flush=True)
     backend = HttpBackend(args.server) if args.server else SessionBackend()
     tools = PipelineTools(backend, out_dir / "work")
     print(f"copilot     : {args.model} (effort {args.effort}) on the {backend.name}", flush=True)
@@ -2827,20 +2878,49 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
                           log=lambda m: print(m, flush=True))
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        if workbench is not None:
+            print(f"workbench   : still running at {args.server} (pid {workbench.pid}; stop with: "
+                  f"kill {workbench.pid})")
         return 1
     flow_error = ""
+    flow_note = ""
+    if flow_case is not None and run.complete:
+        # D112: the scan's blood lumen, solved live by the session's own cfd
+        # step on a fresh copy of the case (its earlier results left out), so
+        # the Workbench holds a flow result next to the stress; journaled as
+        # `cfd`, before the metrics below, so the twin reads both.
+        from meshforge.copilot import launch
+        from meshforge.copilot.backend import StepOutcome
+
+        t1 = _time.perf_counter()
+        try:
+            staged = launch.stage_case(flow_case, out_dir / "work" / "flow_case")
+            cfd = backend.run("cfd", {"case": str(staged)})
+        except (OSError, ValueError, RuntimeError) as exc:
+            cfd = StepOutcome(False, {}, "", str(exc))
+        secs = _time.perf_counter() - t1
+        if cfd.ok:
+            solver = cfd.summary.get("solver") or "simpleFoam"
+            cells = cfd.summary.get("n_cells")
+            flow_note = (f"the scan's blood-lumen case re-solved live: OpenFOAM {solver}"
+                         + (f", {cells} cells" if cells else "") + f", {secs:.0f} s")
+            print(f"flow        : {flow_note}", flush=True)
+        else:
+            flow_error = f"the flow case did not run: {cfd.error}"
+            print(f"error: {flow_error}", file=sys.stderr)
     if flow is not None:
         # the session journals the metrics as its own flow_metrics record
         # BEFORE the report is written (and before session.mfwork is saved),
         # so the Workbench panel and the report print the same flow lines
         try:
             attached = backend.attach_flow_metrics(flow)
-            flow_error = "" if attached.ok else attached.error
+            attach_error = "" if attached.ok else attached.error
         except RuntimeError as exc:  # the Workbench is gone
-            flow_error = str(exc)
-        if flow_error:
+            attach_error = str(exc)
+        if attach_error:
+            flow_error = "; ".join(filter(None, (flow_error, attach_error)))
             print(f"error: the flow metrics are not in the session (its twin panel will not "
-                  f"show them): {flow_error}", file=sys.stderr)
+                  f"show them): {attach_error}", file=sys.stderr)
         else:
             print(f"flow        : {len(flow)} pre-computed CFD metrics journaled in the session",
                   flush=True)
@@ -2852,7 +2932,7 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
         request=args.request, ct_name=args.ct.name if args.ct else "(in the request)",
         credit=args.credit, results=run.results, calls=run.calls,
         summary_text=run.summary_text, guard_note=run.guard_note, model=args.model,
-        flow=flow, replay_hint=replay,
+        flow=flow, replay_hint=replay, flow_note=flow_note,
     )
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(page)
@@ -2872,6 +2952,15 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     print(f"transcript  : {shown_path(out_dir / 'transcript.json')}")
     if replay:
         print(f"replay      : {replay}")
+    open_report = args.open_report if args.open_report is not None else sys.stdout.isatty()
+    if open_report:
+        from meshforge.copilot import launch
+
+        where = launch.open_file(out_dir / "report.html")
+        print(f"opened      : report.html in the {where}")
+    if workbench is not None:
+        print(f"workbench   : still running at {args.server} (pid {workbench.pid}; stop with: "
+              f"kill {workbench.pid})")
     return 0 if run.complete and not flow_error else 1
 
 

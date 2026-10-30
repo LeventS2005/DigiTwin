@@ -100,6 +100,33 @@ def _result_json(result) -> dict[str, Any]:
     return {"step": result.step, "summary": result.summary, "text": result.text}
 
 
+#: D112: the results a session holds that the demo's layer switch may show
+#: by name (GET /geometry?artifact=…): the session attribute, the mesh on it,
+#: the label the viewport shows, and the field it opens on when present.
+_HELD_ARTIFACTS: dict[str, tuple[str, str, str, str | None]] = {
+    "stress": ("aaa_stress", "grid", "wall stress (investigational)", None),
+    "cfd": ("cfd", "grid", "cfd results", "p"),
+}
+
+
+def _held_artifact(session: MeshingSession, name: str) -> dict[str, Any] | None:
+    """Render hints for a held result (display only, nothing computed), None
+    when the session has no such result; an unknown name is a loud 400."""
+    spec = _HELD_ARTIFACTS.get(name)
+    if spec is None:
+        raise HTTPException(
+            400, f"unknown artifact {name!r}; one of {', '.join(sorted(_HELD_ARTIFACTS))}")
+    attr, mesh_attr, label, default_field = spec
+    held = getattr(session, attr, None)
+    mesh = getattr(held, mesh_attr, None) if held is not None else None
+    if mesh is None:
+        return None
+    hints: dict[str, Any] = {"mesh": mesh, "kind": "volume", "label": label}
+    if default_field:
+        hints["default_field"] = default_field
+    return hints
+
+
 def _capture(holder: "_SessionHolder", result) -> dict[str, Any]:
     """Stash the step's ``render_hints`` (the already-computed pyvista mesh) on
     the holder so ``GET /geometry`` can serve the current artifact, then return
@@ -256,6 +283,7 @@ def create_app() -> FastAPI:
                     "wall",
                     "volmesh",
                     "solve",
+                    "aaa_stress",
                     "cfd",
                     "profile",
                 )
@@ -368,18 +396,36 @@ def create_app() -> FastAPI:
     # client path, no upload, no write, no WebSocket. The one display module
     # (web/viewport.py) is lazy-imported so the base layer stays trame-free.
     @app.get("/geometry")
-    def get_geometry(field: str | None = None):
+    def get_geometry(field: str | None = None, artifact: str | None = None):
         from fastapi.responses import Response
 
-        hints = holder.last_render
+        # D112: `artifact` asks for a result the session HOLDS (the wall
+        # stress, the CFD) instead of the artifact rendered last, so the
+        # demo's layer switch can show either without recomputing anything;
+        # 404 when the session has no such result, 400 for an unknown name.
+        hints = _held_artifact(holder.session, artifact) if artifact else holder.last_render
         if not hints or hints.get("mesh") is None:
+            if artifact:
+                raise HTTPException(404, f"the session holds no {artifact} result yet")
             return Response(status_code=204)  # nothing rendered yet
 
         def work():
             from meshforge.web import viewport
 
+            chosen = field
+            # A CFD result seen from outside (no flow section to look into)
+            # opens on the pressure: the lumen wall's no-slip velocity is
+            # zero, so |U| paints it one colour. With a section the flow
+            # inside is the point, and the first field (U) stays the default.
+            default_field = hints.get("default_field") or (
+                "p" if hints.get("label") == "cfd results" and hints.get("section") is None else None)
+            if chosen is None and default_field:
+                shown = viewport.available_fields(
+                    viewport._renderable(hints["mesh"], hints.get("kind", "surface")))
+                if default_field in shown:
+                    chosen = default_field
             payload = viewport.serialize(
-                hints["mesh"], hints.get("kind", "surface"), field,
+                hints["mesh"], hints.get("kind", "surface"), chosen,
                 section=hints.get("section"),
             )
             if hints.get("view_dir") is not None:

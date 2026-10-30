@@ -494,17 +494,69 @@ def test_demo_mesh_wall_tab_shows_the_gate_failure_in_the_reports_own_words(app_
     assert paint.index('"running"') < paint.index('"failed"') < paint.index('"done"')
 
 
-def test_reveal_and_busy_line_act_only_in_demo_mode(app_js: str, index_html: str, styles_css: str) -> None:
-    assert 'id="vp-reveal"' in index_html and 'id="vp-busy"' in index_html
-    reveal = app_js[app_js.index("function playReveal()"):]
-    assert "if (!isDemo()) return;" in reveal[: reveal.index("}")+1] or "if (!isDemo()) return;" in reveal[:200]
+def test_busy_line_acts_only_in_demo_mode(app_js: str, index_html: str) -> None:
+    assert 'id="vp-busy"' in index_html
     busy = app_js[app_js.index("function updateBusyLine(st)"):]
     assert "!isDemo()" in busy[:200]
-    assert "if (resetCamera) playReveal();" in app_js      # a NEW artifact only
     assert "updateBusyLine(st);" in app_js                  # every /state poll
     assert "st.running" in app_js and "running_for" in app_js
-    assert ".vp-reveal.go { clip-path: inset(100% 0 0 0); }" in styles_css
-    assert ".vp-busy {" in styles_css
+
+
+def test_step_reveal_draws_a_new_artifact_in_from_the_top_in_demo_mode(
+    app_js: str, index_html: str, styles_css: str
+) -> None:
+    """D112: the D108 curtain is gone; a NEW artifact is drawn in cell by cell
+    from the top down (the polygons sorted by their highest z, the
+    connectivity grown as a prefix) over 2.4 s, the previous artifact a faint
+    shell meanwhile. Demo mode only, never under reduced motion; the same
+    artifact served again (a journal-only step) is not replayed; a field or
+    frame swap, a new load or a clear cancels a running sweep; the whole
+    state stands at the end."""
+    vp_js = (_static_dir() / "viewport.js").read_text()
+    assert "vp-reveal" not in index_html and ".vp-reveal" not in styles_css and "playReveal" not in app_js
+    assert "var SWEEP_MS = 2400;" in vp_js
+    assert "function planSweep(state)" in vp_js and "function sweepState(plan, p)" in vp_js
+    on = vp_js[vp_js.index("function sweepOn()"):vp_js.index("var TYPED")]
+    assert "demoOn() && !reducedMotion()" in on
+    plan = vp_js[vp_js.index("function planSweep(state)"):vp_js.index("function sweepState")]
+    assert "pts[3 * conn[i + j] + 2]" in plan                 # the cell's highest z
+    assert "cells.sort(function (a, b) { return b[2] - a[2]; });" in plan  # top first
+    state = vp_js[vp_js.index("function sweepState(plan, p)"):vp_js.index("function sweepStop")]
+    assert "plan.ordered.subarray(0, plan.offsets[k])" in state  # a prefix: nothing invented
+    assert "Object.assign({}, plan.state, { mesh: mesh })" in state  # points, field, range untouched
+    stop = vp_js[vp_js.index("function sweepStop(finish)"):vp_js.index("function sweepStep")]
+    assert "items[i].set(items[i].plan.state)" in stop        # the whole state at the end
+    assert "function load(payload, resetCamera, sweep)" in vp_js
+    load = vp_js[vp_js.index("function load(payload, resetCamera, sweep)"):vp_js.index("function clear()")]
+    assert load.index("sweepStop(false);") < load.index("S.mesh.value = payload.state;")
+    assert "var animate = !!sweep && sweepOn();" in load
+    assert "{ opacity: 0 }" in load and load.index("{ opacity: 0 }") < load.index("v.resetCamera();")
+    assert load.index("v.resetCamera();") < load.index("begin();")  # framed on the whole mesh first
+    clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
+    assert "sweepStop(false);" in clear
+    assert '<vtk-geometry-representation v-if="base" :property="baseProperty">' in vp_js
+    # app.js passes the sweep only for a NEW artifact framed anew
+    assert "window.MeshforgeViewport.load(payload, resetCamera, resetCamera && changed);" in app_js
+    assert "function sameArtifact(a, b)" in app_js
+    same = app_js[app_js.index("function sameArtifact(a, b)"):]
+    assert "a.label === b.label && a.kind === b.kind" in same[:600]
+
+
+def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_html: str, styles_css: str) -> None:
+    """D112: two buttons over the canvas switch the view between the held
+    wall-stress and CFD results (GET /geometry?artifact=stress|cfd, nothing
+    computed), Demo mode only, once the session holds both; the chosen layer
+    is drawn in from the top down with the camera kept."""
+    assert 'id="vp-layer-ctl"' in index_html and 'data-layer="stress"' in index_html and 'data-layer="cfd"' in index_html
+    assert "body:not(.demo) #vp-layer-ctl { display: none; }" in styles_css
+    assert "function showLayer(layer)" in app_js and "function paintLayerButtons()" in app_js
+    show = app_js[app_js.index("async function showLayer(layer)"):app_js.index("function paintLayerButtons()")]
+    assert "`/geometry?artifact=${encodeURIComponent(layer)}`" in show
+    assert "window.MeshforgeViewport.load(payload, false, true);" in show  # camera kept, drawn in
+    paint = app_js[app_js.index("function paintLayerButtons()"):app_js.index("// ---- flow section") if "// ---- flow section" in app_js else None]
+    assert "ctl.hidden = !(isDemo() && held.stress && held.cfd);" in paint
+    assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
+    assert "initLayerSwitch();" in app_js
 
 
 def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_only(
@@ -553,7 +605,7 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     assert 'id="atlas-hover"' in tpl and 'id="atlas-studies"' in tpl and 'id="atlas-scope"' in tpl
     assert "atlas · regions without studies are dim · sides are the patient's" in tpl
     # real rows only: the page and the script know no study, no scan, no patient
-    atlas_js = app_js[app_js.index("// ---- patient atlas"):app_js.index("// A NEW result wipes in")]
+    atlas_js = app_js[app_js.index("// ---- patient atlas"):app_js.index("// The result reveal lives in viewport.js")]
     for banned in ("abdomen + pelvis", "s1364", "1.5 mm", "prior", "TotalSegmentator", "date withheld"):
         assert banned not in tpl, banned
         assert banned not in atlas_js, banned
@@ -640,7 +692,7 @@ def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> N
     assert "watchIdle(host); // D111" in vp_js
     arm = vp_js[vp_js.index("function armPick(cb, onMiss)"):vp_js.index("function onPick(e)")]
     assert arm.count("spinStop();") == 1 and arm.count("idleDisarm();") == 1 and arm.count("idleArm();") == 1
-    assert "v.resetCamera();\n        idleArm();" in vp_js  # a newly framed artifact starts the clock
+    assert "v.resetCamera();\n          idleArm();" in vp_js  # a newly framed artifact starts the clock
     clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
     assert "spinStop();" in clear and "idleDisarm();" in clear
     assert "wake: wake," in vp_js

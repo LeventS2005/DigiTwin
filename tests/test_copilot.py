@@ -926,3 +926,249 @@ def test_session_backend_attach_is_loud_on_a_bad_set():
     out = b.attach_flow_metrics({"umax_mm_s": 12.0})
     assert not out.ok and "none of the twin card's metrics" in out.error and b.session.journal == []
     assert b.attach_flow_metrics(S1364_FLOW).ok and b.session.journal[-1]["step"] == "flow_metrics"
+
+
+# --- D112: one command runs the demo; the plain report; the live flow case ------
+
+
+def test_summary_prompt_asks_for_three_plain_paragraphs():
+    for label in ("What the scan shows:", "What lowering the pressure does:", "How much to trust this:"):
+        assert label in ag.SYSTEM
+    assert "no tool names" in ag.SYSTEM and "P10 or P90" in ag.SYSTEM
+    assert "Do not estimate a rupture probability or a time to rupture" in ag.SYSTEM
+
+
+def test_report_opens_with_the_plain_words_then_the_steps_in_plain_names(tmp_path):
+    run, _, _ = _run(tmp_path, _script(
+        "What the scan shows: The sac is 61.8 mm at its widest; the peak wall stress is 278.2 kPa at 140 mmHg.\n\n"
+        "What lowering the pressure does: At 120 mmHg it is 238.5 kPa, a drop of 14.3%.\n\n"
+        "How much to trust this: The investigational index is 0.43 (band 0.21 to 0.9), from 7 aneurysms "
+        "and 13 strips; not a diagnosis."))
+    md, page = render_report(request="r", ct_name="ct.nii.gz", credit="CC BY 4.0", results=run.results,
+                             calls=run.calls, summary_text=run.summary_text, guard_note=run.guard_note,
+                             model="m", flow_note="the scan's blood-lumen case re-solved live: OpenFOAM simpleFoam, 34323 cells, 15 s")
+    # reading order: plain words, headline numbers, twin, steps, then the fold
+    order = [page.index(s) for s in ('id="summary"', 'id="headline"', '<section class="twin',
+                                     'id="steps"', '<details class="more"', 'id="results"', 'id="pipeline"')]
+    assert order == sorted(order)
+    assert "<p><b>What the scan shows:</b> The sac is 61.8 mm" in page   # the label in bold
+    assert "<p><b>How much to trust this:</b>" in page
+    steps = page[page.index('id="steps"'):page.index("<details")]
+    for name in ("Find the aorta on the scan", "Cut out the aneurysm", "Build the wall",
+                 "Compute the wall stress", "Compare with wall strength", "Blood flow (CFD)"):
+        assert name in steps, name
+    assert steps.count('<li class="fail">') == 1 and "gate FAIL — the quality check stopped the run here" in steps
+    assert "parallel cuts" in steps and "7552 blocks · 0 inverted" in steps
+    assert "index 0.43 (band 0.21 to 0.9) at 140 mmHg" in steps and "open data: 7 aneurysms, 13 strips" in steps
+    assert "OpenFOAM simpleFoam, 34323 cells, 15 s" in steps
+    assert "- Blood flow: the scan's blood-lumen case re-solved live" in md
+    # every number between the twin card and the fold traces to a tool (no seconds, no tolerances)
+    shown = re.sub(r"<svg.*?</svg>", " ", page.split('<section class="twin')[1].split("<details")[0], flags=re.S)
+    shown = re.sub(r"<[^>]+>", " ", shown)
+    sources = [c["payload"] for c in run.calls if c["payload"]] + [{"cells": 34323, "s": 15}]
+    assert check_numbers(shown, sources, allowed_text="aorta: module 1") == []
+    assert "our lab will narrow" in page and "narrows" not in page
+
+
+def test_launch_helpers_start_reset_open_and_stage(tmp_path, monkeypatch):
+    from meshforge.copilot import launch
+
+    # port_of: loud without a port or off the loopback
+    assert launch.port_of("http://127.0.0.1:8765") == 8765
+    with pytest.raises(ValueError):
+        launch.port_of("http://127.0.0.1")
+    with pytest.raises(ValueError):
+        launch.port_of("http://10.0.0.5:8765")
+
+    # start_workbench: spawns `python -m meshforge.web.server --port N` detached, waits for /health
+    spawned = []
+
+    class FakeProc:
+        pid = 4242
+
+        def __init__(self, argv, **kw):
+            spawned.append((argv, kw))
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            spawned.append("terminated")
+
+    answers = iter([False, False, True])
+    monkeypatch.setattr(launch, "health", lambda url, timeout=1.5: next(answers))
+    proc, secs = launch.start_workbench("http://127.0.0.1:8777", tmp_path / "wb.log",
+                                        popen=FakeProc, sleep=lambda s: None)
+    argv, kw = spawned[0]
+    assert argv[1:] == ["-m", "meshforge.web.server", "--port", "8777"]
+    assert kw["start_new_session"] is True and kw["stdin"] is not None
+    assert proc.pid == 4242 and secs >= 0
+
+    # a Workbench that never answers is stopped and reported with its log
+    (tmp_path / "wb2.log").write_text("Address already in use\n")
+    monkeypatch.setattr(launch, "health", lambda url, timeout=1.5: False)
+    spawned.clear()
+    with pytest.raises(RuntimeError) as exc:
+        launch.start_workbench("http://127.0.0.1:8777", tmp_path / "wb2.log", wait_s=0.01,
+                               popen=FakeProc, sleep=lambda s: None)
+    assert "did not answer" in str(exc.value) and "Address already in use" in str(exc.value)
+    assert "terminated" in spawned
+
+    # open_window / open_file: a Chrome app window on a Mac with Chrome, else the default browser
+    ran, opened = [], []
+    monkeypatch.setattr(launch, "chrome_available", lambda: True)
+    note = launch.open_window("http://127.0.0.1:8777", run=lambda argv, **kw: ran.append(argv))
+    assert note == "Chrome app window"
+    assert ran[0][:4] == ["open", "-na", "Google Chrome", "--args"]
+    assert ran[0][4] == "--app=http://127.0.0.1:8777/app/?demo=1"
+    monkeypatch.setattr(launch, "chrome_available", lambda: False)
+    note = launch.open_file(tmp_path / "report.html", browser=NS(open=lambda u: opened.append(u)))
+    assert note == "default browser" and opened[0].startswith("file://") and opened[0].endswith("/report.html")
+
+    # stage_case: a copy without earlier results or logs; loud on a folder that is no case
+    case = tmp_path / "case"
+    for d in ("0", "295", "constant/polyMesh", "system"):
+        (case / d).mkdir(parents=True)
+    (case / "system" / "controlDict").write_text("application simpleFoam;")
+    (case / "0" / "U").write_text("u")
+    (case / "295" / "U").write_text("old")
+    (case / "log.simpleFoam").write_text("old log")
+    (case / "case.foam").write_text("")
+    staged = launch.stage_case(case, tmp_path / "work" / "flow_case")
+    assert (staged / "0" / "U").is_file() and (staged / "system" / "controlDict").is_file()
+    assert not (staged / "295").exists() and not (staged / "log.simpleFoam").exists()
+    assert (case / "295" / "U").read_text() == "old"  # the source is untouched
+    with pytest.raises(ValueError):
+        launch.stage_case(tmp_path / "work", tmp_path / "x")  # no controlDict
+
+
+def test_copilot_cli_runs_the_flow_case_then_attaches_the_metrics(tmp_path, monkeypatch, capsys):
+    """--flow-case: after a complete run the session's own cfd step solves a
+    fresh copy of the case (journaled `cfd`), THEN the metrics are attached,
+    so the twin reads both; the report names it; a failed solve is loud and
+    fails the exit code; nothing opens without a terminal."""
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+    from meshforge.copilot.backend import SessionBackend
+
+    made = []
+
+    class RecordingBackend(SessionBackend):
+        def __init__(self):
+            super().__init__()
+            made.append(self)
+            self.ran = []
+
+        def run(self, step, knobs):
+            self.ran.append((step, dict(knobs)))
+            if step == "cfd":
+                case = Path(knobs["case"])
+                assert case.is_dir() and not (case / "295").exists()  # the staged copy, results dropped
+                self.session.journal.append({"step": "cfd", "params": knobs, "summary": {}})
+                return StepOutcome(True, {"solver": "simpleFoam", "n_cells": 34323}, "")
+            return super().run(step, knobs)
+
+    run_obj = ag.CopilotRun(request="r", model="m", stop="done", summary_text=None, guard_note="g",
+                            calls=[], results={"strength_index": {"n_aneurysms": 7}}, transcript=[], usage={})
+    monkeypatch.setattr(cp, "run_copilot", lambda request, **kw: run_obj)
+    monkeypatch.setattr(cp, "SessionBackend", RecordingBackend)
+    monkeypatch.chdir(tmp_path)
+    case = tmp_path / "flow_case"
+    for d in ("0", "295", "constant/polyMesh", "system"):
+        (case / d).mkdir(parents=True)
+    (case / "system" / "controlDict").write_text("application simpleFoam;")
+    fm = tmp_path / "flow_metrics.json"
+    fm.write_text(json.dumps(S1364_FLOW))
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-metrics", str(fm),
+               "--flow-case", str(case), "--out-dir", "run"])
+    printed = capsys.readouterr().out
+    assert rc == 0
+    assert made[0].ran[0][0] == "cfd" and made[0].session.journal[-1]["step"] == "flow_metrics"
+    assert "flow        : the scan's blood-lumen case re-solved live: OpenFOAM simpleFoam, 34323 cells" in printed
+    assert "flow        : 5 pre-computed CFD metrics journaled in the session" in printed
+    assert "opened      :" not in printed  # stdout is no terminal here
+    page = (tmp_path / "run" / "report.html").read_text()
+    assert "Blood flow (CFD)" in page and "re-solved live" in page
+    assert "- Blood flow: the scan's blood-lumen case re-solved live" in (tmp_path / "run" / "report.md").read_text()
+
+    # a folder that is no case is refused before any API call
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-case", str(tmp_path / "nope"),
+               "--out-dir", "run2"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "not an OpenFOAM case" in err
+
+
+def test_copilot_cli_starts_the_workbench_when_none_answers(tmp_path, monkeypatch, capsys):
+    """--server with nothing listening: the CLI starts a Workbench on that
+    port, opens its window in Demo mode, and says so; --reset empties one
+    that already answers; --no-launch leaves the old loud error."""
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+    from meshforge.copilot import launch
+
+    events = []
+
+    class FakeHttpBackend:
+        def __init__(self, url):
+            self.name = f"Workbench at {url}"
+
+    run_obj = ag.CopilotRun(request="r", model="m", stop="done", summary_text=None, guard_note="g",
+                            calls=[], results={}, transcript=[], usage={})
+    monkeypatch.setattr(cp, "run_copilot", lambda request, **kw: run_obj)
+    monkeypatch.setattr(cp, "HttpBackend", FakeHttpBackend)
+    monkeypatch.setattr(launch, "health", lambda url, timeout=1.5: events.append("health") and False)
+    monkeypatch.setattr(launch, "start_workbench", lambda url, log: (events.append(("start", url, Path(log).name)), (NS(pid=77), 1.25))[1])
+    monkeypatch.setattr(launch, "open_window", lambda url: (events.append(("window", url)), "Chrome app window")[1])
+    monkeypatch.setattr(launch, "reset_workbench", lambda url: events.append(("reset", url)))
+    monkeypatch.chdir(tmp_path)
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--server", "http://127.0.0.1:8799",
+               "--out-dir", "run"])
+    out = capsys.readouterr().out
+    assert rc == 1  # the fake run never finishes
+    assert ("start", "http://127.0.0.1:8799", "workbench.log") in events and ("window", "http://127.0.0.1:8799") in events
+    assert "workbench   : started at http://127.0.0.1:8799 in 1.2 s (pid 77, log run/workbench.log); window opened in the Chrome app window" in out
+    assert "workbench   : still running at http://127.0.0.1:8799 (pid 77; stop with: kill 77)" in out
+
+    # already up + --reset: emptied, no start, no window
+    events.clear()
+    monkeypatch.setattr(launch, "health", lambda url, timeout=1.5: True)
+    main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--server", "http://127.0.0.1:8799",
+          "--reset", "--out-dir", "run2"])
+    out = capsys.readouterr().out
+    assert events == [("reset", "http://127.0.0.1:8799")]
+    assert "workbench   : running at http://127.0.0.1:8799; session emptied for this run" in out
+
+    # --no-launch with nothing listening: no start, no window
+    events.clear()
+    monkeypatch.setattr(launch, "health", lambda url, timeout=1.5: False)
+    main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--server", "http://127.0.0.1:8799",
+          "--no-launch", "--out-dir", "run3"])
+    assert not any(isinstance(e, tuple) and e[0] in ("start", "window") for e in events)
+
+
+def test_a_missing_key_is_a_readable_error_not_a_traceback(tmp_path):
+    """The SDK raises a bare TypeError at the first call when no key is set;
+    the copilot re-words it (the CLI prints `error: …` and the pid of the
+    Workbench it started)."""
+    class NoKeyClient:
+        def __init__(self):
+            self.beta = NS(messages=NS(create=self._create))
+
+        def _create(self, **kw):
+            raise TypeError('"Could not resolve authentication method. Expected one of api_key, '
+                            'auth_token, or credentials to be set."')
+
+    tools = PipelineTools(FakeBackend(), tmp_path / "work")
+    with pytest.raises(RuntimeError) as exc:
+        ag.run_copilot("Assess this AAA.", tools=tools, client=NoKeyClient(), log=lambda m: None)
+    assert "ANTHROPIC_API_KEY" in str(exc.value) and "read -s" in str(exc.value)
+
+    class OtherError(Exception):
+        pass
+
+    class BrokenClient(NoKeyClient):
+        def _create(self, **kw):
+            raise OtherError("boom")
+
+    with pytest.raises(OtherError):  # anything else still surfaces as itself
+        ag.run_copilot("Assess this AAA.", tools=tools, client=BrokenClient(), log=lambda m: None)

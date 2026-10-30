@@ -13,6 +13,9 @@
     // D82 flow section: the server-sampled section state, whether to show it,
     // and the wall's look while it shows (translucent, so the flow reads).
     section: null, sectionState: null, showSection: true, showWall: false, meshProperty: null, wallVisible: null,
+    // D112 step reveal: the previous artifact, drawn as a faint shell while
+    // the new one sweeps in.
+    base: null,
     // D80 pick mode: armed for ONE click, then disarmed.
     pickModes: null, pickCb: null, pickMiss: null, downXY: null, upXY: null,
   };
@@ -43,6 +46,18 @@
   var IDLE_MS = 3000;
   var SPIN_DEG_PER_S = 8;
   var R = { timer: null, raf: null, last: 0, spinning: false };
+  // D112 demo-mode step reveal: a NEW artifact (and a layer switch) is drawn
+  // in from the top down over SWEEP_MS. The cells of the serialized surface
+  // are sorted by their highest z (the patient's superior end) and the
+  // connectivity grows frame by frame as a prefix of that order; the points,
+  // the colour field and the range are untouched, so what stands at the end
+  // is exactly the state the server sent. The artifact shown before stays as
+  // a faint grey shell under the sweep and leaves when it completes. Demo
+  // mode only, never under reduced motion; a field or frame swap, a new
+  // load or a clear cancels it.
+  var SWEEP_MS = 2400;
+  var BASE_PROPERTY = { color: [0.6, 0.62, 0.66], opacity: 0.28, specular: 0.0 };
+  var W = { raf: null, start: 0, items: null, done: null };
 
   function available() {
     return !!(window.Vue && window.vue_vtk);
@@ -64,6 +79,7 @@
     S.overlay = Vue.ref(null);
     S.ghosts = Vue.ref([]);
     S.section = Vue.ref(null);
+    S.base = Vue.ref(null);
     S.meshProperty = Vue.ref(WALL_OPAQUE);
     S.wallVisible = Vue.ref(true);
     S.pickModes = Vue.ref([]);
@@ -86,6 +102,8 @@
           overlayProperty: OVERLAY_PROPERTY,
           ghosts: S.ghosts,
           section: S.section,
+          base: S.base,
+          baseProperty: BASE_PROPERTY,
           meshProperty: S.meshProperty,
           wallVisible: S.wallVisible,
           pickModes: S.pickModes,
@@ -100,6 +118,9 @@
         '  </vtk-geometry-representation>' +
         '  <vtk-geometry-representation v-if="section" :color-map-preset="preset" :color-data-range="range">' +
         '    <vtk-mesh :state="section"></vtk-mesh>' +
+        '  </vtk-geometry-representation>' +
+        '  <vtk-geometry-representation v-if="base" :property="baseProperty">' +
+        '    <vtk-mesh :state="base"></vtk-mesh>' +
         '  </vtk-geometry-representation>' +
         '  <vtk-geometry-representation v-if="overlay" :property="overlayProperty">' +
         '    <vtk-mesh :state="overlay"></vtk-mesh>' +
@@ -256,6 +277,156 @@
     });
   }
 
+  // ---- demo-mode step reveal (D112) -----------------------------------------
+  function sweepOn() {
+    return S.ready && demoOn() && !reducedMotion();
+  }
+  var TYPED = {
+    int8: Int8Array, uint8: Uint8Array, int16: Int16Array, uint16: Uint16Array,
+    int32: Int32Array, uint32: Uint32Array, float32: Float32Array, float64: Float64Array,
+  };
+  // A serialized array as vue_vtk's vtk-mesh takes it ({bvals (base64),
+  // dtype, shape}, a plain array, or a typed array) -> a typed array, or
+  // null when it is none of those.
+  function typedArray(raw) {
+    if (!raw) return null;
+    if (ArrayBuffer.isView(raw)) return raw;
+    if (Array.isArray(raw)) return Float64Array.from(raw);
+    if (raw.bvals && raw.dtype && TYPED[raw.dtype]) {
+      var bin = window.atob(raw.bvals);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TYPED[raw.dtype](bytes.buffer);
+    }
+    return null;
+  }
+  // Plan one state's top-down order: its polygons sorted by their highest z,
+  // the connectivity rebuilt in that order, and the cumulative lengths so the
+  // first k cells are one subarray. Null when the state has no polygons.
+  function planSweep(state) {
+    var mesh = state && state.mesh;
+    if (!mesh || !mesh.polys || !mesh.points) return null;
+    var pts = typedArray(mesh.points), conn = typedArray(mesh.polys);
+    if (!pts || !conn || !conn.length) return null;
+    var cells = []; // [start, length, top z]
+    var i = 0;
+    while (i < conn.length) {
+      var n = conn[i];
+      if (!(n > 0) || i + 1 + n > conn.length) return null; // not a plain connectivity array
+      var top = -Infinity;
+      for (var j = 1; j <= n; j++) {
+        var z = pts[3 * conn[i + j] + 2];
+        if (z > top) top = z;
+      }
+      cells.push([i, n + 1, top]);
+      i += n + 1;
+    }
+    if (cells.length < 2) return null;
+    cells.sort(function (a, b) { return b[2] - a[2]; });
+    var ordered = new Uint32Array(conn.length);
+    var offsets = new Uint32Array(cells.length + 1);
+    var keys = new Float64Array(cells.length);
+    var o = 0;
+    for (var c = 0; c < cells.length; c++) {
+      var start = cells[c][0], len = cells[c][1];
+      for (var k = 0; k < len; k++) ordered[o + k] = conn[start + k];
+      o += len;
+      offsets[c + 1] = o;
+      keys[c] = cells[c][2];
+    }
+    return { state: state, ordered: ordered, offsets: offsets, keys: keys, zTop: keys[0], zBottom: keys[cells.length - 1] };
+  }
+  // The planned state with only the cells whose top lies above the sweep
+  // front at progress p (0 = the first cell, 1 = every cell).
+  function sweepState(plan, p) {
+    var k = plan.keys.length;
+    if (p < 1) {
+      var front = plan.zTop - p * (plan.zTop - plan.zBottom);
+      var lo = 0, hi = plan.keys.length; // the first index whose key is below the front
+      while (lo < hi) {
+        var mid = (lo + hi) >> 1;
+        if (plan.keys[mid] >= front) lo = mid + 1;
+        else hi = mid;
+      }
+      k = Math.max(1, lo);
+    }
+    var mesh = Object.assign({}, plan.state.mesh, { polys: plan.ordered.subarray(0, plan.offsets[k]) });
+    return Object.assign({}, plan.state, { mesh: mesh });
+  }
+  // Stop a running sweep; with `finish` every item shows its whole state.
+  function sweepStop(finish) {
+    if (W.raf) window.cancelAnimationFrame(W.raf);
+    W.raf = null;
+    var items = W.items, done = W.done;
+    W.items = null;
+    W.done = null;
+    W.start = 0;
+    if (items && finish) for (var i = 0; i < items.length; i++) items[i].set(items[i].plan.state);
+    if (S.ready && S.base) S.base.value = null;
+    if (done && finish) done();
+  }
+  function sweepStep(ts) {
+    if (!W.items) return;
+    if (!W.start) W.start = ts;
+    var t = Math.min(1, (ts - W.start) / SWEEP_MS);
+    var p = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in, ease out
+    try {
+      for (var i = 0; i < W.items.length; i++) W.items[i].set(sweepState(W.items[i].plan, p));
+    } catch (err) {
+      console.warn("[viewport] reveal stopped", err);
+      sweepStop(true);
+      return;
+    }
+    if (t >= 1) {
+      sweepStop(true);
+      return;
+    }
+    W.raf = window.requestAnimationFrame(sweepStep);
+  }
+  // items: [{plan, set(state)}]; base: the previous main state, drawn as a
+  // fieldless grey shell meanwhile; done: called when the sweep completes.
+  function sweepStart(items, base, done) {
+    sweepStop(false);
+    if (!items.length) {
+      if (done) done();
+      return false;
+    }
+    W.items = items;
+    W.done = done || null;
+    W.start = 0;
+    if (S.base) S.base.value = base && base.mesh ? { mesh: base.mesh } : null;
+    for (var i = 0; i < items.length; i++) items[i].set(sweepState(items[i].plan, 0));
+    W.raf = window.requestAnimationFrame(sweepStep);
+    return true;
+  }
+  // The items a loaded payload sweeps: the main mesh, the ghosts when they
+  // arrive with it (the first artifact brings the AI outline), and the flow
+  // section when one shows.
+  function sweepItems(payload, ghostsNew) {
+    var items = [];
+    var main = planSweep(payload.state);
+    if (main) items.push({ plan: main, set: function (st) { S.mesh.value = st; } });
+    if (ghostsNew && S.ghosts.value.length) {
+      S.ghosts.value.forEach(function (g, i) {
+        var plan = planSweep(g.state);
+        if (!plan) return;
+        items.push({
+          plan: plan,
+          set: function (st) {
+            var list = S.ghosts.value.slice();
+            list[i] = Object.assign({}, list[i], { state: st });
+            S.ghosts.value = list;
+          },
+        });
+      });
+    }
+    if (S.sectionState && S.section.value) {
+      var sp = planSweep(S.sectionState);
+      if (sp) items.push({ plan: sp, set: function (st) { S.section.value = st; } });
+    }
+    return items;
+  }
+
   // ---- flow section (D82) -------------------------------------------------
   function applySection() {
     var on = !!(S.showSection && S.sectionState);
@@ -314,8 +485,15 @@
 
   // Show a serialized mesh. `resetCamera` frames it (used on a new artifact,
   // NOT on a field/frame swap so the view stays put during animation).
-  function load(payload, resetCamera) {
+  // `sweep` (D112) draws it in from the top down in Demo mode; the previous
+  // artifact stays as a faint shell meanwhile. The camera is framed on the
+  // WHOLE mesh first (drawn at opacity 0 for that one flush), so the sweep
+  // never frames its first cells.
+  function load(payload, resetCamera, sweep) {
     if (!S.ready || !payload || !payload.state) return;
+    sweepStop(false);
+    var previous = S.mesh.value;
+    var hadGhosts = !!(S.ghosts && S.ghosts.value && S.ghosts.value.length);
     S.mesh.value = payload.state;
     // The ghosts ride on the main payload only (a field or frame swap keeps them).
     if (S.ghosts && "ghost" in payload) S.ghosts.value = ghostList(payload.ghost);
@@ -324,26 +502,39 @@
     if (payload.data_range && payload.data_range.length === 2) {
       S.range.value = payload.data_range.slice();
     }
+    var animate = !!sweep && sweepOn();
+    if (animate && resetCamera) S.meshProperty.value = Object.assign({}, S.meshProperty.value, { opacity: 0 });
+    var begin = function () {
+      if (!animate) return;
+      applySection(); // the wall's own look again (opacity back)
+      var ghostsNew = !hadGhosts && !!(S.ghosts.value && S.ghosts.value.length);
+      sweepStart(sweepItems(payload, ghostsNew), previous, function () { applySection(); });
+    };
     if (resetCamera) {
       var dir = payload.view_dir && payload.view_dir.length === 3 ? payload.view_dir : null;
       // Let Vue flush the new mesh into the scene, then frame + repaint it.
       setTimeout(function () {
         var v = S.viewRef && S.viewRef.value;
-        if (!v || !v.resetCamera) return;
-        // resetCamera re-frames along the camera's CURRENT direction, and the
-        // default direction is straight down +z — so a straight tube opened as
-        // a flat annulus. Aim first (face-on to a flow section when there is
-        // one, else three-quarters); resetCamera then recentres on the mesh
-        // bounds and keeps that direction.
-        if (dir) aimAlong(v, dir);
-        else aimThreeQuarter(v);
-        v.resetCamera();
-        idleArm();
+        if (v && v.resetCamera) {
+          // resetCamera re-frames along the camera's CURRENT direction, and the
+          // default direction is straight down +z — so a straight tube opened as
+          // a flat annulus. Aim first (face-on to a flow section when there is
+          // one, else three-quarters); resetCamera then recentres on the mesh
+          // bounds and keeps that direction.
+          if (dir) aimAlong(v, dir);
+          else aimThreeQuarter(v);
+          v.resetCamera();
+          idleArm();
+        }
+        begin();
       }, 60);
+    } else {
+      begin();
     }
   }
 
   function clear() {
+    sweepStop(false);
     if (S.ready && S.mesh) S.mesh.value = null;
     if (S.ready && S.overlay) S.overlay.value = null;
     if (S.ready && S.ghosts) S.ghosts.value = [];
