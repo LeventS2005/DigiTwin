@@ -969,6 +969,8 @@ function applyDemo(on) {
     removeAtlasPanel();
     hideBusyLine();
   }
+  // D111: the viewport's idle turntable follows the switch (arms on, stops off).
+  if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();
 }
 // Tag the demo steps' panels and give each its tab: number, title, hint and a
 // state mark. The panels keep their STEP_ORDER places (the run order); the

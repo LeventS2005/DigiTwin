@@ -612,3 +612,37 @@ def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
     assert "setGhosts: setGhosts," in vp_js
     assert "color-map-preset" not in vp_js[vp_js.index('v-for="g in ghosts"'):vp_js.index("</vtk-view>")]
 
+
+
+def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> None:
+    """D111: in Demo mode a view left alone for 3 s spins slowly about the
+    camera's up axis (one turn in 45 s) and stops on any input to the canvas
+    (press, scroll, touch, key; hovering does not stop it). Pure camera motion
+    through vue_vtk's getCamera/setCamera; never outside Demo mode, never
+    while a pick is armed, never without a mesh, never under reduced motion,
+    paused while the tab is hidden; the Demo switch re-arms or stops it."""
+    vp_js = (_static_dir() / "viewport.js").read_text()
+    assert "var IDLE_MS = 3000;" in vp_js
+    assert "var SPIN_DEG_PER_S = 8;" in vp_js
+    assert 'return document.body.classList.contains("demo");' in vp_js  # demoOn()
+    assert '"(prefers-reduced-motion: reduce)"' in vp_js
+    spin = vp_js[vp_js.index("function spinStart()"):vp_js.index("function spinStop()")]
+    assert "!demoOn() || reducedMotion()" in spin
+    assert "if (!(S.mesh && S.mesh.value)) return;" in spin
+    assert "if (S.pickCb) return;" in spin
+    step = vp_js[vp_js.index("function spinStep(ts)"):vp_js.index("function spinStart()")]
+    assert "!hasMesh || !demoOn()" in step and "spinStop();" in step
+    assert "Math.min(ts - R.last, 100)" in step  # a stalled tab does not jump
+    assert "view.setCamera({ position: [fp[0] + rx, fp[1] + ry, fp[2] + rz], focalPoint: fp, viewUp: up });" in vp_js
+    assert 'var evs = ["pointerdown", "wheel", "touchstart", "keydown"];' in vp_js
+    assert "pointermove" not in vp_js[vp_js.index("function watchIdle"):vp_js.index("// ---- flow section")]
+    assert 'document.addEventListener("visibilitychange"' in vp_js
+    assert "watchIdle(host); // D111" in vp_js
+    arm = vp_js[vp_js.index("function armPick(cb, onMiss)"):vp_js.index("function onPick(e)")]
+    assert arm.count("spinStop();") == 1 and arm.count("idleDisarm();") == 1 and arm.count("idleArm();") == 1
+    assert "v.resetCamera();\n        idleArm();" in vp_js  # a newly framed artifact starts the clock
+    clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
+    assert "spinStop();" in clear and "idleDisarm();" in clear
+    assert "wake: wake," in vp_js
+    assert "if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();" in app_js
+    assert app_js.index("MeshforgeViewport.wake()") > app_js.index("function applyDemo(on)")
