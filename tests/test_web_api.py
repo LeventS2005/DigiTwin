@@ -483,7 +483,7 @@ def test_geometry_artifact_serves_a_held_result_or_says_why_not(client: TestClie
     state = client.get("/state").json()["artifacts"]
     assert state["aaa_stress"] is False and state["cfd"] is False
     holder = client.app.state.holder
-    grid = pv.ImageData(dimensions=(3, 3, 3)).cast_to_unstructured_grid()
+    grid = pv.ImageData(dimensions=(6, 6, 6)).cast_to_unstructured_grid()
     grid.point_data["U"] = [[1.0, 0.0, 0.0]] * grid.n_points
     grid.point_data["p"] = list(range(grid.n_points))
     holder.session.cfd = NS(grid=grid)
@@ -502,6 +502,17 @@ def test_geometry_artifact_serves_a_held_result_or_says_why_not(client: TestClie
     assert client.get("/geometry").json()["field"] == "p"
     holder.last_render = {"mesh": grid, "kind": "volume", "label": "cfd results", "section": None}
     assert client.get("/geometry?field=U").json()["field"] == "U"
+    # the colour range of a CFD seen from outside is the 2nd-98th percentile, not min/max
+    import numpy as np
+
+    from meshforge.web import viewport
+
+    grid.point_data["p"] = np.r_[np.linspace(0.0, 10.0, grid.n_points - 1), 1000.0]  # one stagnation spike
+    body = client.get("/geometry").json()
+    assert body["field"] == "p" and body["range_note"] == "2nd–98th percentile"
+    assert body["data_range"][1] < 100.0 and body["data_range"][0] >= 0.0
+    assert viewport.robust_range(grid, "volume", "U") is None  # a flat field: no range
+    assert viewport.robust_range(grid, "volume", "nope") is None
     holder.last_render = None
 
 

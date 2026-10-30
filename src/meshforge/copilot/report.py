@@ -643,6 +643,7 @@ def _plain_html(summary_text: str | None, guard_note: str) -> str:
             chunks = [c.strip() for c in chunks[0].split("\n") if c.strip()]
         paras = []
         for chunk in chunks:
+            chunk = re.sub(r"\*\*|__", "", chunk).strip()  # Claude's own bold marks: the label is bold already
             m = _LABEL.match(chunk)
             if m:
                 paras.append(f"<p><b>{e(m.group(1).strip())}:</b> {e(m.group(2).strip())}</p>")

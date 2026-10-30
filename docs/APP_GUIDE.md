@@ -784,8 +784,11 @@ with `?demo=1` (it is also remembered in the browser). On:
   the top down. `GET /geometry?artifact=stress|cfd` serialises the result
   the session already holds (display only, nothing computed); the flow
   layer opens coloured by pressure on the lumen wall (the no-slip wall's
-  velocity is zero). The next session change returns the view to the
-  current artifact. Off-demo the buttons do not exist;
+  velocity is zero), over the 2nd–98th percentile of the field so the
+  gradient along the lumen reads, and keeps the wall-stress result as a
+  translucent shell around the lumen (the whole-aorta and heart ghosts
+  stay). The next session change returns the view to the current artifact.
+  Off-demo the buttons do not exist;
 - the **step running on the server** shows bottom-left of the viewport with
   its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
   the copilot drives the server over `--server` (from `GET /state`
@@ -908,19 +911,28 @@ How it behaves:
   window stays live; the kill line is printed at the end). `--reset` empties
   a Workbench that is already running first (a fresh take from grey tabs);
   `--no-launch` keeps the old loud "not reachable" error.
-- **The blood flow, solved live (D112):** `--flow-case DIR` names a complete
-  OpenFOAM case of the scan's blood lumen (`system/`, `constant/polyMesh`,
-  `0/`; the demo uses the M4 s1364 lumen case: tet mesh of the cropped
-  lumen, simpleFoam, 1 L/min at the neck, about 15 s). After the strength
-  index the CLI copies the case without its earlier results and logs
-  (`copilot/launch.py` `stage_case`) and runs the session's own `cfd` step
-  on the copy through the same backend, then attaches the `--flow-metrics`,
-  so the journal reads `cfd` then `flow_metrics`, the twin's flow slot
-  fills, and the Workbench holds the flow field next to the stress (the
-  layer switch, §3.13). The terminal, the report's steps list and
-  `report.md` say "the scan's blood-lumen case re-solved live: OpenFOAM
-  simpleFoam, N cells, S s". A failed solve is loud and fails the exit code;
-  a folder that is no case is refused before any API call.
+- **The blood flow, solved live (D112):** `--flow-live` builds the CFD case
+  from THIS crop's own blood lumen (`copilot/flow.py`): a helper in-process
+  session loads the crop step's `work/crop_lumen.vtp`, runs `repair`, then
+  `lumen` with the station-ring tet fill (6,748 cells on the demo scan;
+  simpleFoam converges in about 140 iterations, 3 s), falling back to the
+  automatic choice and then the surface tet fill; the cap higher on the
+  body axis is the neck and takes a resting
+  1 L/min spread over its area along its inward normal, the other cap is
+  the pressure outlet, every other face a no-slip wall; blood's kinematic
+  viscosity 3.3 mm²/s; laminar simpleFoam. The case is written to the run
+  folder (`work/flow_case_live`) and the Workbench's own `cfd` step solves
+  it (about 15 s on the demo scan including the fill), then the `--flow-metrics`
+  are attached, so the journal reads `cfd` then `flow_metrics`, the twin's
+  flow slot fills, and the Workbench holds the flow next to the stress on
+  the same crop (the layer switch, §3.13). `--flow-case DIR` names a
+  complete case to re-solve instead (`launch.stage_case` copies it without
+  its earlier results); with `--flow-live` it is the fallback when the live
+  build or solve fails. The terminal, the report's steps list and
+  `report.md` say which ran ("this crop's blood channel solved live" or
+  "the scan's pre-built lumen case re-solved live", with the solver, the
+  cells and the seconds). A failed flow with no fallback is loud and fails
+  the exit code; a folder that is no case is refused before any API call.
 - **The report opens by itself** when stdout is a terminal (`--open` /
   `--no-open`), the same way as the Workbench window.
 

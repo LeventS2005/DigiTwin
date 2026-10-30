@@ -22,6 +22,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the run ends, `report.html` opens by itself whenever stdout is a terminal
   (`--open` / `--no-open`). The plumbing lives in `copilot/launch.py`; a
   missing API key is now a readable error instead of a traceback.
+  **`--flow-live`** (`copilot/flow.py`) builds the CFD case from THIS
+  crop's own blood lumen instead: a helper in-process session repairs and
+  fills the crop step's lumen (the station-ring tet fill first — 6,748
+  cells on the demo scan, simpleFoam converged in 142 iterations, 3 s —
+  then the automatic choice, then the surface tet fill), the cap higher on
+  the body axis is the neck and takes a resting
+  1 L/min over its area along its inward normal, the other cap is the
+  pressure outlet, blood's viscosity (3.3 mm²/s), laminar simpleFoam; the
+  Workbench's cfd step solves the written case, so the flow sits on the
+  same crop as the wall stress. `--flow-case` is then the fallback when the
+  live build or solve fails. The Workbench's flow layer keeps the wall-stress
+  result as a translucent shell around the flow, and a CFD result seen from
+  outside (no flow section) is coloured over the 2nd–98th percentile of its
+  field (`viewport.robust_range`, display only), so the pressure gradient
+  along the lumen reads instead of one flat colour. The report strips
+  Claude's own `**bold**` marks from the plain-words labels.
 
 - **Workbench viewport: results are drawn in from the top down** (D112). In
   Demo mode a NEW artifact (the AI outline with its ghosts, the cropped sac,

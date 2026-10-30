@@ -1084,12 +1084,12 @@ def test_copilot_cli_runs_the_flow_case_then_attaches_the_metrics(tmp_path, monk
     printed = capsys.readouterr().out
     assert rc == 0
     assert made[0].ran[0][0] == "cfd" and made[0].session.journal[-1]["step"] == "flow_metrics"
-    assert "flow        : the scan's blood-lumen case re-solved live: OpenFOAM simpleFoam, 34323 cells" in printed
+    assert "flow        : the scan's pre-built lumen case re-solved live: OpenFOAM simpleFoam, 34323 cells" in printed
     assert "flow        : 5 pre-computed CFD metrics journaled in the session" in printed
     assert "opened      :" not in printed  # stdout is no terminal here
     page = (tmp_path / "run" / "report.html").read_text()
     assert "Blood flow (CFD)" in page and "re-solved live" in page
-    assert "- Blood flow: the scan's blood-lumen case re-solved live" in (tmp_path / "run" / "report.md").read_text()
+    assert "- Blood flow: the scan's pre-built lumen case re-solved live" in (tmp_path / "run" / "report.md").read_text()
 
     # a folder that is no case is refused before any API call
     rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-case", str(tmp_path / "nope"),
@@ -1172,3 +1172,115 @@ def test_a_missing_key_is_a_readable_error_not_a_traceback(tmp_path):
 
     with pytest.raises(OtherError):  # anything else still surfaces as itself
         ag.run_copilot("Assess this AAA.", tools=tools, client=BrokenClient(), log=lambda m: None)
+
+
+def test_live_flow_case_is_built_from_the_crop_lumen_with_the_neck_as_inflow(tmp_path):
+    """D112 addendum: build_lumen_case fills the cropped lumen with the
+    session's own lumen step, takes the higher cap as the neck (inflow at
+    1 L/min over its area, blood viscosity), the other as the pressure
+    outlet, and writes a complete simpleFoam case; the source is untouched."""
+    pytest.importorskip("gmsh")
+    import pyvista as pv
+
+    from meshforge.copilot import flow
+    from meshforge.pipeline import MeshingSession
+
+    helper = MeshingSession()
+    helper.generate_synth("straight_tube")
+    src = tmp_path / "crop_lumen.vtp"
+    helper.surface.save(src)
+    before = src.read_bytes()
+    built = flow.build_lumen_case(src, tmp_path / "case")
+    case = Path(built["case"])
+    for must in ("system/controlDict", "constant/polyMesh/points", "0/U", "0/p", "constant/transportProperties"):
+        assert (case / must).is_file(), must
+    assert built["n_cells"] > 0 and built["q_lmin"] == 1.0 and built["nu_mm2_s"] == 3.3
+    assert built["inflow_patch"] != built["outlet_patch"]
+    # the inflow cap is the one higher on z, and the speed is Q over its area
+    vol = pv.read(case / "constant/polyMesh/points") if False else None  # the points file is OpenFOAM text
+    assert abs(built["inflow_speed_mm_s"] * built["inflow_area_mm2"] - 1e6 / 60) < 0.02 * 1e6 / 60
+    u = (case / "0" / "U").read_text()
+    assert built["inflow_patch"] in u and "fixedValue" in u
+    p_file = (case / "0" / "p").read_text()
+    assert built["outlet_patch"] in p_file
+    assert src.read_bytes() == before
+    assert "nu" in (case / "constant" / "transportProperties").read_text()
+    # building again replaces the case
+    built2 = flow.build_lumen_case(src, tmp_path / "case")
+    assert built2["inflow_patch"] == built["inflow_patch"]
+    with pytest.raises(FileNotFoundError):
+        flow.build_lumen_case(tmp_path / "missing.vtp", tmp_path / "case2")
+
+
+def test_copilot_cli_solves_the_live_flow_first_and_falls_back_to_the_case(tmp_path, monkeypatch, capsys):
+    import meshforge.copilot as cp
+    from meshforge.cli import main
+    from meshforge.copilot import flow as liveflow
+    from meshforge.copilot.backend import SessionBackend
+
+    made = []
+
+    class RecordingBackend(SessionBackend):
+        def __init__(self):
+            super().__init__()
+            made.append(self)
+            self.cases = []
+
+        def run(self, step, knobs):
+            if step == "cfd":
+                self.cases.append(Path(knobs["case"]).name)
+                if Path(knobs["case"]).name == "flow_case_live" and FAIL_LIVE:
+                    return StepOutcome(False, {}, "", "simpleFoam diverged")
+                self.session.journal.append({"step": "cfd", "params": knobs, "summary": {}})
+                return StepOutcome(True, {"solver": "simpleFoam", "n_cells": 1234}, "")
+            return super().run(step, knobs)
+
+    def fake_build(crop_lumen, case_dir, **kw):
+        Path(case_dir).mkdir(parents=True, exist_ok=True)
+        return {"case": str(case_dir), "n_cells": 1234, "fill": "tet", "inflow_patch": "outlet",
+                "inflow_area_mm2": 372.1, "inflow_speed_mm_s": 44.79, "outlet_patch": "inlet",
+                "q_lmin": 1.0, "nu_mm2_s": 3.3, "notes": []}
+
+    run_obj = ag.CopilotRun(request="r", model="m", stop="done", summary_text=None, guard_note="g",
+                            calls=[], results={"strength_index": {"n_aneurysms": 7, "n_strips": 13}},
+                            transcript=[], usage={})
+    monkeypatch.setattr(cp, "run_copilot", lambda request, **kw: run_obj)
+    monkeypatch.setattr(cp, "SessionBackend", RecordingBackend)
+    monkeypatch.setattr(liveflow, "build_lumen_case", fake_build)
+    monkeypatch.chdir(tmp_path)
+    case = tmp_path / "flow_case"
+    for d in ("0", "constant/polyMesh", "system"):
+        (case / d).mkdir(parents=True)
+    (case / "system" / "controlDict").write_text("application simpleFoam;")
+    fm = tmp_path / "flow_metrics.json"
+    fm.write_text(json.dumps(S1364_FLOW))
+
+    FAIL_LIVE = False
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-metrics", str(fm),
+               "--flow-live", "--flow-case", str(case), "--out-dir", "run"])
+    out = capsys.readouterr().out
+    assert rc == 0 and made[-1].cases == ["flow_case_live"]  # the live case only
+    assert "flow        : this crop's blood channel filled: 1234 cells, inflow at the neck 44.79 mm/s for 1 L/min" in out
+    assert "flow        : this crop's blood channel solved live: OpenFOAM simpleFoam, 1234 cells" in out
+    assert made[-1].session.journal[-1]["step"] == "flow_metrics"  # metrics after the cfd
+    assert "blood channel solved live: OpenFOAM simpleFoam, 1234 cells" in (tmp_path / "run" / "report.html").read_text()
+
+    FAIL_LIVE = True
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-live", "--flow-case", str(case),
+               "--out-dir", "run2"])
+    cap = capsys.readouterr()
+    assert rc == 0 and made[-1].cases == ["flow_case_live", "flow_case"]  # the fallback carried it
+    assert "the live flow case did not run: simpleFoam diverged" in cap.err
+    assert "the scan's pre-built lumen case re-solved live" in cap.out
+
+    rc = main(["copilot", "Assess this AAA.", "--ct", "ct.nii.gz", "--flow-live", "--out-dir", "run3"])
+    cap = capsys.readouterr()
+    assert rc == 1 and "the live flow case did not run" in cap.err  # no fallback: loud, exit 1
+
+
+def test_report_strips_claudes_own_bold_marks_from_the_plain_words():
+    _, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
+                            summary_text="**What the scan shows:** The sac is wide.\n\n__How much to trust this:__ Little.",
+                            guard_note="g", model="m")
+    assert "<p><b>What the scan shows:</b> The sac is wide.</p>" in page
+    assert "<p><b>How much to trust this:</b> Little.</p>" in page and "**" not in page

@@ -557,6 +557,17 @@ def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_
     assert "ctl.hidden = !(isDemo() && held.stress && held.cfd);" in paint
     assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
     assert "initLayerSwitch();" in app_js
+    # the flow is seen inside the wall: the stress result stays as a translucent shell
+    assert 'const wall = await fetch("/geometry?artifact=stress");' in show
+    assert "window.MeshforgeViewport.setShell(shell);" in show
+    vp_js = (_static_dir() / "viewport.js").read_text()
+    assert "function setShell(state)" in vp_js and "setShell: setShell," in vp_js
+    assert '<vtk-geometry-representation v-if="shell" :property="shellProperty">' in vp_js
+    assert "var SHELL_PROPERTY = { color: [0.74, 0.76, 0.8], opacity: 0.22, specular: 0.0 };" in vp_js
+    load = vp_js[vp_js.index("function load(payload, resetCamera, sweep)"):vp_js.index("// The layer switch's shell")]
+    assert "var base = S.shell && S.shell.value ? null : previous;" in load  # no second ghost of the wall
+    refresh = app_js[app_js.index("async function refreshViewport(resetCamera)"):app_js.index("function showPayload")]
+    assert "window.MeshforgeViewport.setShell(null);" in refresh          # the current artifact again: no shell
 
 
 def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_only(
