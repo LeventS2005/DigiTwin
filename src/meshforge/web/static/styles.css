@@ -559,8 +559,9 @@ details.step-box[data-demo-state="done"] .demo-mark::before { content: "✓"; wi
    drawn in from the top down, cell by cell; no cover over the canvas */
 .viewport-slot { position: relative; }
 
-/* layer switch (D112): wall stress | blood flow, Demo mode only, once the
-   session holds both results. Off-demo the group stays hidden (app.js). */
+/* layer switch (D112): wall stress | blood flow, Demo (or Lab, D115) only,
+   once the session holds both results. Otherwise the group stays hidden
+   (app.js). */
 .vp-layer { gap: 0; margin-left: auto; }
 .vp-layer-btn {
   height: 20px; padding: 0 10px; cursor: pointer;
@@ -572,7 +573,7 @@ details.step-box[data-demo-state="done"] .demo-mark::before { content: "✓"; wi
 .vp-layer-btn.on { background: #ff5d55; border-color: #ff5d55; color: #fff; }
 .vp-layer-btn:disabled { opacity: .45; cursor: default; }
 .vp-layer-btn:focus-visible { outline: 2px solid #ff5d55; outline-offset: 1px; }
-body:not(.demo) #vp-layer-ctl { display: none; }
+body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }
 
 /* the running step with its elapsed seconds (GET /state `running`) */
 .vp-busy {
@@ -642,3 +643,54 @@ body.demo .atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px; }
 .atlas .atlas-loaded { color: #5fd08a; font-weight: 600; }
 .atlas .atlas-empty { color: #8b9098; font-style: italic; }
 .atlas .atlas-caption { margin: 6px var(--pad) 0; font-size: 10.5px; color: #9aa0a8; line-height: 1.35; }
+
+/* ===== Lab mode (D115): Demo without the whole-body pane ===================
+   body.lab is set by the Lab switch beside Demo (app.js; URL ?lab=1 or
+   localStorage meshforge.lab); Demo and Lab are never both on. The left pane
+   shows the Upload scan card above Demo's own six tabs (the same panels,
+   tagged data-demo by app.js, drawn by the rules above); the right-hand pane
+   (the atlas, the twin, the session, the log) is gone and the viewport takes
+   its width. Off = every rule below is inert (the .mode-switches wrapper only
+   centres the two switches). */
+.mode-switches { margin: 0 auto; display: inline-flex; align-items: center; gap: 18px; }
+body.lab #workbench { grid-template-columns: minmax(268px, 296px) 1fr; }
+body.lab #pane-right { display: none; }
+body.lab #help { display: none; }
+body.lab #source-box { display: none; }
+body.lab #step-panels > details.step-box { display: none; }
+body.lab #step-panels > details.step-box[data-demo="1"] { display: block; }
+body.lab #step-panels > details.step-box[data-demo="1"] > summary .step-name { display: none; }
+body.lab #step-panels > details.step-box[data-demo="1"] > summary {
+  height: auto; min-height: 23px; padding: 7px var(--pad) 7px 10px;
+  text-transform: none; letter-spacing: .02em; font-size: 12.5px;
+}
+body.lab .demo-tab {
+  display: grid; flex: 1 1 auto; align-items: center; column-gap: 9px; row-gap: 1px;
+  grid-template-columns: 22px 1fr 14px;
+  grid-template-areas: "num title mark" "num hint mark";
+}
+/* the Upload scan card: a button drawn as a tab (the summary bar's look, an
+   upload arrow in the number's place so Demo's tabs keep 1-6, a blank where
+   a tab has its chevron), states as the tabs' */
+.lab-upload { display: none; }
+body.lab .lab-upload { display: block; background: var(--panel); border-bottom: 1px solid var(--edge); }
+.lab-upload-btn {
+  width: 100%; margin: 0; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 6px;
+  min-height: 23px; padding: 7px var(--pad) 7px 10px;
+  background: linear-gradient(var(--head), #272a2e);
+  border: 0; box-shadow: inset 0 1px 0 #3a3e43;
+  font: 600 12.5px/1 var(--ui); letter-spacing: .02em; color: var(--ink-head);
+}
+.lab-upload-btn::before { content: ""; display: inline-block; width: 8px; flex: 0 0 auto; }
+.lab-upload .demo-num { font-size: 13px; }
+.lab-upload-btn:hover { background: linear-gradient(#33363b, #2c2f33); }
+.lab-upload-btn:hover .demo-title { color: #fff; }
+.lab-upload-btn:focus-visible { outline: 2px solid #ff5d55; outline-offset: -2px; }
+.lab-upload-btn:disabled { cursor: progress; }
+.lab-upload .demo-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lab-upload > .panel-error { margin: 6px var(--pad) 0; }
+#lab-upload[data-demo-state="running"] .demo-num { background: #ff5d55; color: #fff; }
+#lab-upload[data-demo-state="running"] .demo-mark::before { background: #ff5d55; animation: vp-pulse 1s ease-in-out infinite; }
+#lab-upload[data-demo-state="done"] .demo-num { background: #2f8f5b; color: #fff; }
+#lab-upload[data-demo-state="done"] .demo-mark::before { content: "✓"; width: auto; height: auto; border-radius: 0; background: none; color: #5fd08a; font: 700 12px/1 var(--ui); }

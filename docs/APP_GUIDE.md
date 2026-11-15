@@ -835,6 +835,41 @@ with `?demo=1` (it is also remembered in the browser). On:
 Off, the Workbench is exactly the one described above. Demo mode changes
 nothing about what any step computes.
 
+### 3.14 Lab mode  (Demo without the right-hand pane; the Lab switch beside Demo)
+
+Demo, with the scan coming from this computer. Flip **Lab** in the top bar,
+or open the page with `?lab=1` (also remembered in the browser). Demo and
+Lab are never both on: turning one on turns the other off, and `?demo=1`
+(the copilot's window) always wins. On:
+
+- the **right-hand pane is gone** — no patient atlas, no twin card, no
+  session or log panel, nothing whole-body — and the viewport takes its
+  width. Quick start and the synth source box are hidden as in Demo;
+- the left pane shows **Demo's own six tabs**, the same panels with the
+  same numbers, hints and waiting / running / done marks: **1 Load scan**
+  (the AI outline of the aorta, with the patient's heart beside it as a
+  faint ghost), **2 Crop aneurysm**, **3 Mesh wall**, **4 Wall stress ·
+  FEA**, **5 Strength index**, **6 Blood flow · CFD**. Everything about
+  them is §3.13's;
+- above them, one extra button, **↑ Upload scan**: pick a CT on this
+  computer (`.nii`, `.nii.gz` or `.nrrd`; a DICOM series is a folder, so
+  convert it to one NIfTI first, e.g. with dcm2niix). The file's bytes go
+  to `POST /upload/scan`, which keeps a **read-only copy in a temp folder**
+  (never the repo; removed when the server stops), named by its content
+  hash so the same scan sent twice is one file; the name is made safe, the
+  first bytes must match the format, and the ceiling is 2 GiB. The button
+  then shows the file name and size, and the copy's path fills **Load
+  scan**'s `path` knob, which opens: its Run is the next click. An upload
+  is not a step: nothing is journaled until Load scan runs, and its journal
+  record carries the copy's path and sha256, which is the original file's.
+  A wrong file is refused at once, under the button;
+- the **top-down reveal**, the **turntable**, the **running line** and the
+  **stress / flow switch** work as in Demo.
+
+A copilot run (`meshforge copilot … --server URL`) drives a Lab page the
+same way it drives Demo's: every result sweeps in. Its own window opens in
+Demo (`?demo=1`); flip Lab there, or watch from a page already in Lab.
+
 ### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
 `meshforge copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
 the pipeline to Claude (Opus 5.5). It has five tools, each one or two of the steps above:

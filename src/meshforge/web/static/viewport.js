@@ -187,8 +187,11 @@
   }
 
   // ---- demo-mode turntable (D111) -----------------------------------------
+  // Demo or Lab (D115): the Lab is Demo without the right-hand pane, so it
+  // has the turntable and the top-down reveal too.
   function demoOn() {
-    return document.body.classList.contains("demo");
+    var c = document.body.classList;
+    return c.contains("demo") || c.contains("lab");
   }
   function reducedMotion() {
     try {

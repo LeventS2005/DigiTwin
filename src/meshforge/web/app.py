@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from meshforge import __version__
+from meshforge.io.upload import UploadStore
 from meshforge.pipeline import STEP_KNOBS, MeshingSession
 from meshforge.web.schema import (
     build_request_models,
@@ -204,13 +206,26 @@ def _vendor_assets() -> dict[str, Path]:
 
 
 def create_app() -> FastAPI:
+    # D115: the Lab's uploaded scans live in a temp folder for the server's
+    # lifetime; the lifespan removes it when the server stops.
+    uploads = UploadStore()
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield
+        finally:
+            uploads.cleanup()
+
     app = FastAPI(
         title="meshforge web",
         version=__version__,
         description="Local JSON layer over MeshingSession (127.0.0.1 only).",
+        lifespan=lifespan,
     )
     holder = _SessionHolder()
     app.state.holder = holder  # tests reach the live session through this
+    app.state.uploads = uploads
     models = build_request_models()
 
     # -- sources (not in STEP_KNOBS) -------------------------------------
@@ -226,6 +241,41 @@ def create_app() -> FastAPI:
         # A user input file: read-only + checksummed inside session.load (rule 1).
         session = holder.session
         return _run(lambda: _capture(holder, session.load(body.path)))
+
+    # -- the Lab's "Upload scan" (D115) -----------------------------------
+    # A CT's bytes -> a read-only copy in the server's temp upload folder
+    # (meshforge.io.upload holds the logic). Not a step: nothing is journaled
+    # and the revision is not bumped; the page writes the returned path into
+    # Load scan's path knob (the segment step), so the recorded step names
+    # the copy and its checksum as a typed path would. The body must be application/octet-
+    # stream: that keeps a page on another site from posting a file here
+    # without a CORS preflight (which this server never answers). No session
+    # lock: no session state and no VTK are touched.
+    @app.post("/upload/scan")
+    async def upload_scan(request: Request, name: str):
+        from meshforge.io.upload import MAX_SCAN_BYTES
+
+        ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype != "application/octet-stream":
+            raise HTTPException(415, "send the scan's bytes as application/octet-stream")
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > MAX_SCAN_BYTES:
+            raise HTTPException(
+                413, f"the scan is over the {MAX_SCAN_BYTES // 1024**3} GiB upload ceiling")
+        try:
+            up = uploads.begin(name)
+        except (ValueError, OSError) as exc:  # a bad name; no temp folder to write in
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            async for chunk in request.stream():
+                up.write(chunk)
+            return up.finish()
+        except (ValueError, OSError) as exc:
+            up.abort()
+            raise HTTPException(400, str(exc)) from exc
+        except BaseException:
+            up.abort()  # a dropped connection leaves no partial file behind
+            raise
 
     # -- one POST per STEP_KNOBS step ------------------------------------
     for step, model in models.items():

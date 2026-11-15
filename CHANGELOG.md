@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Lab mode** (D115). A **Lab** switch beside Demo in the Workbench's top
+  bar (also `?lab=1`, remembered in the browser; Demo and Lab are never both
+  on) gives Demo itself (its six tabs, Load scan through Blood flow · CFD,
+  with the heart as a ghost beside the AI outline of the aorta, the top-down
+  reveal, the turntable, the running line, the stress / flow switch) without
+  the right-hand pane: no patient atlas, no twin card, no whole-body view;
+  the viewport takes the width. One addition above the tabs: **Upload
+  scan** sends a CT (.nii, .nii.gz or .nrrd) from this computer to the new
+  `POST /upload/scan`, which keeps a read-only copy in a temp folder for the
+  server's lifetime (by content hash, the name made safe, the format's
+  first bytes checked, 2 GiB ceiling; raw `application/octet-stream` bodies
+  only) and returns its path, which fills Load scan's path knob. No step
+  changes; Demo is unchanged.
 - **One terminal command runs the demo** (D112). `meshforge copilot --server
   URL` now starts a Workbench on that port when nothing answers there
   (`python -m meshforge.web.server`, its own process group, log in the run

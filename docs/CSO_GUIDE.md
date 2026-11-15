@@ -50,8 +50,9 @@ meshforge desktop        # or: meshforge web  (same UI in the browser)
 2. Click **Browse…** next to `path` and pick your `.cso` file.
    (Browse… buttons exist only in the desktop window — in a plain browser
    tab, paste the file's **absolute path** instead. There is no drag-drop
-   or HTTP upload: the server runs on *your* machine and reads the file
-   directly from disk, so a path is all it needs.)
+   or HTTP upload here: the server runs on *your* machine and reads the file
+   directly from disk, so a path is all it needs. The one upload is the Lab
+   mode's **Upload scan**, for a CT only — see `APP_GUIDE.md` §3.14.)
 3. Leave every other knob at its default and click **Run import_cso**.
 4. Read the log: you want `watertight=True` and `mesh_ready=True`.
    The viewport now shows the lofted vessel surface, with the **raw

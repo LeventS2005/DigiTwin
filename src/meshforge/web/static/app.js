@@ -229,7 +229,7 @@ function paintLayerButtons() {
   const ctl = $("#vp-layer-ctl");
   if (!ctl) return;
   const held = { stress: Boolean(vpHeld.aaa_stress), cfd: Boolean(vpHeld.cfd) };
-  ctl.hidden = !(isDemo() && held.stress && held.cfd);
+  ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd); // Demo or Lab (D115)
   const shown = vpLayer || (vpPayload && Object.keys(LAYER_LABEL).find((k) => LAYER_LABEL[k] === vpPayload.label)) || null;
   for (const btn of ctl.querySelectorAll(".vp-layer-btn")) {
     btn.disabled = !held[btn.dataset.layer];
@@ -866,7 +866,8 @@ async function refreshPresets() {
 
 // ---- native "Browse…" (desktop shell file bridge) ----------------------
 // The desktop window loads sources by SERVER-SIDE path, so a plain
-// <input type=file> is useless (it exposes contents, not a path). The shell
+// <input type=file> is useless here (it exposes contents, not a path; the
+// Lab's Upload scan sends those contents to the server instead, D115). The shell
 // injects window.meshforgeBridge (a QFileDialog over QWebChannel); in a plain
 // browser / headless there is no bridge and these buttons hide themselves.
 function bridgeAvailable() {
@@ -1115,6 +1116,7 @@ function paintDemoTabs() {
       : demoDoneSteps.has(step) ? "done"
       : "waiting";
   }
+  paintLabUpload(); // the Lab's Upload scan card repaints on the same changes (D115)
 }
 // ---- patient atlas (D108 addendum 6) --------------------------------------
 // One patient record, every study filed by body region and modality, the
@@ -1349,7 +1351,7 @@ let busyTicker = null;
 let busyStart = null;
 let busyStep = null;
 function updateBusyLine(st) {
-  if (!isDemo() || !st || !st.running) {
+  if (!(isDemo() || isLab()) || !st || !st.running) {
     hideBusyLine();
     return;
   }
@@ -1382,6 +1384,155 @@ function initDemoMode() {
   const t = $("#demo-toggle");
   if (t) t.addEventListener("change", () => applyDemo(t.checked));
   applyDemo(readDemoPref());
+}
+
+// ---- Lab mode (D115): Demo without the whole-body pane --------------------
+// Demo's six tabs exactly as Demo has them (the same panels, numbers, hints
+// and states: Load scan's AI outline of the aorta with the heart beside it as
+// a ghost, through Blood flow · CFD), the top-down reveal, the turntable, the
+// running line and the stress / flow layer switch. The right-hand pane — the
+// patient atlas, the twin, the session and the log, the whole-body view — is
+// gone and the viewport takes its width. One addition: an Upload scan button
+// above the tabs (the CT's bytes to POST /upload/scan; the server keeps a
+// read-only temp copy and its path fills Load scan's path knob, so Load
+// scan's Run is the next click). On: the Lab switch beside Demo, URL ?lab=1,
+// or localStorage meshforge.lab. Demo and Lab are never both on. Nothing here
+// computes (rule 4); an upload error shows under the button, since the log
+// is in the hidden pane.
+const LAB_UPLOAD_HINT = "CT .nii / .nii.gz / .nrrd from this computer";
+let labUpload = null; // {name, bytes} of the scan this page uploaded
+let labUploading = false;
+function isLab() {
+  return document.body.classList.contains("lab");
+}
+function readLabPref() {
+  try {
+    const q = new URLSearchParams(window.location.search).get("lab");
+    if (q !== null) return q === "1" || q === "true" || q === "on";
+    return localStorage.getItem("meshforge.lab") === "1";
+  } catch (err) {
+    return false; // private mode / no storage: plain Workbench
+  }
+}
+function applyLab(on) {
+  document.body.classList.toggle("lab", on);
+  const t = $("#lab-toggle");
+  if (t) t.checked = on;
+  try {
+    localStorage.setItem("meshforge.lab", on ? "1" : "0");
+  } catch (err) {
+    // private mode — the URL still carries it
+  }
+  try {
+    const url = new URL(window.location.href);
+    if (on) url.searchParams.set("lab", "1");
+    else url.searchParams.delete("lab");
+    history.replaceState(null, "", url.toString());
+  } catch (err) {
+    // no history API — nothing to keep
+  }
+  if (on) {
+    closeDemoPanels(); // Demo's tabs, shown closed as in Demo
+    paintDemoTabs();
+  } else if (!isDemo()) {
+    hideBusyLine();
+  }
+  // the turntable follows the switch, as in Demo (D111)
+  if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();
+  paintLayerButtons(); // the stress / flow switch shows in Lab as in Demo (D112)
+}
+// Upload scan's state, by the tabs' rules: running while the bytes go up;
+// done once this page uploaded a scan, or once Load scan is in the journal
+// (the scan is in either way, and a reload keeps the column consistent); the
+// hint then names the file this page uploaded.
+function paintLabUpload() {
+  const up = $("#lab-upload");
+  if (!up) return;
+  up.dataset.demoState = labUploading ? "running"
+    : labUpload || demoDoneSteps.has("segment") ? "done"
+    : "waiting";
+  const hint = $("#lab-upload-hint");
+  if (hint && !labUploading) {
+    hint.textContent = labUpload ? `${labUpload.name} · ${fmtBytes(labUpload.bytes)}` : LAB_UPLOAD_HINT;
+  }
+}
+function fmtBytes(n) {
+  const mb = Number(n) / 1048576;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+// The bytes go up as the request body (application/octet-stream: never a
+// form, so no other site can post here without a CORS preflight); the
+// answer's path goes into Load scan's path knob (the segment step) and that
+// tab opens, so its Run button is the next click.
+async function uploadScan(file) {
+  const box = $('#step-panels details.step-box[data-step="segment"]');
+  const target = box && box.querySelector('input[data-knob="path"]');
+  if (!target) throw new Error("upload: Load scan's panel is missing (GET /schema failed?)");
+  const res = await fetch(`/upload/scan?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(detailOf(data, res));
+  target.value = data.path;
+  labUpload = { name: data.name, bytes: data.bytes };
+  log(
+    `scan uploaded: ${data.name} (${fmtBytes(data.bytes)}, sha256 ${String(data.sha256).slice(0, 12)}…)` +
+      `${data.reused ? ", the same file as before" : ""}; next: Load scan`
+  );
+  box.open = true;
+}
+// The click only opens the file picker; the request runs on the file
+// input's change with its own busy state — the button disabled, the tab's
+// running mark — undone in `finally` (withBusy would flatten the tab inside
+// the button into one line of text).
+function initUploadScan() {
+  const btn = $("#btn-upload-scan");
+  const input = $("#upload-scan-input");
+  const errEl = $("#upload-error");
+  if (!btn || !input || !errEl) return;
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    input.value = ""; // the same file can be chosen again
+    if (!file || labUploading) return;
+    labUploading = true;
+    btn.disabled = true;
+    $("#lab-upload-hint").textContent = `uploading ${file.name}…`;
+    paintLabUpload();
+    try {
+      await uploadScan(file);
+      clearErrorEl(errEl);
+    } catch (err) {
+      onError(err);
+      setError(errEl, err);
+    } finally {
+      labUploading = false;
+      btn.disabled = false;
+      paintLabUpload();
+    }
+  });
+}
+function initLabMode() {
+  const lab = $("#lab-toggle");
+  if (lab) {
+    lab.addEventListener("change", () => {
+      if (lab.checked && isDemo()) applyDemo(false); // never both on
+      applyLab(lab.checked);
+    });
+  }
+  const demo = $("#demo-toggle");
+  if (demo) demo.addEventListener("change", () => { if (demo.checked && isLab()) applyLab(false); });
+  let on = readLabPref();
+  if (on && isDemo()) {
+    // both asked for: ?demo=1 wins; an explicit ?lab=1 beats a stored Demo
+    const q = new URLSearchParams(window.location.search);
+    on = q.get("lab") !== null && q.get("demo") === null;
+    if (on) applyDemo(false);
+  }
+  applyLab(on);
+  initUploadScan();
 }
 
 async function init() {
@@ -1430,8 +1581,9 @@ async function init() {
     onError(err);
   }
 
-  decorateDemoPanels(); // tags the demo steps + their tabs (inert until body.demo)
+  decorateDemoPanels(); // tags the demo steps + their tabs (inert until body.demo or body.lab)
   initDemoMode();
+  initLabMode(); // D115: Demo's tabs without the right-hand pane, plus Upload scan
 
   // Native "Browse…" for the source/session path fields (desktop shell);
   // and the one-line explanation when there's no bridge to drive them.

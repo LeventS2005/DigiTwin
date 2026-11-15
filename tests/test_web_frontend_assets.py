@@ -55,6 +55,9 @@ _UNBUSIED_BUTTONS = {
     "#vp-play",    # client-side frame timer, no request at all
     "#fp-pick",    # arms/cancels a viewport pick and relabels itself; no request on click
     "#fp-swap",    # swaps two client-side ends; the Q/Re preview it triggers is a read-only POST
+    # D115: opens the file picker only; the upload runs on the file input's
+    # change with its own busy state (test_lab_upload_has_its_own_busy_state)
+    "#btn-upload-scan",
 }
 
 
@@ -442,10 +445,10 @@ def test_demo_layout_hides_everything_else_only_under_body_demo(styles_css: str,
     for rule in rules:
         assert rule in styles_css, rule
     assert 'id="history-panel"' in index_html
-    # no rule hides a panel without the body.demo guard
+    # no rule hides a panel without the body.demo (or, D115, body.lab) guard
     for line in styles_css.splitlines():
         if "details.step-box" in line and "display: none" in line:
-            assert line.startswith("body.demo "), line
+            assert line.startswith(("body.demo ", "body.lab ")), line
     # the tab itself exists only under body.demo; off, the step's own name shows
     assert ".demo-tab { display: none; }" in styles_css
     assert "body.demo .demo-tab {" in styles_css
@@ -497,7 +500,7 @@ def test_demo_mesh_wall_tab_shows_the_gate_failure_in_the_reports_own_words(app_
 def test_busy_line_acts_only_in_demo_mode(app_js: str, index_html: str) -> None:
     assert 'id="vp-busy"' in index_html
     busy = app_js[app_js.index("function updateBusyLine(st)"):]
-    assert "!isDemo()" in busy[:200]
+    assert "!(isDemo() || isLab())" in busy[:200]  # Demo, and the Lab (D115)
     assert "updateBusyLine(st);" in app_js                  # every /state poll
     assert "st.running" in app_js and "running_for" in app_js
 
@@ -548,13 +551,13 @@ def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_
     computed), Demo mode only, once the session holds both; the chosen layer
     is drawn in from the top down with the camera kept."""
     assert 'id="vp-layer-ctl"' in index_html and 'data-layer="stress"' in index_html and 'data-layer="cfd"' in index_html
-    assert "body:not(.demo) #vp-layer-ctl { display: none; }" in styles_css
+    assert "body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }" in styles_css  # Demo or Lab (D115)
     assert "function showLayer(layer)" in app_js and "function paintLayerButtons()" in app_js
     show = app_js[app_js.index("async function showLayer(layer)"):app_js.index("function paintLayerButtons()")]
     assert "`/geometry?artifact=${encodeURIComponent(layer)}`" in show
     assert "window.MeshforgeViewport.load(payload, false, true);" in show  # camera kept, drawn in
     paint = app_js[app_js.index("function paintLayerButtons()"):app_js.index("// ---- flow section") if "// ---- flow section" in app_js else None]
-    assert "ctl.hidden = !(isDemo() && held.stress && held.cfd);" in paint
+    assert "ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd);" in paint  # Demo or Lab (D115)
     assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
     assert "initLayerSwitch();" in app_js
     # the flow is seen inside the wall: the stress result stays as a translucent shell
@@ -687,7 +690,8 @@ def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> N
     vp_js = (_static_dir() / "viewport.js").read_text()
     assert "var IDLE_MS = 3000;" in vp_js
     assert "var SPIN_DEG_PER_S = 8;" in vp_js
-    assert 'return document.body.classList.contains("demo");' in vp_js  # demoOn()
+    demo_on = vp_js[vp_js.index("function demoOn()"):vp_js.index("function reducedMotion()")]
+    assert 'return c.contains("demo") || c.contains("lab");' in demo_on  # Demo or Lab (D115)
     assert '"(prefers-reduced-motion: reduce)"' in vp_js
     spin = vp_js[vp_js.index("function spinStart()"):vp_js.index("function spinStop()")]
     assert "!demoOn() || reducedMotion()" in spin
@@ -709,3 +713,88 @@ def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> N
     assert "wake: wake," in vp_js
     assert "if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();" in app_js
     assert app_js.index("MeshforgeViewport.wake()") > app_js.index("function applyDemo(on)")
+
+
+# ---- D115: Lab mode — Demo's six tabs without the right-hand pane ----------
+def test_lab_switch_sits_beside_demo_never_both_on_and_persists(index_html: str, app_js: str) -> None:
+    switches = index_html[index_html.index('class="mode-switches"'):index_html.index('id="help"')]
+    assert switches.index('id="demo-toggle"') < switches.index('id="lab-toggle"')
+    assert '<span class="demo-switch-label">Lab</span>' in switches
+    assert '<span class="demo-switch-label">Demo</span>' in switches  # Demo's own switch, unchanged
+    assert 'localStorage.setItem("meshforge.lab"' in app_js
+    assert 'searchParams.set("lab", "1")' in app_js
+    assert 'classList.toggle("lab", on)' in app_js
+    assert 'get("lab")' in app_js and 'getItem("meshforge.lab")' in app_js
+    init = _function_body(app_js, "function initLabMode()")
+    assert "if (lab.checked && isDemo()) applyDemo(false);" in init  # Lab on turns Demo off
+    assert "if (demo.checked && isLab()) applyLab(false);" in init  # and the other way round
+    assert 'q.get("demo") === null' in init  # ?demo=1 (the copilot's window) always wins
+    boot = _function_body(app_js, "async function init()")
+    assert boot.index("decorateDemoPanels();") < boot.index("initDemoMode();") < boot.index("initLabMode();")
+
+
+def test_lab_layout_drops_the_right_pane_only_under_body_lab(styles_css: str, index_html: str) -> None:
+    for rule in (
+        "body.lab #pane-right { display: none; }",
+        "body.lab #workbench { grid-template-columns: minmax(268px, 296px) 1fr; }",
+        "body.lab #step-panels > details.step-box { display: none; }",
+        'body.lab #step-panels > details.step-box[data-demo="1"] { display: block; }',
+        'body.lab #step-panels > details.step-box[data-demo="1"] > summary .step-name { display: none; }',
+        "body.lab #source-box { display: none; }",
+        "body.lab #help { display: none; }",
+        ".lab-upload { display: none; }",
+        "body.lab .demo-tab {",
+    ):
+        assert rule in styles_css, rule
+    # the right pane goes in the Lab only; the three columns stay everyone else's
+    hides_right = [ln for ln in styles_css.splitlines() if "#pane-right" in ln and "display: none" in ln]
+    assert hides_right == ["body.lab #pane-right { display: none; }"]
+    assert "grid-template-columns: minmax(268px, 296px) 1fr minmax(300px, 392px);" in styles_css
+    # Upload scan: inside the left pane, above the step panels, a CT file
+    # picker; an arrow where a number would be, so Demo's tabs keep 1-6
+    left = index_html[index_html.index('id="pane-left"'):index_html.index('id="pane-center"')]
+    assert left.index('id="lab-upload"') < left.index('id="step-panels"')
+    accept = re.search(r'id="upload-scan-input" accept="([^"]+)"', left).group(1).split(",")
+    assert {".nii", ".nii.gz", ".nrrd"} <= set(accept)
+    assert '<span class="demo-title">Upload scan</span>' in left
+    assert '<span class="demo-num" aria-hidden="true">↑</span>' in left
+    for state in ("running", "done"):
+        assert f'#lab-upload[data-demo-state="{state}"]' in styles_css, state
+
+
+def test_lab_tabs_are_demos_own_six_and_upload_feeds_load_scan(app_js: str, styles_css: str) -> None:
+    """The founder's brief: all of Demo's steps, minus the right-hand pane,
+    plus Upload scan. So the Lab has no step list of its own: it shows the
+    very panels Demo tags (data-demo), in Demo's order and numbering, and the
+    upload's copy goes into Load scan's (segment's) path knob. The heart is
+    the ghost Load scan already draws beside the aorta, not a step."""
+    steps = [t[0] for t in _demo_steps(app_js)]
+    assert steps == ["segment", "crop", "volmesh", "aaa_stress", "tissue_index", "cfd"]
+    for gone in ("LAB_STEPS", "decorateLabPanels", "closeLabPanels", "paintLabTabs", "data-lab", "segment_heart"):
+        assert gone not in app_js, gone
+    assert "data-lab" not in styles_css
+    assert "segment_heart" not in STEP_ORDER
+    apply = _function_body(app_js, "function applyLab(on)")
+    assert "closeDemoPanels();" in apply and "paintDemoTabs();" in apply
+    assert "paintLayerButtons();" in apply  # the stress / flow switch, as in Demo
+    up = _function_body(app_js, "async function uploadScan(file)")
+    assert 'details.step-box[data-step="segment"]' in up and "next: Load scan" in up
+    paint = _function_body(app_js, "function paintLabUpload()")
+    assert '"running"' in paint and '"done"' in paint and '"waiting"' in paint
+    assert 'demoDoneSteps.has("segment")' in paint
+    assert "paintLabUpload();" in _function_body(app_js, "function paintDemoTabs()")
+    assert "body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }" in styles_css
+
+
+def test_lab_upload_has_its_own_busy_state(app_js: str, index_html: str) -> None:
+    init = _function_body(app_js, "function initUploadScan()")
+    assert 'btn.addEventListener("click", () => input.click());' in init
+    assert "labUploading = true;" in init and "btn.disabled = true;" in init
+    fin = init.split("finally", 1)[1]
+    assert "labUploading = false;" in fin and "btn.disabled = false;" in fin
+    assert 'input.value = "";' in init and "setError(errEl, err);" in init
+    assert 'id="upload-error"' in index_html
+    up = _function_body(app_js, "async function uploadScan(file)")
+    assert "/upload/scan?name=${encodeURIComponent(file.name)}" in up
+    assert '"Content-Type": "application/octet-stream"' in up and "body: file," in up
+    assert "target.value = data.path;" in up and "box.open = true;" in up
