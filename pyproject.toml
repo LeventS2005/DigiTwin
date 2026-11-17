@@ -51,7 +51,7 @@ image = [
     "pydicom>=3,<4",
     "nibabel>=5,<6",
 ]
-# D92 Claude copilot (`meshforge copilot`). Lazy-imported: nothing else needs
+# D92 Claude copilot (`digitwin copilot`). Lazy-imported: nothing else needs
 # it; without it the copilot says how to install it.
 copilot = [
     "anthropic>=1.15,<2",
@@ -71,7 +71,7 @@ web = [
 # (same macOS rule as the `desktop` extra). Lazy-imported: the base web JSON
 # layer runs without it; the viewport then degrades to an "install this extra"
 # note.
-#   conda install -n meshforge -c conda-forge trame-vtk trame-vuetify
+#   conda install -n digitwin -c conda-forge trame-vtk trame-vuetify
 viewport = [
     "trame-vtk>=2.8,<3",
     "trame-vuetify>=3,<4",
@@ -83,7 +83,7 @@ viewport = [
 # are a separate conda-forge package (qt6-webengine, NOT a pip dist) — install it
 # to match qt6-main exactly. Needs the `web` (+ `viewport`) extras too, since the
 # shell serves that UI.
-#   conda install -n meshforge -c conda-forge qt6-webengine
+#   conda install -n digitwin -c conda-forge qt6-webengine
 desktop = [
     "PySide6>=6.6,<7",
 ]

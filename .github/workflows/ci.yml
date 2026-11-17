@@ -8,7 +8,7 @@
 # security suites, web API, desktop-shell (Qt-free parts), CLI.
 #
 # The desktop extra (PySide6/QtWebEngine) is deliberately NOT installed: the
-# only tests needing a live Qt window are opt-in (MESHFORGE_LIVE_SHELL=1).
+# only tests needing a live Qt window are opt-in (DIGITWIN_LIVE_SHELL=1).
 
 name: CI
 
