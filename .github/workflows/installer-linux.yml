@@ -7,9 +7,9 @@
 #
 # HONEST TESTING LIMIT (probe, session 30): a headless runner can smoke-test
 # the install + CLI pipeline + the web server's /health, but CANNOT assert
-# the GUI/WebGL desktop shell renders. The installer ships both `meshforge
-# web` and `meshforge desktop`; only the web path is CI-verified, so docs
-# should steer Linux users to `meshforge web` until the shell is validated
+# the GUI/WebGL desktop shell renders. The installer ships both `digitwin
+# web` and `digitwin desktop`; only the web path is CI-verified, so docs
+# should steer Linux users to `digitwin web` until the shell is validated
 # on a real Linux desktop.
 
 name: Linux installer
@@ -42,13 +42,13 @@ jobs:
 
       - name: Smoke test (install + CLI pipeline + web /health — no GUI assertion possible headlessly)
         run: |
-          installer=$(ls dist/meshforge-*-Linux-*.sh)
-          bash "$installer" -b -p "$HOME/meshforge-app"
-          PREFIX="$HOME/meshforge-app"
-          "$PREFIX/bin/meshforge" synth straight_tube --outputs /tmp/smoke
-          "$PREFIX/bin/meshforge" volmesh /tmp/smoke/straight_tube.vtp \
+          installer=$(ls dist/digitwin-*-Linux-*.sh)
+          bash "$installer" -b -p "$HOME/digitwin-app"
+          PREFIX="$HOME/digitwin-app"
+          "$PREFIX/bin/digitwin" synth straight_tube --outputs /tmp/smoke
+          "$PREFIX/bin/digitwin" volmesh /tmp/smoke/straight_tube.vtp \
               --thickness 0.5 --outputs /tmp/smoke
-          "$PREFIX/bin/meshforge" web --port 8765 &
+          "$PREFIX/bin/digitwin" web --port 8765 &
           server=$!
           ok=""
           for i in $(seq 1 30); do
@@ -57,12 +57,12 @@ jobs:
           done
           [ -n "$ok" ] || { echo "web server never became healthy"; exit 1; }
           curl -fs http://127.0.0.1:8765/schema > /dev/null
-          curl -fs http://127.0.0.1:8765/app/ | grep -qi meshforge
+          curl -fs http://127.0.0.1:8765/app/ | grep -qi digitwin
           kill "$server"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: meshforge-linux-installer
-          path: dist/meshforge-*-Linux-*.sh
+          name: digitwin-linux-installer
+          path: dist/digitwin-*-Linux-*.sh
           retention-days: 14
           if-no-files-found: error

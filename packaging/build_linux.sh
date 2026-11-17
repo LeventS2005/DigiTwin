@@ -1,8 +1,8 @@
 #!/bin/bash
-# Session 30 — reproducible build of the self-contained meshforge LINUX
+# Session 30 — reproducible build of the self-contained digitwin LINUX
 # installer. Runs natively on a linux-64 machine or CI runner (ubuntu-latest):
 #
-#   bash packaging/build_linux.sh   ->   dist/meshforge-<ver>-Linux-x86_64.sh
+#   bash packaging/build_linux.sh   ->   dist/digitwin-<ver>-Linux-x86_64.sh
 #
 # Prerequisites (base conda env): constructor + conda-build — on CI the
 # installer-linux workflow sets them up. Mirrors build.sh (the proven V37
@@ -30,7 +30,7 @@ rm -rf "$SRC"; mkdir -p "$SRC"
 REV="$(git -C "$REPO" stash create)"; REV="${REV:-HEAD}"
 git -C "$REPO" archive "$REV" | tar -x -C "$SRC"
 
-echo "==> 1/3  build the meshforge noarch conda package"
+echo "==> 1/3  build the digitwin noarch conda package"
 rm -rf "$LOCAL_CH"; mkdir -p "$LOCAL_CH"
 "$CONDA" run -n base conda-build "$HERE/conda-recipe" -c conda-forge \
     --no-test --no-anaconda-upload --output-folder "$LOCAL_CH"
@@ -43,4 +43,4 @@ mkdir -p "$DIST"
 ( cd "$HERE/construct-linux" && "$CONDA" run -n base constructor . --output-dir "$DIST" )
 
 echo "==> 3/3  artifacts:"
-ls -la "$DIST"/meshforge-*.sh
+ls -la "$DIST"/digitwin-*.sh

@@ -14,7 +14,7 @@ Parts (each is skipped, with a note, when its input is missing):
   markdown (``## ``, ``**``) stops the script. Then headless Chrome captures
   it (top, full page, phone width, print PDF);
 * Workbench twin panel before / with the run (``--workbench``: a RUNNING
-  Workbench, e.g. ``meshforge web --port 8139``; this script starts no
+  Workbench, e.g. ``digitwin web --port 8139``; this script starts no
   server): session reset → capture, work file loaded with replay off and
   the ``--flow-metrics`` attached (``POST /twin/flow``, as the copilot does
   with ``--server``; skipped if the work file already carries them) →
@@ -109,7 +109,7 @@ def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
         guard_note="scripted dry run: no Claude summary", model="(none)",
         flow=(json.loads(flow_metrics.read_text()) if flow_metrics and flow_metrics.is_file()
               else journal_flow or None),
-        replay_hint="meshforge replay session.mfwork")
+        replay_hint="digitwin replay session.mfwork")
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(html)
 

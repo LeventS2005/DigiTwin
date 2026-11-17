@@ -172,7 +172,7 @@ def main(argv=None) -> int:
         "On the loaded shape the stress is set by equilibrium",
         "(pressure, radius, thickness), not by the stiffness:",
         "ten times stiffer leaves the peak stress unchanged",
-        "(meshforge M3 check, D88).",
+        "(DigiTwin M3 check, D88).",
         f"The tissue law would need ~{100 * (lam_rv_eq - 1):.0f} % stretch to carry",
         "the same stress, and a growth-from-zero-pressure",
         "solve the CT cannot give.",

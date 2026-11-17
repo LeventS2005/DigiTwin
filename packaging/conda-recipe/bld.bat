@@ -1,4 +1,4 @@
-:: conda-build script for the meshforge noarch package — WINDOWS twin of
+:: conda-build script for the digitwin noarch package — WINDOWS twin of
 :: build.sh, kept for NATIVE Windows full builds only. UNTESTED on CI: the
 :: first windows-latest conda-build run died with a cmd parse error in
 :: conda-build's own generated wrapper (". was unexpected at this time.",
@@ -8,7 +8,7 @@
 if errorlevel 1 exit 1
 
 :: Ship the menuinst launcher so constructor/menuinst creates a Start-Menu
-:: shortcut that opens the Workbench (runs Scripts\meshforge-desktop.exe).
+:: shortcut that opens the Workbench (runs Scripts\digitwin-desktop.exe).
 if not exist "%PREFIX%\Menu" mkdir "%PREFIX%\Menu"
-copy "%RECIPE_DIR%\menu.json" "%PREFIX%\Menu\meshforge.json"
+copy "%RECIPE_DIR%\menu.json" "%PREFIX%\Menu\digitwin.json"
 if errorlevel 1 exit 1

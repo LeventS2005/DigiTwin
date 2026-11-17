@@ -1,15 +1,15 @@
 {% set version = "1.0.0" %}
 
-# meshforge as a **noarch** conda package (it is pure-Python; the heavy native
+# digitwin as a **noarch** conda package (it is pure-Python; the heavy native
 # deps below come from conda-forge). This package is the single spec constructor
 # installs — its run deps pull the whole runtime, and it ships the menuinst
-# launcher (Menu/meshforge.json) so the installer creates a double-click .app.
+# launcher (Menu/digitwin.json) so the installer creates a double-click .app.
 #
 # Source is a CLEAN `git archive` staged by packaging/build.sh into
 # packaging/_build_src (tracked files only — no outputs/, .git, or the DWG).
 
 package:
-  name: meshforge
+  name: digitwin
   version: {{ version }}
 
 source:
@@ -64,6 +64,6 @@ test:
     - digitwin.web.server
 
 about:
-  home: https://github.com/LeventS2005/meshforge
+  home: https://github.com/LeventS2005/DigiTwin
   summary: Research-grade meshing toolkit — tubular/closed surfaces to solver-ready wall volume meshes
   license: Apache-2.0

@@ -1,5 +1,5 @@
 """Axial overlay PNGs of a recovered sac (D86): CT at W500/L100, the lumen
-mask contour in red, the sac mask (written by ``meshforge sac``) in green.
+mask contour in red, the sac mask (written by ``digitwin sac``) in green.
 
 Heights are millimetres above the lumen mask's caudal end (lowest world z),
 the same origin the sac summary uses. Displayed radiologically: patient

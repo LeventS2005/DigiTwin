@@ -1,13 +1,13 @@
-# constructor recipe — a self-contained macOS installer for the meshforge
+# constructor recipe — a self-contained macOS installer for the digitwin
 # Workbench (osx-arm64). The whole runtime is pulled in transitively by the
-# single `meshforge` package (its run deps are the full stack); the local
+# single `digitwin` package (its run deps are the full stack); the local
 # channel holds that noarch package, built by packaging/build.sh.
 #
 # The user double-clicks the .pkg -> a native install wizard lays down a
-# self-contained conda env under a prefix -> menuinst creates a `meshforge`
+# self-contained conda env under a prefix -> menuinst creates a `digitwin`
 # .app that opens the Workbench. No terminal, no conda knowledge. The solvers
 # (CalculiX/OpenFOAM/MYSTRAN) are NOT bundled — external/optional, runtime-found.
-name: meshforge
+name: digitwin
 version: 1.0.0
 
 channels:
@@ -16,15 +16,15 @@ channels:
 
 specs:
   - python 3.12.*
-  - meshforge 1.0.0
+  - digitwin 1.0.0
 
 installer_type:
   - pkg
   - sh
 
-# create the double-click launcher (Menu/meshforge.json shipped by the package)
+# create the double-click launcher (Menu/digitwin.json shipped by the package)
 menu_packages:
-  - meshforge
+  - digitwin
 
 # this is an app bundle, not a dev conda — don't touch the user's shell/conda init
 initialize_by_default: false

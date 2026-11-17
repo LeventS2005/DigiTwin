@@ -122,7 +122,7 @@ def run_case(case_dir, out_dir):
 def main(root, out_dir, cases):
     root, out_dir = Path(root), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"meshforge from {digitwin.__file__}", flush=True)
+    print(f"digitwin from {digitwin.__file__}", flush=True)
     cases = cases or sorted(p.name for p in root.iterdir() if p.is_dir())
     rows = []
     for case in cases:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Session 31 — build the meshforge NOARCH conda package into the local
+# Session 31 — build the digitwin NOARCH conda package into the local
 # channel (steps 0-1 of build.sh / build_linux.sh, extracted so the Windows
 # CI flow can build the package on ubuntu and hand the channel to a
 # windows-latest constructor job: the package is noarch = platform-portable,
@@ -24,7 +24,7 @@ rm -rf "$SRC"; mkdir -p "$SRC"
 REV="$(git -C "$REPO" stash create)"; REV="${REV:-HEAD}"
 git -C "$REPO" archive "$REV" | tar -x -C "$SRC"
 
-echo "==> build the meshforge noarch conda package"
+echo "==> build the digitwin noarch conda package"
 rm -rf "$LOCAL_CH"; mkdir -p "$LOCAL_CH"
 "$CONDA" run -n base conda-build "$HERE/conda-recipe" -c conda-forge \
     --no-test --no-anaconda-upload --output-folder "$LOCAL_CH"

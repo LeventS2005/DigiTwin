@@ -1,7 +1,7 @@
 """M3 (D88) video stills: wall-stress maps from an ``aaa-stress`` result.
 
-Reads only meshforge's own outputs (the results .vtu and summary JSON that
-``meshforge aaa-stress`` wrote) and renders off-screen with pyvista:
+Reads only digitwin's own outputs (the results .vtu and summary JSON that
+``digitwin aaa-stress`` wrote) and renders off-screen with pyvista:
 
 * ``<out>_140.png`` — the outer wall coloured by von Mises stress at the
   systolic pressure, the limits of the (unscored) clamped end zones drawn as
@@ -119,7 +119,7 @@ def render(vtu: Path, out_stem: Path, label: str) -> list[Path]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("vtu", type=Path, help="<stem>_aaa_stress.vtu from 'meshforge aaa-stress'")
+    ap.add_argument("vtu", type=Path, help="<stem>_aaa_stress.vtu from 'digitwin aaa-stress'")
     ap.add_argument("out_stem", type=Path, help="output path stem, e.g. outputs/m3/anev02_stress")
     ap.add_argument("--label", default="", help="data credit shown on the image")
     args = ap.parse_args()

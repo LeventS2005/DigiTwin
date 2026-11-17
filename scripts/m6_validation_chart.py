@@ -38,7 +38,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "src"))  # kept for symmetry with the sibling scripts; no meshforge import needed
+sys.path.insert(0, str(REPO / "src"))  # kept for symmetry with the sibling scripts; no digitwin import needed
 
 DOI = "10.5281/zenodo.19182977"
 CAPTION = ("12 public AAA cases (Zenodo 19182977, reference segmentation), thrombus modelled; "

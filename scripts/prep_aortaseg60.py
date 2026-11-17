@@ -1,4 +1,4 @@
-"""Prepare an AortaSeg-60 CT for meshforge: correct its head-foot header sign.
+"""Prepare an AortaSeg-60 CT for digitwin: correct its head-foot header sign.
 
 AortaSeg-60 (doi 10.5281/zenodo.18147026, CC BY 4.0, El Rahal, Rotzinger &
 Fahrni) ships each CT with a header whose z axis points the wrong way: slice
