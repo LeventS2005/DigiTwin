@@ -13,10 +13,10 @@ Licence: [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://cr
 ## Licence of these two files
 
 They are CC BY 4.0 derived data, redistributed here with attribution as that
-licence allows. The Apache-2.0 licence of the meshforge code does **not**
+licence allows. The Apache-2.0 licence of the DigiTwin code does **not**
 apply to them. If you reuse them, credit the dataset authors as above, link
 the licence, and say that the values were changed (see below). Neither the
-dataset authors nor the Universidade de São Paulo endorse meshforge or this use.
+dataset authors nor the Universidade de São Paulo endorse DigiTwin or this use.
 
 ## What was changed
 

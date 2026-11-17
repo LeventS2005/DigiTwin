@@ -52,21 +52,22 @@ local clinical data directory, and skip cleanly when it is absent.
 
 | Gate | Effect when absent | Modules affected |
 |---|---|---|
-| **CalculiX** (`find_ccx()`, `MESHFORGE_CCX`) | FEA *solve* tests skip; deck *format* tests still run | `test_solve`, `test_fea_depth`, `test_buckle`, `test_riks`, `test_thermal_stress`, `test_film_transient`, `test_transient_thermal`, `test_radiate_kt` |
-| **OpenFOAM** (`MESHFORGE_OPENFOAM` / sourced env) | CFD *solve* tests skip; case-builder + polyMesh tests still run | `test_cfd`, `test_cavity`, `test_turbulence`, `test_transient`, `test_blayers` |
-| **MYSTRAN** (`MESHFORGE_MYSTRAN`) | cross-solver check skips | `test_mystran` |
+| **CalculiX** (`find_ccx()`, `DIGITWIN_CCX`) | FEA *solve* tests skip; deck *format* tests still run | `test_solve`, `test_fea_depth`, `test_buckle`, `test_riks`, `test_thermal_stress`, `test_film_transient`, `test_transient_thermal`, `test_radiate_kt` |
+| **OpenFOAM** (`DIGITWIN_OPENFOAM` / sourced env) | CFD *solve* tests skip; case-builder + polyMesh tests still run | `test_cfd`, `test_cavity`, `test_turbulence`, `test_transient`, `test_blayers` |
+| **MYSTRAN** (`DIGITWIN_MYSTRAN`) | cross-solver check skips | `test_mystran` |
 | **gmsh** (`[meshing]` extra) | tet-backend tests skip; structured-hex paths still run | `test_volmesh`, `test_lumen`, `test_cad3d`, `test_branching`, `test_closedloop`, `test_fixpack`, `test_abaqus`, `test_ansys`, `test_lsdyna` |
 | **pydicom / nibabel** (`[image]` extra) | DICOM/NIfTI tests skip — and the *install-hint* branch is tested with them deliberately absent | `test_image` |
 | **ezdxf** (`[cad]` extra) + `dwg2dxf` | DWG/DXF import tests skip | `test_cad` |
-| **Local clinical data** (`MESHFORGE_CSO_FAMILY_DIR`, `MESHFORGE_DICOM_DIR`, or a git-ignored pointer file) | real-family regression skips; synthetic CSO coverage still runs | `test_io_cso`, `test_image` |
+| **Local clinical data** (`DIGITWIN_CSO_FAMILY_DIR`, `DIGITWIN_DICOM_DIR`, or a git-ignored pointer file) | real-family regression skips; synthetic CSO coverage still runs | `test_io_cso`, `test_image` |
 
 Clinical inputs live **outside** the repo and are addressed by pseudonymous study
 code only; no path or filename is ever hard-coded (see `tests/conftest.py`).
+The older `MESHFORGE_<X>` names of the settings above are still read.
 
 ## How to run
 
 ```bash
-conda activate meshforge
+conda activate digitwin
 python -m pytest -q                      # everything available on this machine
 python -m pytest tests/test_solve.py -v  # one area
 ```

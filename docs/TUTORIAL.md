@@ -1,4 +1,4 @@
-# meshforge — first-run tutorial
+# DigiTwin — first-run tutorial
 
 New here? This walks you from a cold install to your **first mesh**, a **solve**,
 and **saving/replaying** your work — start to finish in a few minutes, driving the
@@ -23,12 +23,12 @@ tube is just the quickest way to see the whole loop.
 
 ## 1. Before you start
 
-meshforge runs in the conda env `meshforge`. From a terminal:
+DigiTwin runs in the conda env `digitwin`. From a terminal:
 
 ```bash
-cd /path/to/meshforge     # quote the path if it contains spaces
-conda activate meshforge
-meshforge --help          # sanity check: prints the subcommands
+cd /path/to/DigiTwin     # quote the path if it contains spaces
+conda activate digitwin
+digitwin --help          # sanity check: prints the subcommands
 ```
 
 Everything you generate lands under `outputs/` **relative to where you launched**,
@@ -42,21 +42,21 @@ auto-discovered — nothing to configure for this tutorial.
 Two ways to open the **same** UI:
 
 ```bash
-meshforge web        # opens in your browser
-# meshforge web -> http://127.0.0.1:PORT  (127.0.0.1 only; Ctrl-C to stop)
+digitwin web        # opens in your browser
+# digitwin web -> http://127.0.0.1:PORT  (127.0.0.1 only; Ctrl-C to stop)
 #   Workbench: http://127.0.0.1:PORT/app/   OpenAPI docs: .../docs   schema: .../schema
 ```
 
 Open the printed **`/app/`** URL. Or, for a native desktop window:
 
 ```bash
-meshforge desktop    # same Workbench inside an app window
+digitwin desktop    # same Workbench inside an app window
 ```
 
 The app is **local-only** (binds `127.0.0.1`, makes no external requests). Prefer
-the terminal? Every step below has a `meshforge …` CLI twin.
+the terminal? Every step below has a `digitwin …` CLI twin.
 
-> `meshforge-gui` still works too — it's now an alias that opens the desktop window.
+> `digitwin-gui` still works too — it's now an alias that opens the desktop window.
 
 ---
 
@@ -92,11 +92,11 @@ Do these in order. Each row is a click in the Workbench and its CLI twin.
 
 | # | In the Workbench | CLI twin |
 |---|---|---|
-| 1 | **source:** shape `straight_tube` → **Generate synth** | `meshforge synth straight_tube` |
+| 1 | **source:** shape `straight_tube` → **Generate synth** | `digitwin synth straight_tube` |
 | 2 | **Run centerline** | *(session step)* |
 | 3 | **Run sections** *(optional)* | *(session step)* |
 | 4 | **wall:** `thickness 0.5` → **Run wall** | *(session step)* |
-| 5 | **volmesh:** `n_theta 24`, `n_axial 12`, `n_layers 3` → **Run volmesh** | `meshforge volmesh outputs/straight_tube.vtp --thickness 0.5 --n-theta 24 --n-axial 12 --n-layers 3` |
+| 5 | **volmesh:** `n_theta 24`, `n_axial 12`, `n_layers 3` → **Run volmesh** | `digitwin volmesh outputs/straight_tube.vtp --thickness 0.5 --n-theta 24 --n-axial 12 --n-layers 3` |
 
 The log fills in as you go (verbatim):
 
@@ -146,10 +146,10 @@ stress/displacement field right in the viewport.
 CLI twin (build a deck, then run it):
 
 ```bash
-meshforge deck outputs/straight_tube.vtp --thickness 0.5 --n-theta 24 --n-axial 12 \
+digitwin deck outputs/straight_tube.vtp --thickness 0.5 --n-theta 24 --n-axial 12 \
     --n-layers 3 --material elastic --E 1000 --nu 0.3 \
     --fix inlet,1,2,3 --fix outlet,1,2,3 --pressure inner,1.0 --target ccx --out outputs/tube
-meshforge solve outputs/tube.inp
+digitwin solve outputs/tube.inp
 ```
 
 Prefer flow? The **cfd** panel runs OpenFOAM instead — see
@@ -169,7 +169,7 @@ The whole pipeline re-runs from the recorded knobs and the history reappears —
 `.mfwork` is a compact, exact recipe of your session. CLI twin:
 
 ```bash
-meshforge replay outputs/tube.mfwork          # optionally: --set volmesh.n_theta=48
+digitwin replay outputs/tube.mfwork          # optionally: --set volmesh.n_theta=48
 ```
 
 `--set STEP.KNOB=VALUE` re-runs only from the changed step onward — handy for
@@ -199,7 +199,7 @@ screenshot (volmesh, centerline) -> outputs/session.png
 - Drive a real CAD drawing: [APP_GUIDE §5](APP_GUIDE.md#5-the-dwg-path-cottage_pane_windowdwg).
 
 > **How the images here were made** (reproducible). The mesh figure is the
-> `screenshot` step. The Workbench shots are 1440×880 captures of `meshforge web`
+> `screenshot` step. The Workbench shots are 1440×880 captures of `digitwin web`
 > running on `127.0.0.1`. Doc images live in `docs/images/` (git-tracked);
 > generated artifacts always go to git-ignored `outputs/`.
 >
@@ -207,7 +207,7 @@ screenshot (volmesh, centerline) -> outputs/session.png
 > state you want to photograph:
 >
 > ```bash
-> meshforge-web --port 8731 &
+> digitwin-web --port 8731 &
 > B=http://127.0.0.1:8731
 > # workbench_overview.png — the empty Workbench
 > curl -sX POST $B/session/reset -H 'Content-Type: application/json' -d '{}'

@@ -86,6 +86,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Renamed meshforge → DigiTwin.** The package is `digitwin` (`import
+  digitwin`); the commands are `digitwin`, `digitwin-web`, `digitwin-desktop`
+  and `digitwin-gui`; the Workbench is now "DigiTwin Workbench"; the settings
+  are `DIGITWIN_*`. What still works: `.mfwork` work files (extension and
+  contents unchanged), saved surfaces (their `meshforge_centerline_*` keys
+  are unchanged), the `MESHFORGE_*` settings (read when the `DIGITWIN_*` one
+  is not set), and old `report.html` files (both report markers are read).
+  `import meshforge` no longer works.
+
 - The twin card and the strength text say "our lab will narrow" (the lab is
   planned, not built): `report.py`, `tissue/strength.py` `LAB_LINE`.
 

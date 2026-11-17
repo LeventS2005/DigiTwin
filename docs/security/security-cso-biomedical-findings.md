@@ -35,14 +35,14 @@ family is never used for adversarial fixtures (rule 1).
 
 | # | Sev | File | Class | Status | Closed by |
 |---|-----|------|-------|--------|-----------|
-| F-CSO-1 | HIGH | `io/cso.py` `_read_ring` | fail-open (NaN/inf coords) | **FIXED** | `src/meshforge/io/cso.py:440` |
-| F-CSO-2 | HIGH | `geometry/centerline.py` `centerline_from_surface` | fail-open (`.vtp` deserialization) | **FIXED** | `src/meshforge/geometry/centerline.py:81,84` (read-back) + `:57` (`embed_centerline`) |
-| F-CSO-3 | MEDIUM | `io/cso.py` `_order_contours` | DoS (unbounded count → O(n²)) | **FIXED** | `src/meshforge/io/cso.py:62` (`MAX_RECORDS`), enforced at `:276` |
-| F-CSO-4 | MEDIUM | `io/cso.py` `_loft_surface` (+ replay/CLI) | DoS (unbounded `n_ring` alloc) | **FIXED** | `src/meshforge/io/cso.py:65` (`MAX_N_RING`), enforced at `:747` |
-| F-IMG-5 | LOW | `io/image.py` `_read_dicom_multiframe` | fail-open (non-finite/≤0 spacing) | **FIXED** | `src/meshforge/io/image.py:220-226` |
-| F-IMG-6 | INFO→LOW | `io/image.py` `_load_dicom_series` | broad `except`, no series ceiling | **FIXED** (D62) | `src/meshforge/io/image.py:307` (narrowed to `InvalidDicomError`), `:322-329` (`MAX_VOXELS`) |
-| F-IMG-7 | INFO | `io/image.py` `_load_nifti` | `get_fdata()` before MAX_VOXELS | **FIXED** (D62) | `src/meshforge/io/image.py:265-270` (shape checked before `get_fdata()`) |
-| F-INFO-8 | INFO | `pipeline.py` `compute_import_cso` | double-read (TOCTOU) | **FIXED** (D62) | `src/meshforge/pipeline.py:1089` |
+| F-CSO-1 | HIGH | `io/cso.py` `_read_ring` | fail-open (NaN/inf coords) | **FIXED** | `src/digitwin/io/cso.py:440` |
+| F-CSO-2 | HIGH | `geometry/centerline.py` `centerline_from_surface` | fail-open (`.vtp` deserialization) | **FIXED** | `src/digitwin/geometry/centerline.py:81,84` (read-back) + `:57` (`embed_centerline`) |
+| F-CSO-3 | MEDIUM | `io/cso.py` `_order_contours` | DoS (unbounded count → O(n²)) | **FIXED** | `src/digitwin/io/cso.py:62` (`MAX_RECORDS`), enforced at `:276` |
+| F-CSO-4 | MEDIUM | `io/cso.py` `_loft_surface` (+ replay/CLI) | DoS (unbounded `n_ring` alloc) | **FIXED** | `src/digitwin/io/cso.py:65` (`MAX_N_RING`), enforced at `:747` |
+| F-IMG-5 | LOW | `io/image.py` `_read_dicom_multiframe` | fail-open (non-finite/≤0 spacing) | **FIXED** | `src/digitwin/io/image.py:220-226` |
+| F-IMG-6 | INFO→LOW | `io/image.py` `_load_dicom_series` | broad `except`, no series ceiling | **FIXED** (D62) | `src/digitwin/io/image.py:307` (narrowed to `InvalidDicomError`), `:322-329` (`MAX_VOXELS`) |
+| F-IMG-7 | INFO | `io/image.py` `_load_nifti` | `get_fdata()` before MAX_VOXELS | **FIXED** (D62) | `src/digitwin/io/image.py:265-270` (shape checked before `get_fdata()`) |
+| F-INFO-8 | INFO | `pipeline.py` `compute_import_cso` | double-read (TOCTOU) | **FIXED** (D62) | `src/digitwin/pipeline.py:1089` |
 
 ---
 
@@ -225,11 +225,11 @@ the image header before trusting it" posture, applied to spacing/origin.
   4 regression guards passed throughout.
 * **CLI end-to-end (pasted, real exit codes):**
   ```
-  $ meshforge import-cso  clean_arch.cso --method loft   → watertight surface,
+  $ digitwin import-cso  clean_arch.cso --method loft   → watertight surface,
         input_sha256 == sha256(file bytes) (single read)   exit 0
-  $ meshforge import-image oversized.nii  --level 0
+  $ digitwin import-image oversized.nii  --level 0
         error: oversized.nii volume (350, 350, 350) exceeds 40000000 voxels …  exit 1
-  $ meshforge import-image oversized_series/ --level 0
+  $ digitwin import-image oversized_series/ --level 0
         error: DICOM series … declares 4000x4000x3 = 48000000 voxels, exceeding
         40000000 …                                                            exit 1
   ```
@@ -248,7 +248,7 @@ plus the TOCTOU double-read removed; no RCE/priv-esc found (consistent with D49)
 
 ## Resolution (all applied 2026-07-09, session 24, D61)
 
-Each fix lands in the core (`src/meshforge/`, rule 4) and fails LOUD (rule 6):
+Each fix lands in the core (`src/digitwin/`, rule 4) and fails LOUD (rule 6):
 
 | # | Fix | Location |
 |---|-----|----------|
@@ -268,11 +268,11 @@ Each fix lands in the core (`src/meshforge/`, rule 4) and fails LOUD (rule 6):
   + 19), no regression.
 * **CLI end-to-end on crafted-malicious input** (all exit 1, loud):
   ```
-  $ meshforge import-cso outputs/malicious_nan.cso --out …
+  $ digitwin import-cso outputs/malicious_nan.cso --out …
   error: CSO record 3: non-finite control-point coordinate (NaN/inf) — refusing to build geometry from corrupt data
-  $ meshforge import-cso outputs/malicious_truncated.cso --out …
+  $ digitwin import-cso outputs/malicious_truncated.cso --out …
   error: unknown CSO tag b'' at offset 1037 — refusing to skip it …
-  $ meshforge import-cso outputs/clean.cso --method loft --n-ring 100000000 --out …
+  $ digitwin import-cso outputs/clean.cso --method loft --n-ring 100000000 --out …
   error: n_ring 100000000 exceeds the maximum 100000 — refusing to allocate a loft of that width …
   ```
 * **Real UCSF family** — all 10 `.cso` still mesh `inverted == 0` via `auto`
@@ -341,11 +341,11 @@ second pass, `ValueError` or a FINITE loft surface.
   every overflow scale → **zero findings**.
 * CLI end-to-end (real exit codes):
   ```
-  $ meshforge import-cso outputs/malicious_overflow.cso --out …
+  $ digitwin import-cso outputs/malicious_overflow.cso --out …
   error: CSO record 0: control-point coordinate magnitude 3e+200 exceeds 1e+09
   (coordinates are millimetres; values this large overflow geometry arithmetic
   into NaN) — refusing to build geometry from corrupt data          exit 1
-  $ meshforge import-cso "Example CSO Files/<VAM1 export>" --method loft
+  $ digitwin import-cso "Example CSO Files/<VAM1 export>" --method loft
   contours 24, loft 1154 pts / 2304 tris, watertight=True           exit 0
   ```
 * Real families unaffected: `tests/test_io_cso.py` 43 passed (incl. all 10
