@@ -597,6 +597,52 @@ def test_upload_scan_has_its_own_busy_state(app_js: str, index_html: str) -> Non
     assert "target.value = data.path;" in up and "box.open = true;" in up
 
 
+def test_source_box_and_upload_scan_keep_separate_error_slots(index_html: str) -> None:
+    """panelErrorFor(#source-box) takes the box's first direct-child .panel-error;
+    Upload scan's own #upload-error must not be that one."""
+    from html.parser import HTMLParser
+
+    class _Tree(HTMLParser):
+        VOID = {"input", "hr", "br", "img", "meta", "link"}
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.stack: list[dict] = []
+            self.nodes: list[dict] = []
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            node = {
+                "tag": tag, "id": a.get("id"),
+                "classes": (a.get("class") or "").split(),
+                "parent": self.stack[-1] if self.stack else None,
+                "ancestors": [n["id"] for n in self.stack],
+                "index": len(self.nodes),
+            }
+            self.nodes.append(node)
+            if tag not in self.VOID:
+                self.stack.append(node)
+
+        def handle_endtag(self, tag):
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i]["tag"] == tag:
+                    del self.stack[i:]
+                    break
+
+    t = _Tree()
+    t.feed(index_html)
+    by_id = {n["id"]: n for n in t.nodes if n["id"]}
+    err = by_id["upload-error"]
+    assert "upload-scan" in err["ancestors"]
+    assert err["parent"]["id"] != "source-box"
+    kids = [n for n in t.nodes if n["parent"] is not None and n["parent"]["id"] == "source-box"]
+    slots = [n for n in kids if "panel-error" in n["classes"]]
+    assert len(slots) == 1
+    assert slots[0]["id"] != "upload-error"
+    assert slots[0]["index"] > by_id["btn-load"]["index"]
+    assert "source-box" in by_id["btn-upload-scan"]["ancestors"]
+
+
 # ---- the Demo and Lab modes are gone ----------------------------------------
 def test_demo_and_lab_modes_are_gone_from_the_frontend(
     app_js: str, index_html: str, styles_css: str

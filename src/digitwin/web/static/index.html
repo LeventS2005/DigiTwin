@@ -47,7 +47,9 @@
             <input type="text" id="load-path" placeholder="path to a surface mesh" />
           </label>
           <button type="button" id="btn-load" class="run">Load surface</button>
+          <p class="panel-error" hidden></p>
           <hr />
+          <div id="upload-scan" class="upload-scan">
           <!-- Upload scan (D115): the CT's bytes go to POST /upload/scan (a
                read-only temp copy on the server) and the copy's path fills
                Load scan's path knob; Load scan is the next click. -->
@@ -55,6 +57,7 @@
           <input type="file" id="upload-scan-input" accept=".nii,.nii.gz,.gz,.nrrd" hidden />
           <p id="upload-status" class="upload-status">CT .nii / .nii.gz / .nrrd from this computer</p>
           <p id="upload-error" class="panel-error" hidden></p>
+          </div>
         </details>
         <div id="step-panels"><!-- generated from GET /schema --></div>
       </section>
