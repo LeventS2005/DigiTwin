@@ -56,7 +56,7 @@ _UNBUSIED_BUTTONS = {
     "#fp-pick",    # arms/cancels a viewport pick and relabels itself; no request on click
     "#fp-swap",    # swaps two client-side ends; the Q/Re preview it triggers is a read-only POST
     # D115: opens the file picker only; the upload runs on the file input's
-    # change with its own busy state (test_lab_upload_has_its_own_busy_state)
+    # change with its own busy state (test_upload_scan_has_its_own_busy_state)
     "#btn-upload-scan",
 }
 
@@ -388,136 +388,44 @@ def test_no_local_folder_reaches_the_screen(app_js: str) -> None:
     assert "JSON.stringify" not in history
 
 
-# ---- Demo mode (D108): presentation layout, off by default ----------------
-# The Demo switch in the top bar sets ``body.demo``; everything it changes is
-# CSS under that class plus a few app.js functions that only act under it.
-# These guards keep the contract: off = the Workbench unchanged; on = the AAA
-# path's steps as numbered tabs, a reveal, the running step, the patient atlas.
-
-_DEMO_STEP_RE = re.compile(r'\["(?P<step>[a-z_0-9]+)",\s*"(?P<title>[^"]+)",\s*"(?P<hint>[^"]+)"\]')
+# ---- always-on features: running line, layer switch, patient atlas, Upload scan
+# The Demo and Lab modes are gone (body classes, switches, tabs, ?demo= / ?lab=,
+# their storage keys). What they used to gate is part of the plain Workbench:
+# these guards pin each feature as always on, and the last test pins the modes
+# as absent.
 
 
-def _demo_steps(app_js: str) -> list[tuple[str, str, str]]:
-    start = app_js.index("const DEMO_STEPS = [")
-    end = app_js.index("];", start)
-    return [(m.group("step"), m.group("title"), m.group("hint")) for m in _DEMO_STEP_RE.finditer(app_js[start:end])]
-
-
-def test_demo_switch_is_in_the_top_bar_and_persists(index_html: str, app_js: str) -> None:
-    assert 'id="demo-toggle"' in index_html
-    assert index_html.index('id="demo-toggle"') < index_html.index('id="workbench"')
-    assert 'localStorage.setItem("digitwin.demo"' in app_js
-    assert 'searchParams.set("demo", "1")' in app_js
-    assert 'classList.toggle("demo", on)' in app_js
-    # the URL wins over the stored preference, so ?demo=1 opens a fresh server in Demo mode
-    assert 'get("demo")' in app_js and 'getItem("digitwin.demo")' in app_js
-
-
-def test_demo_tabs_are_the_aaa_path_in_run_order(app_js: str) -> None:
-    """Four to seven tabs, real steps, in the order the copilot runs them —
-    which is also their STEP_ORDER (DOM) order, so no reordering is needed."""
-    tabs = _demo_steps(app_js)
-    steps = [t[0] for t in tabs]
-    assert steps == ["segment", "crop", "volmesh", "aaa_stress", "tissue_index", "cfd"]
-    assert 4 <= len(steps) <= 7
-    places = [STEP_ORDER.index(s) for s in steps]  # KeyError-free: every one is a step
-    assert places == sorted(places), "the tabs must sit in STEP_ORDER, the panels' DOM order"
-    titles = [t[1] for t in tabs]
-    assert titles[0].startswith("Load"), "the first tab is the scan going in"
-    assert any("FEA" in t for t in titles) and any("CFD" in t for t in titles)
-    assert all(t[1] and t[2] for t in tabs), "every tab has a title and a hint"
-    # the sub-steps without a tab of their own map onto one that exists
-    aliases = re.search(r"const DEMO_STEP_OF = \{([^}]*)\};", app_js).group(1)
-    for alias, target in re.findall(r'([a-z_]+):\s*"([a-z_]+)"', aliases):
-        assert target in steps, (alias, target)
-    assert "sac" in aliases and "flow_metrics" in aliases
-
-
-def test_demo_layout_hides_everything_else_only_under_body_demo(styles_css: str, index_html: str) -> None:
-    rules = {
-        "body.demo #step-panels > details.step-box { display: none; }",
-        'body.demo #step-panels > details.step-box[data-demo="1"] { display: block; }',
-        'body.demo #step-panels > details.step-box[data-demo="1"] > summary .step-name { display: none; }',
-        "body.demo #help { display: none; }",
-        "body.demo #source-box { display: none; }",
-        "body.demo #history-panel { display: none; }",
-    }
-    for rule in rules:
-        assert rule in styles_css, rule
-    assert 'id="history-panel"' in index_html
-    # no rule hides a panel without the body.demo (or, D115, body.lab) guard
-    for line in styles_css.splitlines():
-        if "details.step-box" in line and "display: none" in line:
-            assert line.startswith(("body.demo ", "body.lab ")), line
-    # the tab itself exists only under body.demo; off, the step's own name shows
-    assert ".demo-tab { display: none; }" in styles_css
-    assert "body.demo .demo-tab {" in styles_css
-
-
-def test_demo_tabs_are_numbered_closed_and_marked_from_the_journal(app_js: str, styles_css: str) -> None:
-    assert 'box.dataset.demo = "1"' in app_js
-    assert 'box.dataset.demoState = "waiting"' in app_js
-    assert 'tab.className = "demo-tab"' in app_js and 'num.textContent = String(i + 1)' in app_js
-    assert "decorateDemoPanels();" in app_js and "initDemoMode();" in app_js
-    # demo on: the tabs close (the path at a glance) and are painted at once
-    apply = app_js[app_js.index("function applyDemo(on)"):app_js.index("function decorateDemoPanels()")]
-    assert "closeDemoPanels();" in apply and "paintDemoTabs();" in apply
-    # done = in the journal (truncation upstream puts later tabs back to waiting)
-    assert "noteDemoJournal(journal);" in app_js[app_js.index("async function refreshHistory()"):]
-    paint = app_js[app_js.index("function paintDemoTabs()"):]
-    paint = paint[: paint.index("\n}\n") + 3]
-    assert '"running"' in paint and '"done"' in paint and '"waiting"' in paint
-    assert "demoDoneSteps.has(step)" in paint
-    # running = GET /state `running`, through the alias map, on change and on clear
-    busy = app_js[app_js.index("function updateBusyLine(st)"):app_js.index("function initDemoMode()")]
-    assert busy.count("paintDemoTabs();") >= 2
-    for state in ("running", "done", "failed"):
-        assert f'details.step-box[data-demo-state="{state}"]' in styles_css, state
-
-
-def test_demo_mesh_wall_tab_shows_the_gate_failure_in_the_reports_own_words(app_js: str) -> None:
-    """While the copilot's last mesh_wall call failed its gate, the journal
-    still holds that wall's volmesh record; the tab must not read as a pass.
-    The twin's wall slot (GET /twin, from copilot/report.py) says so in a
-    fixed note; app.js matches that note's start, so pin the two together."""
-    import inspect
-
-    from digitwin.copilot import report
-
-    assert 'const WALL_GATE_FAIL_NOTE = "last wall gate FAIL";' in app_js
-    assert 'f"last wall gate FAIL: {' in inspect.getsource(report)
-    assert "noteDemoTwin(twin);" in app_js[app_js.index("function renderTwin(twin)"):]
-    note = app_js[app_js.index("function noteDemoTwin(twin)"):]
-    note = note[: note.index("\n}\n") + 3]
-    assert 's.key === "wall"' in note and "startsWith(WALL_GATE_FAIL_NOTE)" in note
-    paint = app_js[app_js.index("function paintDemoTabs()"):]
-    paint = paint[: paint.index("\n}\n") + 3]
-    assert 'step === "volmesh" && demoWallFailed ? "failed"' in paint
-    # running wins over failed (a re-mesh in progress), failed over done
-    assert paint.index('"running"') < paint.index('"failed"') < paint.index('"done"')
-
-
-def test_busy_line_acts_only_in_demo_mode(app_js: str, index_html: str) -> None:
+def test_busy_line_is_always_on_and_follows_the_state_poll(app_js: str, index_html: str) -> None:
     assert 'id="vp-busy"' in index_html
-    busy = app_js[app_js.index("function updateBusyLine(st)"):]
-    assert "!(isDemo() || isLab())" in busy[:200]  # Demo, and the Lab (D115)
-    assert "updateBusyLine(st);" in app_js                  # every /state poll
-    assert "st.running" in app_js and "running_for" in app_js
+    busy = _function_body(app_js, "function updateBusyLine(st)")
+    # the only gate is "is a step running": no mode, no body class
+    assert "if (!st || !st.running) {" in busy[:80]
+    assert "hideBusyLine();" in busy[:140]
+    assert "isDemo" not in busy and "isLab" not in busy and "classList" not in busy
+    assert "paintDemoTabs" not in app_js
+    assert "updateBusyLine(st);" in _function_body(app_js, "function startAutoRefresh")  # every /state poll
+    assert "st.running_for" in busy and "st.running" in busy
+    assert "STEP_VERBS[busyStep]" in _function_body(app_js, "function tickBusyLine()")
 
 
-def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_html: str, styles_css: str) -> None:
+def test_layer_switch_shows_stress_or_flow_whenever_both_results_are_held(
+    app_js: str, index_html: str, styles_css: str
+) -> None:
     """D112: two buttons over the canvas switch the view between the held
     wall-stress and CFD results (GET /geometry?artifact=stress|cfd, nothing
-    computed), Demo mode only, once the session holds both; the chosen layer
-    is drawn at once with the camera kept."""
+    computed), whenever the session holds both (no mode); the chosen layer is
+    drawn at once with the camera kept."""
     assert 'id="vp-layer-ctl"' in index_html and 'data-layer="stress"' in index_html and 'data-layer="cfd"' in index_html
-    assert "body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }" in styles_css  # Demo or Lab (D115)
+    # no CSS gate: the markup's own `hidden`, set by the script, is the only one
+    assert "#vp-layer-ctl { display: none; }" not in styles_css
+    assert "body:not(" not in styles_css
     assert "function showLayer(layer)" in app_js and "function paintLayerButtons()" in app_js
     show = app_js[app_js.index("async function showLayer(layer)"):app_js.index("function paintLayerButtons()")]
     assert "`/geometry?artifact=${encodeURIComponent(layer)}`" in show
     assert "window.DigiTwinViewport.load(payload, false);" in show  # camera kept, drawn at once
-    paint = app_js[app_js.index("function paintLayerButtons()"):app_js.index("// ---- flow section") if "// ---- flow section" in app_js else None]
-    assert "ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd);" in paint  # Demo or Lab (D115)
+    paint = _function_body(app_js, "function paintLayerButtons()")
+    assert "ctl.hidden = !(held.stress && held.cfd);" in paint  # both results held, and nothing else
+    assert "isDemo" not in paint and "isLab" not in paint
     assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
     assert "initLayerSwitch();" in app_js
     # the flow is seen inside the wall: the stress result stays as a translucent shell
@@ -540,8 +448,8 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     ids, same names, in order), each focusable and labelled; six modality
     chips with All on; every study row comes from GET /atlas (nothing about
     the demo scan is written into the page); the empty state names what
-    WOULD list and invents nothing; hover / focus / selected rules exist only
-    under body.demo."""
+    WOULD list and invents nothing; it is built at startup, above the twin
+    card, in every session (no mode)."""
     from digitwin import atlas as atlas_mod
 
     assert '<template id="atlas-svg">' in index_html
@@ -578,7 +486,7 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     assert 'id="atlas-hover"' in tpl and 'id="atlas-studies"' in tpl and 'id="atlas-scope"' in tpl
     assert "atlas · regions without studies are dim · sides are the patient's" in tpl
     # real rows only: the page and the script know no study, no scan, no patient
-    atlas_js = app_js[app_js.index("// ---- patient atlas"):app_js.index("// The result reveal lives in viewport.js")]
+    atlas_js = app_js[app_js.index("// ---- patient atlas"):app_js.index("// The step running on the server right now")]
     for banned in ("abdomen + pelvis", "s1364", "1.5 mm", "prior", "TotalSegmentator", "date withheld"):
         assert banned not in tpl, banned
         assert banned not in atlas_js, banned
@@ -586,35 +494,42 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     assert 'loaded.textContent = "loaded ✓";' in app_js and "if (s.loaded) {" in app_js
     assert "would list here" in app_js  # the empty state
     assert "regions without studies are dim · sides are the patient's" in app_js
-    # cloned above the twin only while Demo is on, removed when off
-    apply = app_js[app_js.index("function applyDemo(on)"):app_js.index("function decorateDemoPanels()")]
-    assert "buildAtlasPanel();" in apply and "removeAtlasPanel();" in apply
-    assert "twin.parentElement.insertBefore(node, twin)" in app_js
-    # refreshed with the twin on every session change; a no-op while Demo is off
+    # cloned above the twin card when the page starts, and never removed
+    boot = _function_body(app_js, "async function init()")
+    assert "buildAtlasPanel();" in boot
+    assert boot.index("buildAtlasPanel();") < boot.index("await refreshTwin();")
+    assert "removeAtlasPanel" not in app_js
+    build = _function_body(app_js, "function buildAtlasPanel()")
+    assert "twin.parentElement.insertBefore(node, twin)" in build
+    assert 'const twin = $("#twin-panel");' in build
+    assert index_html.index('id="pane-right"') < index_html.index('id="twin-panel"') < index_html.index('<template id="atlas-svg">')
+    # refreshed with the twin on every session change
     assert app_js.count("await refreshAtlas();") == app_js.count("await refreshTwin();") >= 4
     refresh = app_js[app_js.index("async function refreshAtlas()"):]
     assert 'if (!$("#atlas-panel")) return;' in refresh[:120]
-    # states: has / none by data attribute; hover, focus and selected under body.demo only
+    # states: has / none by data attribute; hover, focus and selected need no body class
     assert '.atlas .atlas-region[data-has="1"]' in styles_css
-    assert "body.demo .atlas .atlas-region:hover" in styles_css
-    assert "body.demo .atlas .atlas-region:focus-visible" in styles_css
-    assert "body.demo .atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px;" in styles_css
+    assert ".atlas .atlas-region:hover" in styles_css
+    assert ".atlas .atlas-region:focus-visible" in styles_css
+    assert ".atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px;" in styles_css
     for line in styles_css.splitlines():
         if ".atlas-region" in line and (":hover" in line or ".selected" in line or ":focus-visible" in line):
-            assert line.startswith("body.demo "), line
+            assert line.startswith(".atlas "), line
     # keyboard: Enter / Space select, Esc clears; click again clears
     assert 'e.key === "Enter" || e.key === " "' in app_js
     assert 'e.key === "Escape" && atlasSelected !== null' in app_js
     assert "selectAtlasRegion(atlasSelected === id ? null : id)" in app_js
 
 
-def test_demo_mode_claims_nothing(index_html: str, app_js: str) -> None:
-    demo_text = index_html[index_html.index('id="demo-switch"'):]
+def test_atlas_and_running_line_claim_nothing(index_html: str, app_js: str) -> None:
+    atlas_text = index_html[index_html.index('<template id="atlas-svg">'):]
+    scripted = app_js[app_js.index("// ---- the running step's phrase"):app_js.index("async function init()")]
     for banned in ("rupture probability", "time to rupture", "diagnos", "predict"):
-        # "not a diagnosis" is allowed in the twin foot; the demo additions add no claim
-        assert banned not in app_js[app_js.index("const DEMO_STEPS"):app_js.index("async function init()")]
-    assert "regions without studies are dim" in demo_text  # the atlas: real studies only, nothing invented
-    assert "no patient loaded" in demo_text
+        # "not a diagnosis" is allowed in the twin foot; the atlas and the running line add no claim
+        assert banned not in scripted, banned
+        assert banned not in atlas_text.lower().replace("not a diagnosis", ""), banned
+    assert "regions without studies are dim" in atlas_text  # the atlas: real studies only, nothing invented
+    assert "no patient loaded" in atlas_text
 
 
 def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
@@ -639,86 +554,70 @@ def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
 
 
 
-# ---- D115: Lab mode — Demo's six tabs without the right-hand pane ----------
-def test_lab_switch_sits_beside_demo_never_both_on_and_persists(index_html: str, app_js: str) -> None:
-    switches = index_html[index_html.index('class="mode-switches"'):index_html.index('id="help"')]
-    assert switches.index('id="demo-toggle"') < switches.index('id="lab-toggle"')
-    assert '<span class="demo-switch-label">Lab</span>' in switches
-    assert '<span class="demo-switch-label">Demo</span>' in switches  # Demo's own switch, unchanged
-    assert 'localStorage.setItem("digitwin.lab"' in app_js
-    assert 'searchParams.set("lab", "1")' in app_js
-    assert 'classList.toggle("lab", on)' in app_js
-    assert 'get("lab")' in app_js and 'getItem("digitwin.lab")' in app_js
-    init = _function_body(app_js, "function initLabMode()")
-    assert "if (lab.checked && isDemo()) applyDemo(false);" in init  # Lab on turns Demo off
-    assert "if (demo.checked && isLab()) applyLab(false);" in init  # and the other way round
-    assert 'q.get("demo") === null' in init  # ?demo=1 (the copilot's window) always wins
-    boot = _function_body(app_js, "async function init()")
-    assert boot.index("decorateDemoPanels();") < boot.index("initDemoMode();") < boot.index("initLabMode();")
-
-
-def test_lab_layout_drops_the_right_pane_only_under_body_lab(styles_css: str, index_html: str) -> None:
-    for rule in (
-        "body.lab #pane-right { display: none; }",
-        "body.lab #workbench { grid-template-columns: minmax(268px, 296px) 1fr; }",
-        "body.lab #step-panels > details.step-box { display: none; }",
-        'body.lab #step-panels > details.step-box[data-demo="1"] { display: block; }',
-        'body.lab #step-panels > details.step-box[data-demo="1"] > summary .step-name { display: none; }',
-        "body.lab #source-box { display: none; }",
-        "body.lab #help { display: none; }",
-        ".lab-upload { display: none; }",
-        "body.lab .demo-tab {",
-    ):
-        assert rule in styles_css, rule
-    # the right pane goes in the Lab only; the three columns stay everyone else's
-    hides_right = [ln for ln in styles_css.splitlines() if "#pane-right" in ln and "display: none" in ln]
-    assert hides_right == ["body.lab #pane-right { display: none; }"]
-    assert "grid-template-columns: minmax(268px, 296px) 1fr minmax(300px, 392px);" in styles_css
-    # Upload scan: inside the left pane, above the step panels, a CT file
-    # picker; an arrow where a number would be, so Demo's tabs keep 1-6
-    left = index_html[index_html.index('id="pane-left"'):index_html.index('id="pane-center"')]
-    assert left.index('id="lab-upload"') < left.index('id="step-panels"')
-    accept = re.search(r'id="upload-scan-input" accept="([^"]+)"', left).group(1).split(",")
+# ---- D115: Upload scan, a button in the source box -------------------------
+def test_upload_scan_sits_in_the_source_box_and_feeds_load_scan(
+    app_js: str, index_html: str, styles_css: str
+) -> None:
+    """A CT from this computer: the button lives in #source-box beside the
+    other source controls (a plain ``button.run``, no tab markup), its bytes go
+    to POST /upload/scan, and the server's copy fills Load scan's (the segment
+    step's) path knob. Always on: no mode shows or hides it."""
+    box = index_html[index_html.index('id="source-box"'):index_html.index('id="step-panels"')]
+    assert '<button type="button" id="btn-upload-scan" class="run"' in box
+    assert "Upload scan</button>" in box
+    assert 'id="upload-status"' in box and 'id="upload-error"' in box
+    accept = re.search(r'id="upload-scan-input" accept="([^"]+)"', box).group(1).split(",")
     assert {".nii", ".nii.gz", ".nrrd"} <= set(accept)
-    assert '<span class="demo-title">Upload scan</span>' in left
-    assert '<span class="demo-num" aria-hidden="true">↑</span>' in left
-    for state in ("running", "done"):
-        assert f'#lab-upload[data-demo-state="{state}"]' in styles_css, state
-
-
-def test_lab_tabs_are_demos_own_six_and_upload_feeds_load_scan(app_js: str, styles_css: str) -> None:
-    """The founder's brief: all of Demo's steps, minus the right-hand pane,
-    plus Upload scan. So the Lab has no step list of its own: it shows the
-    very panels Demo tags (data-demo), in Demo's order and numbering, and the
-    upload's copy goes into Load scan's (segment's) path knob. The heart is
-    the ghost Load scan already draws beside the aorta, not a step."""
-    steps = [t[0] for t in _demo_steps(app_js)]
-    assert steps == ["segment", "crop", "volmesh", "aaa_stress", "tissue_index", "cfd"]
-    for gone in ("LAB_STEPS", "decorateLabPanels", "closeLabPanels", "paintLabTabs", "data-lab", "segment_heart"):
-        assert gone not in app_js, gone
-    assert "data-lab" not in styles_css
-    assert "segment_heart" not in STEP_ORDER
-    apply = _function_body(app_js, "function applyLab(on)")
-    assert "closeDemoPanels();" in apply and "paintDemoTabs();" in apply
-    assert "paintLayerButtons();" in apply  # the stress / flow switch, as in Demo
+    assert box.index('id="btn-load"') < box.index('id="btn-upload-scan"')  # after the surface rows
+    # nothing hides it: no .lab-upload card, no tab markup, no state attribute
+    assert "lab-upload" not in index_html and "lab-upload" not in styles_css
+    assert "data-demo" not in index_html and "data-demo-state" not in styles_css
+    assert ".upload-status {" in styles_css
     up = _function_body(app_js, "async function uploadScan(file)")
     assert 'details.step-box[data-step="segment"]' in up and "next: Load scan" in up
-    paint = _function_body(app_js, "function paintLabUpload()")
-    assert '"running"' in paint and '"done"' in paint and '"waiting"' in paint
-    assert 'demoDoneSteps.has("segment")' in paint
-    assert "paintLabUpload();" in _function_body(app_js, "function paintDemoTabs()")
-    assert "body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }" in styles_css
+    assert 'input[data-knob="path"]' in up and "target.value = data.path;" in up
+    boot = _function_body(app_js, "async function init()")
+    assert "initUploadScan();" in boot and "paintUploadStatus();" in boot
+    status = _function_body(app_js, "function paintUploadStatus()")
+    assert "uploadedScan" in status and "UPLOAD_HINT" in status
+    assert "demoDoneSteps" not in app_js and "labUpload" not in app_js
 
 
-def test_lab_upload_has_its_own_busy_state(app_js: str, index_html: str) -> None:
+def test_upload_scan_has_its_own_busy_state(app_js: str, index_html: str) -> None:
     init = _function_body(app_js, "function initUploadScan()")
     assert 'btn.addEventListener("click", () => input.click());' in init
-    assert "labUploading = true;" in init and "btn.disabled = true;" in init
+    assert "uploading = true;" in init and "btn.disabled = true;" in init
     fin = init.split("finally", 1)[1]
-    assert "labUploading = false;" in fin and "btn.disabled = false;" in fin
+    assert "uploading = false;" in fin and "btn.disabled = false;" in fin
     assert 'input.value = "";' in init and "setError(errEl, err);" in init
     assert 'id="upload-error"' in index_html
     up = _function_body(app_js, "async function uploadScan(file)")
     assert "/upload/scan?name=${encodeURIComponent(file.name)}" in up
     assert '"Content-Type": "application/octet-stream"' in up and "body: file," in up
     assert "target.value = data.path;" in up and "box.open = true;" in up
+
+
+# ---- the Demo and Lab modes are gone ----------------------------------------
+def test_demo_and_lab_modes_are_gone_from_the_frontend(
+    app_js: str, index_html: str, styles_css: str
+) -> None:
+    """No switch, no body class, no URL parameter, no stored preference, no tab
+    decoration: the Workbench has one layout. (The ``digitwin.panel.*``
+    collapse keys are a different thing and stay.)"""
+    sources = {"app.js": app_js, "index.html": index_html, "styles.css": styles_css}
+    for name, text in sources.items():
+        for gone in (
+            "isDemo", "isLab", "applyDemo", "applyLab", "readDemoPref", "readLabPref",
+            "body.demo", "body.lab", "body:not(.demo)", "demo-tab", "demo-switch", "demo-toggle", "lab-toggle",
+            "mode-switches", "data-demo", "demoDoneSteps", "paintDemoTabs", "decorateDemoPanels", "DEMO_STEPS",
+            "digitwin.demo", "digitwin.lab", "?demo", "?lab",
+        ):
+            assert gone not in text, (name, gone)
+    # no URL lookup of a mode parameter, by either quote style
+    assert not re.search(r"""\.(?:get|set|has|delete)\(\s*["'](?:demo|lab)["']""", app_js)
+    assert not re.search(r"""classList\.(?:toggle|add|remove|contains)\(\s*["'](?:demo|lab)["']""", app_js)
+    # the collapse keys stay
+    assert "localStorage.getItem(`digitwin.panel.${step}`)" in app_js
+    # the stale viewport words are gone with the turntable and the reveal
+    for gone in ("turntable", "reveal", "DigiTwinViewport.wake"):
+        assert gone not in app_js.lower(), gone

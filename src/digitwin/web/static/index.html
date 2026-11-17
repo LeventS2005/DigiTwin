@@ -9,26 +9,6 @@
   <body>
     <header id="topbar">
       <h1>DigiTwin <span class="sub">Workbench</span></h1>
-      <!-- Demo mode (presentation layout): fewer panels, result reveal, the
-           patient atlas. URL ?demo=1 or localStorage digitwin.demo; off = the
-           Workbench as it is. app.js owns the behaviour; styles.css the layout. -->
-      <div class="mode-switches">
-      <label id="demo-switch" class="demo-switch" title="presentation layout: load, contour &amp; mesh, simulate; results reveal as they land; the patient atlas above the twin">
-        <input type="checkbox" id="demo-toggle" />
-        <span class="demo-switch-track" aria-hidden="true"></span>
-        <span class="demo-switch-label">Demo</span>
-      </label>
-      <!-- Lab mode (D115): Demo's six steps and viewport (the aorta outlined,
-           the heart as a ghost beside it, through CFD) without the right-hand
-           pane (no atlas, no twin, no whole-body view), plus an Upload scan
-           button above the steps. URL ?lab=1 or localStorage digitwin.lab;
-           Demo and Lab are never both on. -->
-      <label id="lab-switch" class="demo-switch lab-switch" title="lab: Demo's six steps without the right-hand pane, plus Upload scan for a CT from this computer">
-        <input type="checkbox" id="lab-toggle" />
-        <span class="demo-switch-track" aria-hidden="true"></span>
-        <span class="demo-switch-label">Lab</span>
-      </label>
-      </div>
       <!-- Static, offline quick-start. No links, no fetch, no external
            navigation (the app is 127.0.0.1-only and self-contained). -->
       <details id="help" class="help">
@@ -67,23 +47,15 @@
             <input type="text" id="load-path" placeholder="path to a surface mesh" />
           </label>
           <button type="button" id="btn-load" class="run">Load surface</button>
-        </details>
-        <!-- Lab mode only (D115): the extra button above Demo's six tabs.
-             The CT's bytes go to POST /upload/scan (a read-only temp copy on
-             the server) and the copy's path fills Load scan's path knob;
-             Load scan (tab 1) is the next click. Hidden unless body.lab. -->
-        <div id="lab-upload" class="lab-upload" data-demo-state="waiting">
-          <button type="button" id="btn-upload-scan" class="lab-upload-btn" title="choose a CT file (.nii, .nii.gz or .nrrd) on this computer">
-            <span class="demo-tab">
-              <span class="demo-num" aria-hidden="true">↑</span>
-              <span class="demo-title">Upload scan</span>
-              <span class="demo-hint" id="lab-upload-hint">CT .nii / .nii.gz / .nrrd from this computer</span>
-              <span class="demo-mark" aria-hidden="true"></span>
-            </span>
-          </button>
+          <hr />
+          <!-- Upload scan (D115): the CT's bytes go to POST /upload/scan (a
+               read-only temp copy on the server) and the copy's path fills
+               Load scan's path knob; Load scan is the next click. -->
+          <button type="button" id="btn-upload-scan" class="run" title="choose a CT file (.nii, .nii.gz or .nrrd) on this computer">Upload scan</button>
           <input type="file" id="upload-scan-input" accept=".nii,.nii.gz,.gz,.nrrd" hidden />
+          <p id="upload-status" class="upload-status">CT .nii / .nii.gz / .nrrd from this computer</p>
           <p id="upload-error" class="panel-error" hidden></p>
-        </div>
+        </details>
         <div id="step-panels"><!-- generated from GET /schema --></div>
       </section>
 
@@ -111,8 +83,9 @@
               <input type="checkbox" id="vp-fit" checked />
               <span>fit colours</span>
             </label>
-            <!-- Demo mode only (D112): switch the view between the wall-stress
-                 result and the CFD result the session holds; nothing computed. -->
+            <!-- Layer switch (D112): switch the view between the wall-stress
+                 result and the CFD result the session holds (shown once it
+                 holds both); nothing computed. -->
             <div class="vp-ctl vp-layer" id="vp-layer-ctl" hidden role="group" aria-label="shown result">
               <button type="button" class="vp-layer-btn" data-layer="stress" aria-pressed="false" title="the finite-element wall stress">wall stress</button>
               <button type="button" class="vp-layer-btn" data-layer="cfd" aria-pressed="false" title="the blood-flow (CFD) result">blood flow</button>
@@ -127,9 +100,8 @@
           <div id="vtk-canvas" class="vtk-canvas">
             <p id="vp-empty" class="viewport-note">run a step to render its mesh</p>
           </div>
-          <!-- Demo mode only: the running step with its elapsed seconds (from
-               GET /state `running`). A NEW result is drawn in from the top down
-               by viewport.js itself (D112). -->
+          <!-- The running step with its elapsed seconds (from GET /state
+               `running`). -->
           <div id="vp-busy" class="vp-busy" hidden aria-live="polite"></div>
           <div id="vp-anim" class="vp-anim" hidden>
             <button type="button" id="vp-play" class="run" title="play / pause">▶</button>
@@ -199,9 +171,8 @@
     </main>
 
 
-    <!-- Demo mode: the patient atlas (D108 addendum 6). An inert template;
-         app.js clones it above the twin panel while Demo is on and removes it
-         when off. One patient record, every study filed by body region and
+    <!-- The patient atlas (D108 addendum 6). An inert template; app.js clones
+         it above the twin panel when the page starts. One patient record, every study filed by body region and
          modality: the body map is 15 regions, each its own path, filed by the
          PATIENT's side (right = the viewer's left, as on a scan). Every study
          row comes from GET /atlas — the scans the session really loaded, no
