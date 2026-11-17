@@ -359,13 +359,34 @@ def _tetgen_child_run(in_path: str, out_path: str) -> None:
 def _tetgen_child_main(in_path: str, out_path: str) -> None:
     """Entry point of the guarded TetGen child. TetGen's wrapper can segfault
     at interpreter teardown after a failed run (seen on a self-intersecting
-    surface), so exit hard once the result file is written."""
+    surface), so exit hard once the result file is written. On an exception
+    the traceback goes to ``child.log`` (this process's stderr is that file)
+    and the exit code is 1, so the parent reports it; TetGen's own C-level
+    messages are flushed before the hard exit so they reach the same log."""
+    rc = 0
     try:
         _tetgen_child_run(in_path, out_path)
+    except BaseException:
+        rc = 1
+        import traceback
+
+        try:
+            traceback.print_exc(file=sys.stderr)
+        except Exception:  # pragma: no cover - nothing left to report to
+            pass
     finally:
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(0)
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:  # pragma: no cover
+                pass
+        try:  # TetGen prints with C stdio, which Python's flush does not reach
+            import ctypes
+
+            ctypes.CDLL(None).fflush(None)
+        except Exception:  # pragma: no cover - platform without a loadable libc
+            pass
+        os._exit(rc)
 
 
 def _fill_tetgen(site, shells, size, holes=(), **opts):

@@ -82,3 +82,19 @@ def test_all_cells_positive(runs, engine):
 def test_engine_recorded(runs, engine):
     assert f"tet engine: {engine}" in runs[engine]["wall"].notes, _msg(runs)
     assert f"tet engine: {engine}" in runs[engine]["wall"].summary()["notes"]
+
+
+def _fill_notes(runs, engine) -> list[str]:
+    return [n for n in runs[engine]["wall"].notes if n.startswith("tetgen ")]
+
+
+def test_engines_are_told_apart_by_the_fill_note_and_the_mesh(runs):
+    # "tet engine: X" is echoed from the request, so it cannot tell the engines
+    # apart; the TetGen fill note comes from the fill itself
+    tg = _fill_notes(runs, "tetgen")
+    assert len(tg) == 1 and tg[0].startswith("tetgen ") and " -pYq1.4a" in tg[0], _msg(runs)
+    assert _fill_notes(runs, "gmsh") == [], _msg(runs)
+    assert not any("tetgen" in n.lower() and "tet engine" not in n
+                   for n in runs["gmsh"]["wall"].notes), _msg(runs)
+    # two different meshers: the cell counts differ
+    assert runs["gmsh"]["n_cells"] != runs["tetgen"]["n_cells"], _msg(runs)

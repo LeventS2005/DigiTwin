@@ -9,6 +9,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -216,12 +217,30 @@ def test_self_intersecting_shell_is_a_loud_error(tetgen_pkg):
     assert "self-intersect" in str(e.value)
 
 
-def test_timeout_is_a_loud_error(tetgen_pkg):
+def test_timeout_is_a_loud_error(tetgen_pkg, monkeypatch, tmp_path):
+    # record the child the parent spawned, and keep the temp dirs in a known place
+    spawned = []
+    orig = subprocess.Popen
+
+    def recording(cmd, **kw):
+        proc = orig(cmd, **kw)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(tetfill.subprocess, "Popen", recording)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     t0 = time.time()
     with pytest.raises(RuntimeError, match=r"^TetGen") as e:
         fill_shells([tube(5.0, 0, 20)], 3.0, engine="tetgen", site="lumen", timeout=0.01)
     assert "timeout" in str(e.value) and "0.01" in str(e.value)
     assert time.time() - t0 < 20
+    # the child and its process group are gone, and the temp dir was removed
+    assert len(spawned) == 1
+    proc = spawned[0]
+    assert proc.poll() is not None, "the TetGen child was left running after the timeout"
+    with pytest.raises(ProcessLookupError):
+        os.killpg(proc.pid, 0)  # the child leads its own session / group
+    assert not list(tmp_path.glob("digitwin_tetgen_*")), "temp dir left behind"
 
 
 def test_crash_without_result_is_reported(tetgen_pkg, monkeypatch):
@@ -292,3 +311,21 @@ def test_module_skips_cleanly_without_the_package(tmp_path):
     assert proc.returncode == 0, out
     assert "skipped" in out and "failed" not in out and "error" not in out.lower().replace("errors", ""), out
     assert "tetgen" in out.lower()
+
+
+def test_child_exception_exits_nonzero_with_traceback_in_the_error(tetgen_pkg, monkeypatch):
+    # an exception outside the guarded TetGen call (here: an unreadable input
+    # file) must not exit 0: the parent reports the child's traceback tail
+    orig = subprocess.Popen
+
+    def broken_child(cmd, **kw):
+        cmd = list(cmd)
+        i = cmd.index("-c") + 1
+        cmd[i] = cmd[i].replace("_tetgen_child_main(*sys.argv[1:3])",
+                                "_tetgen_child_main('/nonexistent/in.npz', sys.argv[2])")
+        return orig(cmd, **kw)
+
+    monkeypatch.setattr(tetfill.subprocess, "Popen", broken_child)
+    with pytest.raises(RuntimeError, match=r"^TetGen crashed.*code 1") as e:
+        fill_shells([tube(5.0, 0, 20)], 3.0, engine="tetgen", site="lumen")
+    assert "FileNotFoundError" in str(e.value)

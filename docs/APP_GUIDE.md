@@ -576,7 +576,9 @@ missing or mismatched mesh summary; too little wall outside the end zones.
   never touch.
 - **Engine:** `tet_engine` (`gmsh` default | `tetgen`, CLI `--tet-engine`)
   picks the mesher for this thrombus fill; see "Tet engines: gmsh and
-  TetGen". With `tetgen` there is no gmsh retry ladder or fallback.
+  TetGen". With `tetgen` there is never a gmsh fill; the thrombus ladder retries up to
+  four TetGen fills (with gmsh surface remeshes between them, up to ~8 min)
+  before failing loudly.
 - **The mesher cannot hang:** gmsh can spin forever on a cut surface with
   near-zero edges. Each gmsh call runs in its own process and is stopped
   after 60 s with a readable error. The mesh is tried up to four ways (edges
