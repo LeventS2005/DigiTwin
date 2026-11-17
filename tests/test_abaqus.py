@@ -7,12 +7,12 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export import export_abaqus
-from meshforge.geometry import compute_centerline
-from meshforge.meshing import get_backend
-from meshforge.meshing.base import BoundaryGroup, WallMesh
-from meshforge.quality.volume import volume_quality
-from meshforge.synth import generate
+from digitwin.export import export_abaqus
+from digitwin.geometry import compute_centerline
+from digitwin.meshing import get_backend
+from digitwin.meshing.base import BoundaryGroup, WallMesh
+from digitwin.quality.volume import volume_quality
+from digitwin.synth import generate
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +62,7 @@ def test_deck_structure_default_hybrid(hex_wall: WallMesh, tmp_path: Path) -> No
 
 
 def test_surface_face_labels_match_node_sets(hex_wall: WallMesh, tmp_path: Path) -> None:
-    from meshforge.export.abaqus import _HEX_FACES
+    from digitwin.export.abaqus import _HEX_FACES
 
     out = export_abaqus(hex_wall, tmp_path / "wall2")
     conn = hex_wall.grid.cells.reshape(-1, 9)[:, 1:]
@@ -125,8 +125,8 @@ def test_benchmark_requires_material(hex_wall: WallMesh, tmp_path: Path) -> None
         export_abaqus(hex_wall, tmp_path / "x", uniaxial_benchmark={"sigma": 1.0})
 
 
-# V13 promoted the ccx lookup into meshforge.solve; tests share it.
-from meshforge.solve import find_ccx as _find_ccx  # noqa: E402
+# V13 promoted the ccx lookup into digitwin.solve; tests share it.
+from digitwin.solve import find_ccx as _find_ccx  # noqa: E402
 
 
 def test_ccx_uniaxial_tension_matches_sigma_L_over_E(tmp_path: Path) -> None:
@@ -162,7 +162,7 @@ def test_ccx_uniaxial_tension_matches_sigma_L_over_E(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
 
     # Parse nodal displacements from the .dat (*NODE PRINT, U).
-    from meshforge.solve import parse_displacements
+    from digitwin.solve import parse_displacements
 
     dat = (deck.parent / f"{deck.stem}.dat").read_text()
     u = parse_displacements(dat)

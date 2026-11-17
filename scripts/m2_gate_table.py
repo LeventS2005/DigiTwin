@@ -52,7 +52,7 @@ def log(fh, *parts):
 
 
 def wall_metrics(surface, cap, centerline=None, sweep="centreline", smoothing=0.0):
-    from meshforge.meshing import get_backend
+    from digitwin.meshing import get_backend
 
     kw = {} if sweep == "centreline" else {"sweep": sweep, "section_smoothing": smoothing}
     w = get_backend("swept").mesh_wall(surface, THICKNESS, centerline=centerline,
@@ -73,7 +73,7 @@ def wall_metrics(surface, cap, centerline=None, sweep="centreline", smoothing=0.
 
 
 def lumen_metrics(surface):
-    from meshforge.meshing.lumen import fill_lumen
+    from digitwin.meshing.lumen import fill_lumen
 
     m = fill_lumen(surface)
     q = m.quality
@@ -102,7 +102,7 @@ def crop_case(fh, outer, lumen, case_dir, **kw):
     """Auto landmarks; on refusal (short Zenodo crops), a manual trim just
     inside the given ends, moved inward until the square cut clears the
     original tilted end caps (2 mm steps)."""
-    from meshforge.geometry.crop import CropError, crop_aaa
+    from digitwin.geometry.crop import CropError, crop_aaa
 
     try:
         res = crop_aaa(outer, lumen=lumen, **kw)
@@ -110,7 +110,7 @@ def crop_case(fh, outer, lumen, case_dir, **kw):
     except CropError as exc:
         log(fh, f"  crop auto refused: {str(exc)[:400]}")
         auto_err = str(exc).split(";")[0]
-    from meshforge.geometry.crop import aaa_centerline
+    from digitwin.geometry.crop import aaa_centerline
 
     L = aaa_centerline(outer.triangulate()).length
     last = None
@@ -132,7 +132,7 @@ def save(mesh, path):
 
 
 def run_case(case, spec):
-    from meshforge.geometry import centerline_from_surface
+    from digitwin.geometry import centerline_from_surface
 
     GATE.mkdir(parents=True, exist_ok=True)
     cdir = GATE / case
@@ -187,7 +187,7 @@ def run_case(case, spec):
                 # this crop's own two planes
                 import pyvista as pv
 
-                from meshforge.geometry.crop import crop_with_planes, planes_from_report
+                from digitwin.geometry.crop import crop_with_planes, planes_from_report
 
                 sac, _, note = crop_with_planes(pv.read(str(ROOT / spec["sac"])),
                                                 planes_from_report(rep), what="sac")
@@ -235,7 +235,7 @@ def run_case(case, spec):
 
 def zenodo_spec(case):
     def load(fh):
-        from meshforge.io.zenodo_aaa import load_reference
+        from digitwin.io.zenodo_aaa import load_reference
 
         ref = load_reference(ZEN / case)
         log(fh, f"  reference z {ref.z0:.2f}..{ref.z1:.2f} mm")
@@ -254,8 +254,8 @@ def aortaseg_spec(case, mask, status, *, ts_is_lumen):
     def load(fh):
         import nibabel as nib
 
-        from meshforge.io.image import mask_to_surface, nifti_affine_mm
-        from meshforge.io.segment import ct_lumen_surface, load_mask
+        from digitwin.io.image import mask_to_surface, nifti_affine_mm
+        from digitwin.io.segment import ct_lumen_surface, load_mask
 
         m, ma = load_mask(ROOT / mask)
         img = nib.load(str(ct))

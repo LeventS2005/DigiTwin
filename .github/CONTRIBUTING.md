@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for looking. meshforge is a research project maintained by one person;
+Thanks for looking. DigiTwin is a research project maintained by one person;
 issues and small, focused pull requests are welcome.
 
 ## Environment
@@ -10,7 +10,7 @@ trame's vtk.js assets) are compiled binaries that must come from conda-forge:
 
 ```bash
 conda env create -f environment.yml --solver=libmamba
-conda activate meshforge
+conda activate digitwin
 ```
 
 pip works as a fallback for the pure-Python parts:
@@ -58,7 +58,7 @@ These are load-bearing, not style preferences:
    writer that could overwrite an input must refuse loudly.
 2. **Generated files go only into `outputs/`** (git-ignored). Temp files go in a
    temp dir, never the repo.
-3. **The core stays GUI-agnostic.** All logic lives in `src/meshforge/`; the web
+3. **The core stays GUI-agnostic.** All logic lives in `src/digitwin/`; the web
    and desktop layers may only call the service layer (`MeshingSession`). This
    is enforced by an AST scan — see `tests/rule4_scan.py`.
 4. **Heavy and optional dependencies are lazy-imported**, so the CLI never pays

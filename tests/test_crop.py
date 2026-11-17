@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.geometry.crop import (
+from digitwin.geometry.crop import (
     CropError,
     crop_aaa,
     crop_with_planes,
@@ -20,7 +20,7 @@ from meshforge.geometry.crop import (
     planes_from_report,
     _ear_clip,
 )
-from meshforge.synth.generators import aneurysm_radius, aneurysm_tube
+from digitwin.synth.generators import aneurysm_radius, aneurysm_tube
 
 PROFILE = dict(radius=10.0, sac_radius=25.0, sac_center=60.0, sac_sigma=15.0,
                flare=4.0, flare_length=6.0)
@@ -108,7 +108,7 @@ def test_caps_are_planar_square_and_watertight(cropped):
 
 
 def test_embedded_centreline_leaves_each_cap_along_its_normal(cropped):
-    from meshforge.geometry import centerline_from_surface
+    from digitwin.geometry import centerline_from_surface
 
     _, _, res = cropped
     cl = centerline_from_surface(res.surface)
@@ -154,7 +154,7 @@ def test_report_is_json_and_reuses_its_planes(cropped):
 
 
 def test_refuses_a_tube_without_a_sac():
-    from meshforge.synth.generators import straight_tube
+    from digitwin.synth.generators import straight_tube
 
     surface, _ = straight_tube(radius=10.0, length=160.0, n_axial=81)
     with pytest.raises(CropError, match=r"no sac: .*h mm:d mm"):
@@ -181,7 +181,7 @@ def test_input_guards():
 
 
 def test_a_cut_through_an_existing_flat_cap_is_refused():
-    from meshforge.geometry.crop import CutPlane
+    from digitwin.geometry.crop import CutPlane
 
     surface, _ = aneurysm_tube()
     # a plane tilted 45 degrees, 3 mm above the flat caudal cap: it runs through it
@@ -222,7 +222,7 @@ def test_aneurysm_tube_truth():
 # service layer + CLI
 # ---------------------------------------------------------------------------
 def test_session_crop_step_journal_replay_and_lumen(tmp_path):
-    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
+    from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
 
     # segment -> sac -> crop: the crop cuts the lumen and the recovered sac
     # with the same two planes
@@ -257,7 +257,7 @@ def test_session_crop_step_journal_replay_and_lumen(tmp_path):
 def test_a_second_crop_recuts_the_uncropped_surface(tmp_path):
     """D93: the copilot crops, then re-crops with parallel caps. Cutting the
     first crop again trimmed the s1364 sac from 134.8 to 93.7 mL."""
-    from meshforge.pipeline import MeshingSession, load_workfile, replay
+    from digitwin.pipeline import MeshingSession, load_workfile, replay
 
     s = MeshingSession()
     s.generate_synth("aneurysm_tube")
@@ -278,8 +278,8 @@ def test_a_second_crop_recuts_the_uncropped_surface(tmp_path):
 
 
 def test_volmesh_reports_capped_and_floored_rays(tmp_path):
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("curved_tube", radius=2.0, bend_radius=4.0)
     wall = get_backend("swept").mesh_wall(surface, 1.5, n_theta=16, n_axial=30)
@@ -292,7 +292,7 @@ def test_volmesh_reports_capped_and_floored_rays(tmp_path):
 
 
 def test_cli_crop_then_volmesh_and_planes_reuse(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     outer, _ = aneurysm_tube()
     inner, _ = aneurysm_tube(radius=7.0, sac_radius=16.0, flare=2.0)
@@ -323,7 +323,7 @@ def test_cli_crop_then_volmesh_and_planes_reuse(tmp_path, capsys):
     assert pv.read(again).volume == pytest.approx(pv.read(out).volume, rel=1e-6)
     assert "planes reused" in printed
 
-    from meshforge.synth.generators import straight_tube
+    from digitwin.synth.generators import straight_tube
 
     plain, _ = straight_tube(radius=10.0, length=160.0, n_axial=81)
     plain.save(tmp_path / "plain.vtp")

@@ -3,8 +3,8 @@
 # Exercises every CLI surface once; everything lands in outputs/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PY="${MESHFORGE_PY:-$HOME/miniconda3/envs/meshforge/bin/python}"
-MF="$(dirname "$PY")/meshforge"
+PY="${DIGITWIN_PY:-${MESHFORGE_PY:-$HOME/miniconda3/envs/digitwin/bin/python}}"
+MF="$(dirname "$PY")/digitwin"
 
 echo "== V1: CAD import (planar face extraction on the real DWG) =="
 "$MF" import-cad Cottage_Pane_Window.dwg | grep -E "loops|mesh_ready"
@@ -55,7 +55,7 @@ echo "== V7: parametric recipe sweep =="
 
 echo "== V10: work file replay with override =="
 "$PY" - <<'EOF'
-from meshforge.pipeline import MeshingSession
+from digitwin.pipeline import MeshingSession
 s = MeshingSession()
 s.generate_synth("straight_tube", n_theta=32, n_axial=21)
 s.compute_centerline(voxel_size=0.5, n_samples=100)
@@ -66,7 +66,7 @@ EOF
 
 echo "== V12: offscreen screenshot =="
 "$PY" - <<'EOF'
-from meshforge.pipeline import MeshingSession
+from digitwin.pipeline import MeshingSession
 s = MeshingSession()
 s.generate_synth("curved_tube")
 s.compute_centerline()

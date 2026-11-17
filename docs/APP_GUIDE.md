@@ -1,6 +1,6 @@
-# meshforge — complete usage guide
+# DigiTwin — complete usage guide
 
-This is the DETAILED reference for driving meshforge — every step panel,
+This is the DETAILED reference for driving DigiTwin — every step panel,
 knob, subcommand, file location, and known quirk. It is deliberately
 exhaustive rather than friendly; for a guided first run see
 **[TUTORIAL.md](TUTORIAL.md)**. The feature set is roadmap v6 (solvers,
@@ -11,7 +11,7 @@ V35–V35b — one web UI codebase, in a browser or a native window).
 
 ## 1. What you are driving
 
-meshforge turns a closed triangulated surface (or a 2-D CAD profile,
+DigiTwin turns a closed triangulated surface (or a 2-D CAD profile,
 or a 3-D CAD solid, or a medical image volume) into an analysis-ready
 volume mesh, writes complete solver input decks, and can RUN the
 analysis in-app and show the results.
@@ -19,10 +19,10 @@ analysis in-app and show the results.
 Architecture (this ordering explains every error message you'll see):
 
 ```
-core (src/meshforge/…)   pure logic: geometry, meshing, export, solve
+core (src/digitwin/…)   pure logic: geometry, meshing, export, solve
   └── MeshingSession     the service layer: ordered steps + journal
-        ├── CLI           `meshforge <subcommand>` — one step per call
-        └── Workbench     `meshforge web` / `meshforge desktop` — step
+        ├── CLI           `digitwin <subcommand>` — one step per call
+        └── Workbench     `digitwin web` / `digitwin desktop` — step
                           panels over the SAME steps (a browser tab or a
                           native window; one web UI codebase)
 ```
@@ -43,34 +43,35 @@ YOU LAUNCHED FROM. Always start from the project folder.
 ## 2. Launching
 
 ```bash
-cd /path/to/meshforge   # quote the path if it contains spaces
-conda activate meshforge
-meshforge web          # the Workbench in your browser (prints a 127.0.0.1 /app/ URL)
-meshforge desktop      # the same Workbench in a native window
-meshforge --help       # the CLI
+cd /path/to/DigiTwin   # quote the path if it contains spaces
+conda activate digitwin
+digitwin web          # the Workbench in your browser (prints a 127.0.0.1 /app/ URL)
+digitwin desktop      # the same Workbench in a native window
+digitwin --help       # the CLI
 ```
 
-`meshforge web` binds **127.0.0.1 only** (an OS-assigned free port unless
+`digitwin web` binds **127.0.0.1 only** (an OS-assigned free port unless
 you pass `--port N`) and prints the URL to open, e.g.
-`Workbench: http://127.0.0.1:PORT/app/`. `meshforge desktop` embeds that
+`Workbench: http://127.0.0.1:PORT/app/`. `digitwin desktop` embeds that
 same page in a QtWebEngine window (needs the `web` + `viewport` +
 `desktop` extras and the conda-forge `qt6-webengine` package). Both run a
 single web UI codebase — the old PySide6 knob panels were retired;
-**`meshforge-gui` remains as a back-compat alias for `meshforge desktop`.**
+**`digitwin-gui` remains as a back-compat alias for `digitwin desktop`.**
 
 No-activation one-liner:
-`~/miniconda3/envs/meshforge/bin/meshforge web`
+`~/miniconda3/envs/digitwin/bin/digitwin web`
 
 **No conda at all?** Build a self-contained macOS installer with
-`bash packaging/build.sh` (→ `dist/meshforge-<ver>-MacOSX-arm64.pkg`); the user
-double-clicks it, then launches the **meshforge** app — the Workbench opens with
+`bash packaging/build.sh` (→ `dist/digitwin-<ver>-MacOSX-arm64.pkg`); the user
+double-clicks it, then launches the **DigiTwin** app — the Workbench opens with
 no conda knowledge required. Solvers stay external/optional (see
 `packaging/README.md`).
 
 Solvers are auto-found: CalculiX (conda env `ccxsolve`), OpenFOAM
 (brew launcher `openfoam` → v2512; `openfoam2506` kept as rollback),
-MYSTRAN (conda env `mystran`). Overrides via env vars `MESHFORGE_CCX`,
-`MESHFORGE_OPENFOAM`, `MESHFORGE_MYSTRAN` (each an executable path).
+MYSTRAN (conda env `mystran`). Overrides via env vars `DIGITWIN_CCX`,
+`DIGITWIN_OPENFOAM`, `DIGITWIN_MYSTRAN` (each an executable path); the older
+`MESHFORGE_<X>` names are still read.
 
 ---
 
@@ -291,15 +292,15 @@ field of view.
 presets work downstream.
 
 **Install TotalSegmentator once, in its own environment** (it brings
-PyTorch, which meshforge itself never imports):
+PyTorch, which DigiTwin itself never imports):
 ```bash
 conda create -n totalseg --solver=libmamba python=3.11
 conda run -n totalseg pip install TotalSegmentator
 ```
-meshforge finds it through `MESHFORGE_TOTALSEG` (the executable's path),
+DigiTwin finds it through `DIGITWIN_TOTALSEG` (the executable's path),
 then `TotalSegmentator` on `PATH`, then
 `~/miniconda3/envs/totalseg/bin/TotalSegmentator`. The first run downloads
-the model weights. meshforge never changes TotalSegmentator's own settings;
+the model weights. DigiTwin never changes TotalSegmentator's own settings;
 if its usage statistics are on (`~/.totalsegmentator/config.json`), the log
 says so.
 
@@ -310,7 +311,7 @@ outer sac: lumen + intraluminal thrombus (ILT) + wall. `sac` recovers it
 from the CT around the lumen and makes it the session SOURCE.
 - `path` — the CT in HU (`.nrrd`, `.nii`, `.nii.gz`). **Browse…** in the desktop window.
 - `lumen_mask` — the lumen mask on the **same grid** (for example the mask
-  `meshforge segment` writes). **Browse…**
+  `digitwin segment` writes). **Browse…**
 - `lumen_hu` (150) — mask voxels at or above it are contrast lumen. The rest
   of the mask stays inside the sac but does not count as lumen.
 - `fat_hu` (-30) — fat or air below this marks the outer edge.
@@ -365,7 +366,7 @@ scan, slices more than 20° off axial, or too few resolved rays.
 
 **CLI:**
 ```bash
-meshforge sac CT.nii.gz --lumen-mask lumen.nii.gz --out outputs/sac/case_sac.vtp \
+digitwin sac CT.nii.gz --lumen-mask lumen.nii.gz --out outputs/sac/case_sac.vtp \
     [--reference-zenodo .../Dataset_root/<case>]
 ```
 This writes `case_sac.vtp`, `case_sac_mask.nii.gz` (the sac mask on the
@@ -443,7 +444,7 @@ recovered sac (`sac`) the surface carries millimetre-scale axial terraces;
 if the plane sweep then reports a few capped nodes, `--section-smoothing 4`
 smooths them out and says how far the nodes moved (Anev_02: ≤ 1.5 mm):
 
-    meshforge volmesh sac_crop.vtp --thickness 1.5 --curvature-cap 0.9 \
+    digitwin volmesh sac_crop.vtp --thickness 1.5 --curvature-cap 0.9 \
         --sweep auto --section-smoothing 4
 
 ### 3.7 blocks  (2-D profile → multi-block hex, the TrueGrid-style path)
@@ -575,7 +576,7 @@ pressure), `excluded_end_zone`, `DISP`; `<stem>_aaa_stress.json`; the two
 `.inp` decks with their `.dat`/`.frd`.
 
 ```bash
-meshforge aaa-stress outputs/m2/e2e/Anev_02_sac_wall_auto_s4.vtu \
+digitwin aaa-stress outputs/m2/e2e/Anev_02_sac_wall_auto_s4.vtu \
     --crop-report outputs/m2/e2e/Anev_02_crop_crop.json \
     --systolic 140 --whatif 120 --end-zone bending --out-dir outputs/m3/anev02
 ```
@@ -600,7 +601,7 @@ with ρ 0.89. (These wall-only numbers used the earlier nominal-thickness
 tension; recomputed from the same solves with the current rule they read ρ
 0.72, offset 4.0 mm, p99 1.26, p50 1.39.)
 
-**With the thrombus modelled** (`MESHFORGE_TENSION_ILT=1`,
+**With the thrombus modelled** (`DIGITWIN_TENSION_ILT=1`,
 `outputs/m3/tension_validation_ilt.md`), on the same 12 cases:
 - median ρ 0.98 (0.83–0.99); the lowest is P07, a 46.6 mm crop that leaves a
   6 mm comparison band;
@@ -652,7 +653,7 @@ engineering strength (to show why the measures must match), late peaks at
 their reported maximum, and raw-curve strips only. The controls appear as a
 comparison. Example:
 ```bash
-meshforge tissue-index --pws 0.30          # or --from-summary outputs/m3/aaa_stress.json
+digitwin tissue-index --pws 0.30          # or --from-summary outputs/m3/aaa_stress.json
 # rupture index : P10 / P50 / P90 = 0.231 / 0.461 / 0.974
 ```
 
@@ -663,7 +664,7 @@ TK-J, *Dataset on cadaveric human abdominal aorta aneurysm biomechanics
 doi [10.17632/x64srrc39p.3](https://doi.org/10.17632/x64srrc39p.3), CC BY 4.0.
 The packaged table is derived from it: units converted, Cauchy stress
 recomputed, flags added. Credit the authors when you use it. How it was built,
-and its limits, are in `src/meshforge/data/STRENGTH_V0_SOURCES.md`. The main
+and its limits, are in `src/digitwin/data/STRENGTH_V0_SOURCES.md`. The main
 limits: autopsy tissue, aortas inflated to rupture before testing, test
 direction not recorded, and a small n.
 
@@ -713,10 +714,10 @@ Typed by hand, `inlet` takes either form. `inlet=150` is refused, with
 the reason, on a patch that is not a flat cap (it has no single inflow
 direction) and for a speed ≤ 0 (to reverse the flow, swap the patches).
 `inlet=0,0,150` works as before; the log warns if the vector points out
-of the domain. The CLI `meshforge cfd CASE` has only a case directory,
+of the domain. The CLI `digitwin cfd CASE` has only a case directory,
 not the mesh, so it refuses `--inlet NAME=SPEED` and asks for the
 vector; to run the speed form outside the Workbench, replay a work file
-with `meshforge replay`.
+with `digitwin replay`.
 
 **Flow section.** A CFD result drawn as the vessel's boundary is the
 no-slip wall — U = 0, one flat colour. After a cfd run on a session
@@ -744,7 +745,7 @@ first. The section is a view only; nothing is saved or exported.
 ### 3.12 History table + Save work file…
 The right-pane **history** table lists journaled steps (step | params | summary).
 "Save work file…" writes a `.mfwork` (JSON) capturing the journal;
-`replay` or `meshforge replay` reproduces the session exactly.
+`replay` or `digitwin replay` reproduces the session exactly.
 
 ---
 
@@ -811,7 +812,7 @@ with `?demo=1` (it is also remembered in the browser). On:
   to it; click again, or press Esc, to clear. Each study row shows the
   modality, the description, the date, current / prior, and **loaded ✓**
   when it is the scan this session is working on.
-  **Honesty rules.** Every row comes from `GET /atlas` (`meshforge.atlas`),
+  **Honesty rules.** Every row comes from `GET /atlas` (`digitwin.atlas`),
   which lists exactly the scans the session loaded: today at most one, the
   CT the `segment` step outlined (the ghost's outline is the marker; an STL,
   a synthetic tube or a CAD import is not a study). Its body coverage is
@@ -866,12 +867,12 @@ Lab are never both on: turning one on turns the other off, and `?demo=1`
 - the **top-down reveal**, the **turntable**, the **running line** and the
   **stress / flow switch** work as in Demo.
 
-A copilot run (`meshforge copilot … --server URL`) drives a Lab page the
+A copilot run (`digitwin copilot … --server URL`) drives a Lab page the
 same way it drives Demo's: every result sweeps in. Its own window opens in
 Demo (`?demo=1`); flip Lab there, or watch from a page already in Lab.
 
 ### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
-`meshforge copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
+`digitwin copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
 the pipeline to Claude (Opus 5.5). It has five tools, each one or two of the steps above:
 
 | tool | steps | returns |
@@ -934,11 +935,11 @@ How it behaves:
     output; one correction is allowed, otherwise it is withheld and the
     report says so.
 - **The trail:** `transcript.json` (every request, tool call and result) and,
-  in-process, `session.mfwork`. `meshforge replay` reproduces every number.
+  in-process, `session.mfwork`. `digitwin replay` reproduces every number.
 - **Live view, one command (D112):** `--server http://127.0.0.1:8765` runs
   the steps on a Workbench at that address, so its viewport shows each
   artifact as it lands. When nothing answers there the copilot **starts the
-  Workbench itself** (`python -m meshforge.web.server --port <port>`, its
+  Workbench itself** (`python -m digitwin.web.server --port <port>`, its
   own process group, `workbench.log` in the run folder, `/health` polled up
   to 60 s) and **opens its window in Demo mode** — a Chrome app window on a
   Mac with Chrome, else the default browser — then prints `workbench :
@@ -971,7 +972,7 @@ How it behaves:
 - **The report opens by itself** when stdout is a terminal (`--open` /
   `--no-open`), the same way as the Workbench window.
 
-Needs the Anthropic SDK (`pip install 'meshforge[copilot]'`, or conda-forge
+Needs the Anthropic SDK (`pip install 'digitwin[copilot]'`, or conda-forge
 `anthropic`) and credentials in the environment (`ANTHROPIC_API_KEY`). Every
 run calls the API, so it costs money. Model `--model`, effort `--effort` (default
 `high`); the server-side refusal fallback is on.
@@ -997,8 +998,8 @@ A 2-D `.dwg`/`.dxf` drawing becomes a profile via **import_cad**, which
 runs under the hood):
 
 ```bash
-meshforge import-cad Cottage_Pane_Window.dwg            # → outputs/Cottage_Pane_Window_profile.json
-meshforge blocks outputs/Cottage_Pane_Window_profile.json \
+digitwin import-cad Cottage_Pane_Window.dwg            # → outputs/Cottage_Pane_Window_profile.json
+digitwin blocks outputs/Cottage_Pane_Window_profile.json \
     --holes-like 177.03x170.68 --no-component-holes \
     --target-size 40 --thickness 40 --n-layers 2        # 1220 hexes, 0 inverted
 ```
@@ -1013,32 +1014,32 @@ READ-ONLY and checksummed on every load.
 
 | Command | Does | Example |
 |---|---|---|
-| `inspect` | surface report (watertight, volume, area) | `meshforge inspect outputs/straight_tube.vtp` |
-| `check` | mesh-readiness gate (exit 1 if not ready) | `meshforge check outputs/straight_tube.vtp` |
-| `export` | convert surface (vtu/vtk/ply/obj) | `meshforge export s.vtp --format ply` |
-| `synth` | generate shape + truth JSON | `meshforge synth curved_tube --set depth=0.4` |
-| `repair` | fix a damaged surface | `meshforge repair broken.vtp` |
+| `inspect` | surface report (watertight, volume, area) | `digitwin inspect outputs/straight_tube.vtp` |
+| `check` | mesh-readiness gate (exit 1 if not ready) | `digitwin check outputs/straight_tube.vtp` |
+| `export` | convert surface (vtu/vtk/ply/obj) | `digitwin export s.vtp --format ply` |
+| `synth` | generate shape + truth JSON | `digitwin synth curved_tube --set depth=0.4` |
+| `repair` | fix a damaged surface | `digitwin repair broken.vtp` |
 | `import-cad` | DWG/DXF → 2-D profile JSON | §5 |
-| `import-cad3d` | STEP/IGES/BREP → surface | `meshforge import-cad3d part.step` |
-| `import-image` | volume → iso-surface | `meshforge import-image vol.npy --level 0` |
-| `import-cso` | MeVisLab contours → surface | `meshforge import-cso scan.cso --outputs outputs/mycase` (see [CSO_GUIDE.md](CSO_GUIDE.md)) |
-| `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `meshforge segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--lumen-out lumen.vtp [--lumen-hu 150]`, `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
-| `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `meshforge crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
-| `tissue-index` | PWS ÷ lab-measured wall strength, P10/P50/P90 with n (§3.9b) | `meshforge tissue-index --pws 0.30` (or `--from-summary <wall-stress .json with pws_mpa>`; `--selection aaa\|control\|all`, `--method empirical\|lognormal`, `--out band.json`) |
+| `import-cad3d` | STEP/IGES/BREP → surface | `digitwin import-cad3d part.step` |
+| `import-image` | volume → iso-surface | `digitwin import-image vol.npy --level 0` |
+| `import-cso` | MeVisLab contours → surface | `digitwin import-cso scan.cso --outputs outputs/mycase` (see [CSO_GUIDE.md](CSO_GUIDE.md)) |
+| `segment` | CT → TotalSegmentator aorta mask → surface (§3.6a) | `digitwin segment ct.nrrd --out outputs/m1/case_aorta.vtp` (+ `--lumen-out lumen.vtp [--lumen-hu 150]`, `--fast`, `--device cpu`, `--smoothing 0`, `--reference-zenodo <case dir>`; see below) |
+| `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `digitwin crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
+| `tissue-index` | PWS ÷ lab-measured wall strength, P10/P50/P90 with n (§3.9b) | `digitwin tissue-index --pws 0.30` (or `--from-summary <wall-stress .json with pws_mpa>`; `--selection aaa\|control\|all`, `--method empirical\|lognormal`, `--out band.json`) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
-| `volmesh` | surface → wall volume mesh | `meshforge volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
-| `lumen` | surface → blood-volume mesh (V47) | `meshforge lumen surface.vtp` (O-grid hexes, then tet, then surface-tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
-| `blayers` | external boundary layers | `meshforge blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
-| `deck` | full solver input deck | `meshforge deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
-| `aaa-stress` | AAA wall stress, investigational (§3.9a) | `meshforge aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
-| `solve` | run ccx (.inp) or MYSTRAN (.bdf) | `meshforge solve outputs/tube_ccx.inp` (`.k`/`.cdb` refuse loudly — no LS-DYNA/ANSYS solver) |
-| `foam` | mesh → OpenFOAM polyMesh case | `meshforge foam tube.vtp --thickness 1 --case outputs/tube_case` |
-| `cfd` | run OpenFOAM on a case | `meshforge cfd outputs/tube_case --nu 0.1 --inlet inlet=0,0,1 --outlet outlet=0` (+ `--series`, `--turbulence kOmegaSST --turb-length`, `--moving-wall --empty --closed-cavity`) |
-| `fluent` | mesh → FLUENT .msh | `meshforge fluent tube.vtp --thickness 1` |
-| `run` | YAML recipe with sweeps | `meshforge run recipe.yaml --set wall.thickness=0.4` |
-| `replay` | re-run a work file | `meshforge replay s.mfwork --set volmesh.n_theta=48` |
-| `web` | serve the Workbench (browser) | `meshforge web` (add `--port N`) — prints a 127.0.0.1 `/app/` URL |
-| `desktop` | the Workbench in a native window | `meshforge desktop` (needs the `web`+`viewport`+`desktop` extras) |
+| `volmesh` | surface → wall volume mesh | `digitwin volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
+| `lumen` | surface → blood-volume mesh (V47) | `digitwin lumen surface.vtp` (O-grid hexes, then tet, then surface-tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
+| `blayers` | external boundary layers | `digitwin blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
+| `deck` | full solver input deck | `digitwin deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
+| `aaa-stress` | AAA wall stress, investigational (§3.9a) | `digitwin aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
+| `solve` | run ccx (.inp) or MYSTRAN (.bdf) | `digitwin solve outputs/tube_ccx.inp` (`.k`/`.cdb` refuse loudly — no LS-DYNA/ANSYS solver) |
+| `foam` | mesh → OpenFOAM polyMesh case | `digitwin foam tube.vtp --thickness 1 --case outputs/tube_case` |
+| `cfd` | run OpenFOAM on a case | `digitwin cfd outputs/tube_case --nu 0.1 --inlet inlet=0,0,1 --outlet outlet=0` (+ `--series`, `--turbulence kOmegaSST --turb-length`, `--moving-wall --empty --closed-cavity`) |
+| `fluent` | mesh → FLUENT .msh | `digitwin fluent tube.vtp --thickness 1` |
+| `run` | YAML recipe with sweeps | `digitwin run recipe.yaml --set wall.thickness=0.4` |
+| `replay` | re-run a work file | `digitwin replay s.mfwork --set volmesh.n_theta=48` |
+| `web` | serve the Workbench (browser) | `digitwin web` (add `--port N`) — prints a 127.0.0.1 `/app/` URL |
+| `desktop` | the Workbench in a native window | `digitwin desktop` (needs the `web`+`viewport`+`desktop` extras) |
 
 Every command exits nonzero on failure and prints WHY (fail-loud rule).
 
@@ -1047,7 +1048,7 @@ one case folder of the public Zenodo AAA dataset (4D-CTA of 20 abdominal
 aortic aneurysms, DOI [10.5281/zenodo.19182977](https://doi.org/10.5281/zenodo.19182977),
 CC BY 4.0 — credit the authors when you use it), e.g.
 ```bash
-meshforge segment ".../Dataset_root/P01/4D_CTA/70%.nrrd" \
+digitwin segment ".../Dataset_root/P01/4D_CTA/70%.nrrd" \
     --out outputs/m1/P01_aorta.vtp --reference-zenodo .../Dataset_root/P01
 ```
 The case's surfaces are the authors' **reference segmentation**, not ground
@@ -1101,7 +1102,7 @@ steps:
   - step: save
     format: vtu
 ```
-`meshforge run recipe.yaml` → cartesian product (4 variants) under
+`digitwin run recipe.yaml` → cartesian product (4 variants) under
 `outputs/<recipe>/<slug>/` + `manifest.json` (params, status, quality;
 one variant failing never kills the batch).
 
@@ -1127,7 +1128,7 @@ one variant failing never kills the batch).
   surfaces are a *reference segmentation*, not ground truth); AortaSeg-60,
   doi 10.5281/zenodo.18147026, CC BY 4.0 (Anev_02 native AAA; Anev_04 is
   post-EVAR and never a demo case).
-- **Tissue strength data** (packaged, `src/meshforge/data/`): USP AAA dataset,
+- **Tissue strength data** (packaged, `src/digitwin/data/`): USP AAA dataset,
   Mendeley Data doi 10.17632/x64srrc39p.3, CC BY 4.0 (derived table; credits
   in §3.9b). `tissue-index --out` writes the band, sensitivities and
   provenance as JSON wherever you point it.
@@ -1140,17 +1141,17 @@ one variant failing never kills the batch).
 |---|---|
 | `no centerline available — run compute_centerline first` | Step panels ran out of order — run the missing step; nothing is broken. |
 | Viewport says "3-D viewport unavailable" / a mesh won't render | The optional `viewport` extra is missing — install `trame-vtk` (conda-forge). The pipeline still runs; only the in-browser render needs it. |
-| `meshforge web` won't start / port already in use | Pass an explicit free port: `meshforge web --port 8791`. It binds `127.0.0.1` only. |
+| `digitwin web` won't start / port already in use | Pass an explicit free port: `digitwin web --port 8791`. It binds `127.0.0.1` only. |
 | `refusing to solve a mesh with N inverted cell(s)` | Mesh quality gate — coarsen/adjust knobs until `inverted=0`. |
-| `ccx/OpenFOAM/MYSTRAN not found` | Check the conda envs / brew launchers or set the `MESHFORGE_*` env var. |
-| OpenFOAM dies about paths | It cannot run under paths with spaces — meshforge stages to a temp dir automatically; if you drive OpenFOAM by hand, do the same. |
+| `ccx/OpenFOAM/MYSTRAN not found` | Check the conda envs / brew launchers or set the `DIGITWIN_*` env var. |
+| OpenFOAM dies about paths | It cannot run under paths with spaces — DigiTwin stages to a temp dir automatically; if you drive OpenFOAM by hand, do the same. |
 | `--thickness and --outer-surface are mutually exclusive` | Give exactly one thickness source. |
 | GUI froze during a solve | Long solves run on a worker thread; check the log — `timeout` knob caps runaway solves. |
 | `patch 'X' is not a flat end cap (planarity …)` | A speed inlet needs a flat cap to define "inward"; give that patch a vector `X=vx,vy,vz` instead (§3.10a). |
 | `the inflow picker needs exactly two flat end caps` | The picker only handles a tube with two ends; type `inlet` / `outlet` in the cfd panel. |
 | `cardiac presets need the model's length unit` | The source declares no unit (STL/VTK/synthetic) — type ν and the speed in your model's own units. |
-| `--inlet NAME=SPEED needs the mesh in memory` | CLI `cfd` only has a case directory: use `NAME=vx,vy,vz`, or the Workbench / `meshforge replay`. |
-| `TotalSegmentator not found: set MESHFORGE_TOTALSEG …` | Install it in its own env (§3.6a) or point `MESHFORGE_TOTALSEG` at the executable. |
+| `--inlet NAME=SPEED needs the mesh in memory` | CLI `cfd` only has a case directory: use `NAME=vx,vy,vz`, or the Workbench / `digitwin replay`. |
+| `TotalSegmentator not found: set DIGITWIN_TOTALSEG …` | Install it in its own env (§3.6a) or point `DIGITWIN_TOTALSEG` at the executable. |
 | `TotalSegmentator failed (exit code N). Last log lines: …` | The tail is TotalSegmentator's own output. On a Mac without a working GPU backend, try `device` = `cpu`. |
 | `TotalSegmentator returned an empty aorta mask — is the aorta in the field of view? …` | The scan does not show the aorta (wrong series, cropped away), or it is a tight crop with no body context — TotalSegmentator needs the full-field-of-view CT. Seen on the Zenodo AAA crops (~80 mm boxes around the aneurysm). |
 | `TotalSegmentator's aorta mask holds only … mL … implausibly small for an aorta` | Same cause: a few stray voxels, not an aorta. The step refuses to pass them on. |

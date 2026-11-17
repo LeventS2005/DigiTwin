@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -17,12 +17,12 @@ from meshforge.export.deck import (
     Step,
     write_deck,
 )
-from meshforge.export.nastran import _f8, _small
-from meshforge.geometry import compute_centerline
-from meshforge.meshing import get_backend
-from meshforge.meshing.base import BoundaryGroup, WallMesh
-from meshforge.quality.volume import volume_quality
-from meshforge.synth import generate
+from digitwin.export.nastran import _f8, _small
+from digitwin.geometry import compute_centerline
+from digitwin.meshing import get_backend
+from digitwin.meshing.base import BoundaryGroup, WallMesh
+from digitwin.quality.volume import volume_quality
+from digitwin.synth import generate
 
 
 @pytest.fixture(scope="module")
@@ -213,8 +213,8 @@ def test_f8_and_small_field_guards():
 
 
 def test_cli_deck_target_nastran(tmp_path):
-    from meshforge.cli import main
-    from meshforge.synth import generate as gen
+    from digitwin.cli import main
+    from digitwin.synth import generate as gen
 
     surface, _ = gen("straight_tube")
     vtp = tmp_path / "tube.vtp"

@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from conftest import cso_family_dir, dicom_dir, first_local_file
 
-from meshforge.geometry import centerline_from_surface, embed_centerline
-from meshforge.io.cso import (
+from digitwin.geometry import centerline_from_surface, embed_centerline
+from digitwin.io.cso import (
     Contour,
     contour_centerline,
     CsoData,
@@ -22,7 +22,7 @@ from meshforge.io.cso import (
     cso_to_surface,
     load_cso,
 )
-from meshforge.pipeline import MeshingSession, auto_cso_surface, load_workfile, replay
+from digitwin.pipeline import MeshingSession, auto_cso_surface, load_workfile, replay
 
 # ---------------------------------------------------------------------------
 # a minimal Binary CSO writer — exactly the tokens load_cso decodes
@@ -176,7 +176,7 @@ def test_contours_polydata_is_exact_passthrough(tmp_path):
     """The overlay polydata carries the EXACT parsed control points (no
     resampling, no new geometry) — one closed polyline cell per ring, wrapped
     back to its first point."""
-    from meshforge.io.cso import contours_polydata
+    from digitwin.io.cso import contours_polydata
 
     p = _straight_tube_cso(tmp_path / "tube.cso", n_rings=5, npts=11)
     data = load_cso(p)
@@ -200,7 +200,7 @@ def test_contours_polydata_is_exact_passthrough(tmp_path):
 
 
 def test_contours_polydata_refuses_empty():
-    from meshforge.io.cso import CsoData, contours_polydata
+    from digitwin.io.cso import CsoData, contours_polydata
 
     with pytest.raises(ValueError, match="no contours"):
         contours_polydata(CsoData(contours=[]))
@@ -310,7 +310,7 @@ def test_import_cso_auto_is_default_and_embeds(tmp_path):
 def test_auto_falls_back_to_voxel_when_loft_wont_sweep(tmp_path, monkeypatch):
     """When no loft centreline sweeps clean, auto returns the voxel surface with
     no embedded centreline (a fresh skeleton on the voxel surface is used)."""
-    import meshforge.meshing as meshing_pkg
+    import digitwin.meshing as meshing_pkg
 
     class _RaisingBackend:
         def mesh_wall(self, *a, **k):
@@ -559,7 +559,7 @@ _REAL_DCM = first_local_file(dicom_dir(), "VAM775*.dcm")
 @pytest.mark.skipif(_REAL is None or _REAL_DCM is None,
                     reason="real .cso + .dcm pair not present")
 def test_real_cso_anchored_to_dicom_grid():
-    from meshforge.io.image import dicom_grid, volume_input_sha256
+    from digitwin.io.image import dicom_grid, volume_input_sha256
 
     dsha = volume_input_sha256(_REAL_DCM)
     csha = cso_input_sha256(_REAL)

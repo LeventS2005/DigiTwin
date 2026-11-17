@@ -6,9 +6,9 @@ import json
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.io.cad import _signed_area
-from meshforge.meshing import (
+from digitwin.cli import main
+from digitwin.io.cad import _signed_area
+from digitwin.meshing import (
     build_block_mesh,
     extrude_blocks,
     project_profile,

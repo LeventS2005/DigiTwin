@@ -1,7 +1,7 @@
 #!/bin/bash
-# V37 — reproducible build of the self-contained meshforge macOS installer.
+# V37 — reproducible build of the self-contained digitwin macOS installer.
 #
-#   bash packaging/build.sh   ->   dist/meshforge-<ver>-MacOSX-arm64.pkg (+ .sh)
+#   bash packaging/build.sh   ->   dist/digitwin-<ver>-MacOSX-arm64.pkg (+ .sh)
 #
 # Dev-machine prerequisites (base conda env): constructor + conda-build. Target
 # is osx-arm64 (the whole conda-forge Qt/VTK stack is arm64). The solvers
@@ -30,7 +30,7 @@ rm -rf "$SRC"; mkdir -p "$SRC"
 REV="$(git -C "$REPO" stash create)"; REV="${REV:-HEAD}"
 git -C "$REPO" archive "$REV" | tar -x -C "$SRC"
 
-echo "==> 1/3  build the meshforge noarch conda package"
+echo "==> 1/3  build the digitwin noarch conda package"
 rm -rf "$LOCAL_CH"; mkdir -p "$LOCAL_CH"
 "$CONDA" run -n base conda-build "$HERE/conda-recipe" -c conda-forge \
     --no-test --no-anaconda-upload --output-folder "$LOCAL_CH"
@@ -43,4 +43,4 @@ mkdir -p "$DIST"
 ( cd "$HERE" && "$CONDA" run -n base constructor . --output-dir "$DIST" )
 
 echo "==> 3/3  artifacts:"
-ls -la "$DIST"/meshforge-*.pkg "$DIST"/meshforge-*.sh 2>/dev/null || true
+ls -la "$DIST"/digitwin-*.pkg "$DIST"/digitwin-*.sh 2>/dev/null || true

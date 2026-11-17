@@ -1,4 +1,4 @@
-# Security analysis findings — meshforge
+# Security analysis findings — DigiTwin
 
 **Audit pass, session 11 (2026-07-07).** Reviewer: cybersecurity analyst
 (Claude Opus 4.8). Scope: every attack surface added since the D6 baseline,
@@ -10,7 +10,7 @@ checksum verified unchanged (`Cottage_Pane_Window.dwg` sha256
 
 ## Threat model (what "problematic" means here)
 
-meshforge is a **local, single-user, offline** meshing/FEA/CFD tool. The user's
+DigiTwin is a **local, single-user, offline** meshing/FEA/CFD tool. The user's
 own CLI arguments are **not** an attack vector — the user is trusted. The real
 trust boundaries are:
 
@@ -18,10 +18,11 @@ trust boundaries are:
    `.mfwork` work files, image volumes (`.npy`/NIfTI/DICOM), and solver output
    files (`.frd`/`.dat`/`.F06`/OpenFOAM cases). A malicious or malformed file
    should fail loudly, never silently corrupt output or execute code.
-2. **The environment**: the `MESHFORGE_CCX` / `MESHFORGE_MYSTRAN` /
-   `MESHFORGE_OPENFOAM` executable-path overrides and PATH discovery. These are
+2. **The environment**: the `DIGITWIN_CCX` / `DIGITWIN_MYSTRAN` /
+   `DIGITWIN_OPENFOAM` executable-path overrides and PATH discovery. These are
    documented, deliberately-trusted knobs — a hostile binary placed there is
-   outside the model, but its *output* is still parsed and echoed.
+   outside the model, but its *output* is still parsed and echoed. (The older
+   `MESHFORGE_<X>` names are still read.)
 
 Findings are ordered by importance. Nothing found is a remote-code-execution or
 privilege-escalation hole; the codebase is disciplined (list-argv subprocess,
@@ -42,17 +43,17 @@ and remain the documented, intended behaviour).
 
 | # | Severity | Finding | Status | Closed by |
 |---|---|---|---|---|
-| F1 | Medium | Group/patch-name injection into decks & foam dicts | **FIXED** | `src/meshforge/meshing/base.py:26` (`valid_group_name`), enforced at `base.py:54` (constructor backstop), `base.py:121` (`split_boundary_group`), `src/meshforge/solve/foam_case.py:96`, `src/meshforge/export/foam.py:129`, `src/meshforge/pipeline.py:192,206`, `src/meshforge/cli.py:1860,1866,1932,1938` |
-| F2 | Low | Terminal-escape injection via raw tool output in exceptions | **FIXED** | `src/meshforge/textguard.py:18` (`scrub`), applied at `solve/runner.py:177,182,187`, `solve/mystran.py:155,159`, `solve/foam_runner.py:111,163`, `solve/frd.py:132`, `solve/dat.py:70,112`, `io/cad.py:376` |
-| F3 | Low | `dwg2dxf` has no timeout (hang on hostile DWG) | **FIXED** | `src/meshforge/io/cad.py:366` (`timeout=120`) + the `TimeoutExpired` branch at `io/cad.py:370` |
-| F4 | Low | Image ingest lacks a `MAX_VOXELS` ceiling | **FIXED** | `src/meshforge/io/image.py:47` (and the ROI/grid ceilings at `io/cso.py:908,927`) |
-| F5 | Info | `guard_output_path` is exact-match-only; case-dir writers bypass it | **OPEN — accepted** | `src/meshforge/export/neutral.py:17`; `solve/foam_case.py` / `solve/foam_runner.py` still write case dirs unguarded, which is the intended behaviour (a case dir is a working directory, not a declared input) |
+| F1 | Medium | Group/patch-name injection into decks & foam dicts | **FIXED** | `src/digitwin/meshing/base.py:26` (`valid_group_name`), enforced at `base.py:54` (constructor backstop), `base.py:121` (`split_boundary_group`), `src/digitwin/solve/foam_case.py:96`, `src/digitwin/export/foam.py:129`, `src/digitwin/pipeline.py:192,206`, `src/digitwin/cli.py:1860,1866,1932,1938` |
+| F2 | Low | Terminal-escape injection via raw tool output in exceptions | **FIXED** | `src/digitwin/textguard.py:18` (`scrub`), applied at `solve/runner.py:177,182,187`, `solve/mystran.py:155,159`, `solve/foam_runner.py:111,163`, `solve/frd.py:132`, `solve/dat.py:70,112`, `io/cad.py:376` |
+| F3 | Low | `dwg2dxf` has no timeout (hang on hostile DWG) | **FIXED** | `src/digitwin/io/cad.py:366` (`timeout=120`) + the `TimeoutExpired` branch at `io/cad.py:370` |
+| F4 | Low | Image ingest lacks a `MAX_VOXELS` ceiling | **FIXED** | `src/digitwin/io/image.py:47` (and the ROI/grid ceilings at `io/cso.py:908,927`) |
+| F5 | Info | `guard_output_path` is exact-match-only; case-dir writers bypass it | **OPEN — accepted** | `src/digitwin/export/neutral.py:17`; `solve/foam_case.py` / `solve/foam_runner.py` still write case dirs unguarded, which is the intended behaviour (a case dir is a working directory, not a declared input) |
 
 ---
 
 ## F1 — MEDIUM — Boundary/patch-group names are written into solver decks and OpenFOAM dictionaries with no content validation (card/dict injection)
 
-**STATUS: FIXED.** `valid_group_name` (`src/meshforge/meshing/base.py:26`) is
+**STATUS: FIXED.** `valid_group_name` (`src/digitwin/meshing/base.py:26`) is
 the single content check, called at every mint site — the `BoundaryGroup`
 constructor backstop (`base.py:54`), `split_boundary_group` (`base.py:121`),
 the CFD BC spec (`solve/foam_case.py:96`), the foam default patch
@@ -63,12 +64,12 @@ path, `*CARD` newline payloads, OpenFOAM dict metacharacters (`;{}`) and an
 over-length name.
 
 **Where (sinks):**
-- `src/meshforge/export/deck.py:715` — `f"*ELSET, ELSET={name.upper()}_ELS"`
-- `src/meshforge/export/abaqus.py:98` — `f"*NSET, NSET={name.upper()}"`
-- `src/meshforge/export/abaqus.py:102` — `f"*SURFACE, NAME={name.upper()}_SURF, TYPE=ELEMENT"`
-- `src/meshforge/export/nastran.py`, `src/meshforge/export/lsdyna.py` — same
+- `src/digitwin/export/deck.py:715` — `f"*ELSET, ELSET={name.upper()}_ELS"`
+- `src/digitwin/export/abaqus.py:98` — `f"*NSET, NSET={name.upper()}"`
+- `src/digitwin/export/abaqus.py:102` — `f"*SURFACE, NAME={name.upper()}_SURF, TYPE=ELEMENT"`
+- `src/digitwin/export/nastran.py`, `src/digitwin/export/lsdyna.py` — same
   `name.upper()` pattern for set names
-- `src/meshforge/export/foam.py` / `src/meshforge/solve/foam_case.py` — patch
+- `src/digitwin/export/foam.py` / `src/digitwin/solve/foam_case.py` — patch
   names written into `constant/polyMesh/boundary` and the `0/{U,p,k,omega,nut}`
   `boundaryField` dictionaries
 
@@ -79,7 +80,7 @@ transformed only by `.upper()`. `.upper()` does not strip newlines or control
 characters.
 
 **Where (source reachable from a crafted input file):**
-`split_boundary_group` (`src/meshforge/meshing/base.py:57`) accepts a new group
+`split_boundary_group` (`src/digitwin/meshing/base.py:57`) accepts a new group
 `name` and checks only that the name is not already taken — **not its content**:
 
 ```python
@@ -125,7 +126,7 @@ integrity hole with a concrete crafted-input path, and the fix is cheap.
 writer:
 
 ```python
-# meshforge/meshing/base.py  (or a shared util)
+# digitwin/meshing/base.py  (or a shared util)
 import re
 _GROUP_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$")
 
@@ -150,21 +151,21 @@ in the core (rule-4-safe: it's meshing/export logic, not GUI).
 
 ## F2 — LOW — Raw external-tool output / raw file bytes are embedded in exception messages (terminal escape-sequence injection)
 
-**STATUS: FIXED.** `scrub` (`src/meshforge/textguard.py:18`) neutralises every
+**STATUS: FIXED.** `scrub` (`src/digitwin/textguard.py:18`) neutralises every
 non-printable control character (keeping `\n`/`\t`) and is applied at all the
 sinks listed below: `solve/runner.py:177,182,187`, `solve/mystran.py:155,159`,
 `solve/foam_runner.py:111,163`, `solve/frd.py:132`, `solve/dat.py:70,112`,
 `io/cad.py:376`.
 
 **Where:**
-- `src/meshforge/solve/runner.py:164, 169, 174` — `…\n{output[-2000:]}` (ccx stdout+stderr)
-- `src/meshforge/solve/mystran.py:153, 157` — `{(f06_text or output)[-2000:]}`
-- `src/meshforge/solve/foam_runner.py:109, 161` — `{output[-2000:]}`
-- `src/meshforge/solve/frd.py:129`, `src/meshforge/solve/dat.py` — parse errors echo `{line!r}`
-- `src/meshforge/io/cad.py:364` — `{proc.stderr.strip()[-500:]}` (dwg2dxf)
+- `src/digitwin/solve/runner.py:164, 169, 174` — `…\n{output[-2000:]}` (ccx stdout+stderr)
+- `src/digitwin/solve/mystran.py:153, 157` — `{(f06_text or output)[-2000:]}`
+- `src/digitwin/solve/foam_runner.py:109, 161` — `{output[-2000:]}`
+- `src/digitwin/solve/frd.py:129`, `src/digitwin/solve/dat.py` — parse errors echo `{line!r}`
+- `src/digitwin/io/cad.py:364` — `{proc.stderr.strip()[-500:]}` (dwg2dxf)
 
 **Impact:** these strings are surfaced to a terminal (CLI) via `RuntimeError`.
-A hostile solver binary (installed through a `MESHFORGE_*` override or placed
+A hostile solver binary (installed through a `DIGITWIN_*` override or placed
 first on PATH) or a **crafted `.frd`/`.F06`/`.dat`** can embed ANSI/OSC control
 sequences in that text. When the exception prints, the terminal interprets them
 — screen clearing, cursor manipulation, title/clipboard changes, or output
@@ -193,11 +194,11 @@ the four subprocess modules and the two solver-output parsers.
 
 ## F3 — LOW — `dwg2dxf` is the only subprocess without a timeout (hang / DoS on a malformed DWG)
 
-**STATUS: FIXED.** `src/meshforge/io/cad.py:366` passes `timeout=120`; the
+**STATUS: FIXED.** `src/digitwin/io/cad.py:366` passes `timeout=120`; the
 `TimeoutExpired` branch at `io/cad.py:370` raises a `RuntimeError` naming the
 file. Covered by `test_dwg2dxf_timeout_is_loud`.
 
-**Where:** `src/meshforge/io/cad.py:358`
+**Where:** `src/digitwin/io/cad.py:358`
 
 ```python
 proc = subprocess.run(
@@ -209,7 +210,7 @@ The three solver runners all cap execution at `timeout=600` and handle
 `subprocess.TimeoutExpired` loudly. This DWG→DXF conversion — which runs GNU
 LibreDWG, a C library parsing **hostile binary CAD**, the highest-risk parser in
 the tree — has **no timeout**. A malformed/adversarial `.dwg` that drives
-LibreDWG into a hang or pathological loop will hang the whole meshforge process
+LibreDWG into a hang or pathological loop will hang the whole DigiTwin process
 indefinitely with no diagnostic.
 
 **Impact:** denial-of-service / robustness. Combined with the fact that
@@ -224,12 +225,12 @@ loud `RuntimeError` naming the file.
 
 ## F4 — LOW — Image ingest has no `MAX_VOXELS` ceiling (memory exhaustion), unlike the geometry paths
 
-**STATUS: FIXED.** `src/meshforge/io/image.py:47` enforces the shared
+**STATUS: FIXED.** `src/digitwin/io/image.py:47` enforces the shared
 `MAX_VOXELS` before any full-array scan; the DICOM/NIfTI readers add their own
 ceilings at `io/image.py:242,270` and the CSO ROI/voxel grids at
 `io/cso.py:908,927`. Covered by `test_image_ingest_refuses_oversized_volume`.
 
-**Where:** `src/meshforge/io/image.py` — `volume_to_surface` (line 20) and
+**Where:** `src/digitwin/io/image.py` — `volume_to_surface` (line 20) and
 `load_volume` (line 100) validate `ndim`, finiteness, spacing, and level range,
 but never bound the total voxel count.
 
@@ -248,7 +249,7 @@ in geometry").
 right after the shape check:
 
 ```python
-from meshforge.geometry.centerline import MAX_VOXELS
+from digitwin.geometry.centerline import MAX_VOXELS
 if int(np.prod(array.shape)) > MAX_VOXELS:
     raise ValueError(
         f"volume {array.shape} exceeds {MAX_VOXELS} voxels; downsample first"
@@ -261,14 +262,14 @@ if int(np.prod(array.shape)) > MAX_VOXELS:
 
 **STATUS: OPEN — accepted, no action.** Re-verified 2026-08-25: both
 observations still hold exactly as written. `guard_output_path`
-(`src/meshforge/export/neutral.py:17`) is still exact-resolved-path only, and
+(`src/digitwin/export/neutral.py:17`) is still exact-resolved-path only, and
 `solve/foam_case.py` / `solve/foam_runner.py` still write case directories
 without calling it. This is the intended behaviour under the documented threat
 model (a case dir is a working directory chosen by the trusted user, not a
 declared read-only input). Revisit if a second input type can ever share a
 directory and name with a generated artifact.
 
-**Where:** `src/meshforge/export/neutral.py:17`
+**Where:** `src/digitwin/export/neutral.py:17`
 
 ```python
 def guard_output_path(out_path, *, input_paths):
@@ -341,8 +342,8 @@ These were checked and hold up — they are the reason nothing rises above Mediu
   additions add no attack surface: `open_source_path` (`app.py:350`) routes
   `.dwg`/`.dxf` to the same checksummed read-only `compute_import_cad`; the
   `_error_hint` regex (`app.py:415`) is a bounded, non-greedy match on
-  meshforge's *own* exception strings. Confirmed.
-- **The `MESHFORGE_*` executable overrides + PATH discovery** are user-controlled
+  DigiTwin's *own* exception strings. Confirmed.
+- **The `DIGITWIN_*` executable overrides + PATH discovery** are user-controlled
   executable paths that get executed — this is documented, deliberate,
   single-user trust, and the framing still holds. Each `find_*` verifies
   `Path(candidate).is_file()` before returning.

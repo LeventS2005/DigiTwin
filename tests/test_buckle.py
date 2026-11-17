@@ -15,7 +15,7 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -24,8 +24,8 @@ from meshforge.export.deck import (
     pressure_to_nodal_forces,
     write_deck,
 )
-from meshforge.solve.dat import parse_buckling_factors
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.dat import parse_buckling_factors
+from digitwin.solve.runner import find_ccx
 
 E, L = 1000.0, 20.0
 I_SEC = 1.0 / 12.0
@@ -34,7 +34,7 @@ PCR = math.pi**2 * E * I_SEC / (2 * L) ** 2  # fixed-free Euler, 0.51404
 
 def _bar_wall(n_cross: int = 4, n_layers: int = 60):
     """1 x 1 x L rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -198,7 +198,7 @@ def test_spec_preloaded_cross_validation():
 
 
 def test_session_buckle_knob_validation():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="static|frequency|heat|buckle"):
@@ -255,7 +255,7 @@ def test_euler_column_fixed_free_exact():
     factor is P_cr = pi^2 E I / (2L)^2 — C3D8R (reduced), probed +0.43%;
     THE trap regression: n_modes=6 so the degenerate first doublet cannot
     be silently skipped (n=2 returned ONLY the second doublet, exit 0)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _bar_wall()
     loads = pressure_to_nodal_forces(wall, "back", 1.0)  # uniform compression
@@ -278,7 +278,7 @@ def test_preloaded_frequency_shift():
     2% of sqrt(1 - P/P_cr) at P/P_cr in {+0.2, +0.4, -0.2} (probe <=1.2%;
     the sqrt relation is exact for pinned-pinned, first-order here).
     f_0 itself within 2% of the analytic cantilever frequency."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     rho = 1e-3
     wall = _bar_wall()
@@ -314,7 +314,7 @@ def test_session_buckle_e2e():
     bar; factors parsed + journaled. Default formulation is FULL C3D8 —
     +12% locking bias at this mesh (probed), so the band is honest 15%;
     the tight truth is the direct C3D8R test above."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_cross=3, n_layers=40)
@@ -334,8 +334,8 @@ def test_cli_deck_buckle_solve_e2e(tmp_path, capsys):
     """CLI: deck --analysis buckle on the tube under external pressure,
     then solve — factors parsed and printed (plumbing; no closed-form
     truth for tube wall buckling here)."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

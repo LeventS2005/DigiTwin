@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.pipeline import MeshingSession, _parse_fix_spec, _parse_pressure_spec
-from meshforge.solve import (
+from digitwin.pipeline import MeshingSession, _parse_fix_spec, _parse_pressure_spec
+from digitwin.solve import (
     find_ccx,
     frd_to_grid,
     parse_displacements,
@@ -71,7 +71,7 @@ def _unit_cube_frd(tmp_path: Path, *, shuffle_ids: bool = False) -> Path:
     disp = {nid: [0.1 * x, 0.1 * y, 0.1 * z] for nid, (x, y, z) in nodes}
     stress = {nid: [2.0, 0.0, 0.0, 0.0, 0.0, 0.0] for nid in ids}
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(nodes)
         + _frd_elements([(1, 1, ids)])
         + _frd_field("DISP", ["D1", "D2", "D3", "ALL"], disp)
@@ -201,9 +201,9 @@ def test_dat_parsers_roundtrip_and_absent():
 def test_find_ccx_env_override(tmp_path, monkeypatch):
     fake = tmp_path / "ccx"
     fake.write_text("#!/bin/sh\n")
-    monkeypatch.setenv("MESHFORGE_CCX", str(fake))
+    monkeypatch.setenv("DIGITWIN_CCX", str(fake))
     assert find_ccx() == str(fake)
-    monkeypatch.setenv("MESHFORGE_CCX", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIGITWIN_CCX", str(tmp_path / "missing"))
     assert find_ccx() != str(tmp_path / "missing")  # non-file falls through
 
 
@@ -224,12 +224,13 @@ def test_solve_deck_missing_deck_and_missing_ccx(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError, match="deck not found"):
         solve_deck(tmp_path / "nope.inp", tmp_path / "out", ccx="/bin/sh")
     deck = _dummy_deck(tmp_path)
+    monkeypatch.setenv("DIGITWIN_CCX", "")
     monkeypatch.setenv("MESHFORGE_CCX", "")
     monkeypatch.setenv("PATH", str(tmp_path))  # hide any real ccx
     monkeypatch.setattr(
-        "meshforge.solve.runner._CCX_FALLBACK", tmp_path / "absent"
+        "digitwin.solve.runner._CCX_FALLBACK", tmp_path / "absent"
     )
-    with pytest.raises(RuntimeError, match="not found: set MESHFORGE_CCX"):
+    with pytest.raises(RuntimeError, match="not found: set DIGITWIN_CCX"):
         solve_deck(deck, tmp_path / "out")
     with pytest.raises(RuntimeError, match="executable not found"):
         solve_deck(deck, tmp_path / "out", ccx=str(tmp_path / "ghost"))
@@ -382,7 +383,7 @@ def test_workfile_replay_includes_solve(tmp_path, monkeypatch):
     session.compute_solve(deck=str(_dummy_deck(tmp_path)), ccx=exe)
     wf = session.save_workfile(tmp_path / "s.mfwork")
 
-    from meshforge.pipeline import load_workfile, replay
+    from digitwin.pipeline import load_workfile, replay
 
     fresh = load_workfile(wf)
     results = replay(fresh)
@@ -442,13 +443,13 @@ def test_cli_solve_end_to_end(tmp_path):
     """CLI solve on a real deck: results .vtu + summary JSON land in outputs."""
     if find_ccx() is None:
         pytest.skip("CalculiX (ccx) not available")
-    from meshforge.cli import main
-    from meshforge.export.deck import (
+    from digitwin.cli import main
+    from digitwin.export.deck import (
         BoundaryCondition, DeckSpec, Load, Material, Step, lateral_pins, write_deck,
     )
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -484,7 +485,7 @@ def test_cli_solve_end_to_end(tmp_path):
 
 
 def test_cli_solve_error_paths(tmp_path):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["solve", str(tmp_path / "nope.inp"), "--outputs", str(tmp_path / "o")])
     assert rc == 1

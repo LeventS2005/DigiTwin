@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from scipy.spatial import cKDTree
 
-from meshforge.geometry import compute_centerline
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline
+from digitwin.synth import generate
 
 def _assert_coverage(cl, truth) -> None:
     """With cap extension (V4, default ON) the centerline reaches within

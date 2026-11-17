@@ -12,7 +12,7 @@ constrained bar (sigma_z = -E*alpha*(T(z,t)-T0) per node), session e2e with
 THE PROBE TRAPS (v46_probe, session 31 — independently re-verified):
 ccx's *TEMPERATURE, FILE= is unconditionally LAST-increment (BSTEP/BINC are
 "parameter not recognized" no-ops) and a missing frd is FAIL-OPEN (exit 0,
-fixed bogus temperature) — meshforge therefore always reads the frd itself
+fixed bogus temperature) — DigiTwin therefore always reads the frd itself
 and inlines per-node lines; snapshot times come from the frd's OWN time list
 (adaptive stepping makes them irregular — never assume k*dt); the pointwise
 closed form needs EVERY node axially pinned (an end-clamped bar carries the
@@ -23,20 +23,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Material,
     Step,
     write_deck,
 )
-from meshforge.solve.frd import (
+from digitwin.solve.frd import (
     FrdField,
     FrdModel,
     nodal_temperatures,
     temperature_times,
 )
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.runner import find_ccx
 
 needs_ccx = pytest.mark.skipif(
     find_ccx() is None, reason="CalculiX (ccx) not installed"
@@ -49,7 +49,7 @@ needs_ccx = pytest.mark.skipif(
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
     """1 x 1 x length rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -142,7 +142,7 @@ def test_no_temperature_field_still_loud():
 
 
 def test_session_temperature_time_refusals():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=4)
@@ -161,8 +161,8 @@ def test_session_temperature_time_refusals():
 
 
 def test_cli_temperature_time_dangling(tmp_path):
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"
@@ -185,7 +185,7 @@ def test_cli_temperature_time_dangling(tmp_path):
 def _transient_bar_frd():
     """Bar at T0=100, front face (z=0) suddenly held at 0, back insulated —
     the probe IBVP; DIRECT dt=0.5 over period 10 -> 20 NDTEMP snapshots."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _bar_wall()
     heat_spec = DeckSpec(
@@ -237,7 +237,7 @@ def test_transient_snapshot_chain_pointwise_exact():
     -E*alpha*(mean nodal T - T0) EXACTLY (Gauss mean of a trilinear field =
     its centroid value; probe: 5e-8). The two stress states must differ,
     proving the time selection picked distinct blocks."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall, frd = _transient_bar_frd()
     times = temperature_times(frd)
@@ -297,7 +297,7 @@ def test_transient_snapshot_chain_pointwise_exact():
 def test_session_transient_chain_e2e():
     """Transient heat -> static at a chosen snapshot, all in one session;
     the journal records temperature_time; a bogus time refuses loudly."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=4)
@@ -328,8 +328,8 @@ def test_session_transient_chain_e2e():
 def test_cli_transient_two_step_e2e(tmp_path, capsys):
     """CLI: deck heat --transient -> solve -> deck static --temperature-from
     --temperature-time -> solve; a bad time exits 1 listing the frd times."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

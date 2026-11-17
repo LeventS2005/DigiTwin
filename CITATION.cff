@@ -1,7 +1,7 @@
 cff-version: 1.2.0
-message: "If you use meshforge in academic work, please cite it as below."
+message: "If you use DigiTwin in academic work, please cite it as below."
 type: software
-title: "meshforge"
+title: "DigiTwin"
 abstract: >-
   Research-grade meshing toolkit that turns CAD drawings and closed or tubular
   triangulated surfaces into analysis-ready, tagged volume meshes and complete
@@ -12,8 +12,8 @@ authors:
 version: "1.0.0"
 date-released: "2026-07-24"
 license: Apache-2.0
-repository-code: "https://github.com/LeventS2005/meshforge"
-url: "https://github.com/LeventS2005/meshforge"
+repository-code: "https://github.com/LeventS2005/DigiTwin"
+url: "https://github.com/LeventS2005/DigiTwin"
 keywords:
   - mesh-generation
   - finite-element-analysis

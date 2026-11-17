@@ -1,7 +1,7 @@
 """M6 chart: our wall tension vs the dataset's published FE model, one row per case.
 
 Source: the per-case rows of the with-thrombus tension validation
-(``scripts/m3_tension_validation.py`` with ``MESHFORGE_TENSION_ILT=1``, run
+(``scripts/m3_tension_validation.py`` with ``DIGITWIN_TENSION_ILT=1``, run
 over the 12 public AAA cases of Zenodo 19182977, CC BY 4.0, doi
 10.5281/zenodo.19182977). The dataset's surfaces are a reference segmentation
 and its tension maps are its published finite-element result; the chart
@@ -38,7 +38,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "src"))  # kept for symmetry with the sibling scripts; no meshforge import needed
+sys.path.insert(0, str(REPO / "src"))  # kept for symmetry with the sibling scripts; no digitwin import needed
 
 DOI = "10.5281/zenodo.19182977"
 CAPTION = ("12 public AAA cases (Zenodo 19182977, reference segmentation), thrombus modelled; "

@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.geometry import compute_centerline, offset_wall
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline, offset_wall
+from digitwin.synth import generate
 
 
 def test_sphere_offset_is_exact_per_vertex() -> None:
@@ -80,7 +80,7 @@ def test_wall_error_branches() -> None:
 
 
 def test_backend_registry() -> None:
-    from meshforge.geometry import get_backend
+    from digitwin.geometry import get_backend
 
     backend = get_backend("native")
     assert backend.name == "native"

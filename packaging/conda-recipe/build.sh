@@ -1,5 +1,5 @@
 #!/bin/bash
-# conda-build script for the meshforge noarch package.
+# conda-build script for the digitwin noarch package.
 set -euo pipefail
 
 # Install the pure-Python package (deps are declared in meta.yaml `run:` and
@@ -7,6 +7,6 @@ set -euo pipefail
 $PYTHON -m pip install . --no-deps --no-build-isolation -vv
 
 # Ship the menuinst launcher so constructor/menuinst creates a double-click .app
-# that opens the Workbench (runs `meshforge-desktop`).
+# that opens the Workbench (runs `digitwin-desktop`).
 mkdir -p "$PREFIX/Menu"
-cp "$RECIPE_DIR/menu.json" "$PREFIX/Menu/meshforge.json"
+cp "$RECIPE_DIR/menu.json" "$PREFIX/Menu/digitwin.json"

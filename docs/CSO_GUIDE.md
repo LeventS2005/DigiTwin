@@ -1,13 +1,13 @@
-# meshforge — CSO user guide (MeVisLab contours → analysis-ready mesh)
+# DigiTwin — CSO user guide (MeVisLab contours → analysis-ready mesh)
 
 This is the step-by-step guide for loading **MeVisLab Binary CSO** contour
-files into meshforge and taking them all the way to a solver-ready volume
+files into DigiTwin and taking them all the way to a solver-ready volume
 mesh — in the app (Workbench) or on the command line. It assumes nothing;
 for the rest of the app see **[APP_GUIDE.md](APP_GUIDE.md)**, and for a
 gentle first run **[TUTORIAL.md](TUTORIAL.md)**.
 
 > **Clinical data rule (read this first).** CSO files exported from patient
-> scans are treated as READ-ONLY inputs: meshforge never modifies them, and
+> scans are treated as READ-ONLY inputs: DigiTwin never modifies them, and
 > records each file's sha256 in the import provenance. Keep them out of
 > version control — filenames alone can carry initials and scan dates. The
 > `Example CSO Files/` folder under the project root is git-ignored for
@@ -15,11 +15,11 @@ gentle first run **[TUTORIAL.md](TUTORIAL.md)**.
 
 ---
 
-## 1. What a CSO file is, and what meshforge does with it
+## 1. What a CSO file is, and what DigiTwin does with it
 
 A `.cso` file is MeVisLab's contour format: a stack of closed planar
 contours (rings) traced on CT slices — typically a segmented vessel — plus,
-optionally, an open marker chain used as a centreline guide. meshforge
+optionally, an open marker chain used as a centreline guide. DigiTwin
 reads the **Binary CSO (1,6,0)** encoding directly; no MeVisLab needed.
 
 The pipeline (`import_cso` step):
@@ -33,7 +33,7 @@ The pipeline (`import_cso` step):
 3. **Surface** the rings by one of three methods (see §3 `method`), giving
    a closed, watertight triangulated surface.
 4. The surface becomes the session's active geometry — everything else in
-   meshforge (volmesh, solve, CFD, decks, export) works from there
+   DigiTwin (volmesh, solve, CFD, decks, export) works from there
    unchanged.
 
 ---
@@ -41,9 +41,9 @@ The pipeline (`import_cso` step):
 ## 2. The 60-second happy path (Workbench)
 
 ```bash
-cd /path/to/meshforge
-conda activate meshforge
-meshforge desktop        # or: meshforge web  (same UI in the browser)
+cd /path/to/DigiTwin
+conda activate digitwin
+digitwin desktop        # or: digitwin web  (same UI in the browser)
 ```
 
 1. In the left column, scroll to the **import_cso** panel.
@@ -107,7 +107,7 @@ Two volume meshes are available from the same CSO surface:
   `wall`/`inlet`/`outlet` groups, so `foam`/`cfd`/`deck`/`solve` run on
   it unchanged. On both real UCSF families all 10 arches reach
   `inverted 0` (9 structured hex + 1 honest tet on the Test-Scans set;
-  10/10 structured hex on the Example set). CLI: `meshforge lumen
+  10/10 structured hex on the Example set). CLI: `digitwin lumen
   SURFACE.vtp` — the loft's embedded centreline is reused automatically.
   Each end is anchored on the loft's flat end cap, so the `inlet`/`outlet`
   patches ARE the caps (the log gives each patch's area against its cap's).
@@ -128,7 +128,7 @@ The loft's chosen centreline is embedded in the surface itself, so volmesh
 reuses it — this works even across a save/load of the surface `.vtp`
 (the CLI two-step in §6 relies on this).
 
-**Quality gate:** `inverted=0` is non-negotiable — meshforge refuses to
+**Quality gate:** `inverted=0` is non-negotiable — DigiTwin refuses to
 solve on a mesh with inverted cells. If you ever see inverted > 0 on a CSO
 import, re-run import_cso with `method=voxel` (or just `auto`, which does
 this dance for you), or coarsen `n_axial`/`n_theta`.
@@ -138,9 +138,9 @@ this dance for you), or coarsen `n_axial`/`n_theta`.
 ## 5. DICOM anchoring (optional, for image-aligned masks)
 
 If you have the CT series the contours were traced on, set the `dicom`
-knob (or CLI `--dicom`) to the `.dcm` file. meshforge then:
+knob (or CLI `--dicom`) to the `.dcm` file. DigiTwin then:
 
-- verifies it is the axial, axis-aligned multi-frame series meshforge
+- verifies it is the axial, axis-aligned multi-frame series DigiTwin
   supports (anything else — oblique, enhanced SOP — is refused loudly);
 - voxelises the contours **onto the scan's own image lattice** (correct
   slice spacing from the header), ROI-cropped, so the resulting mask/
@@ -159,16 +159,16 @@ Same engine, same knobs:
 
 ```bash
 # contours → watertight surface (+ provenance JSON)
-meshforge import-cso scan.cso --outputs outputs/mycase
+digitwin import-cso scan.cso --outputs outputs/mycase
 #   options: --method auto|loft|voxel   --n-ring N   --voxel-size S
 #            --no-cap   --on-open skip|close|error   --dicom series.dcm
 
 # surface → wall volume mesh (reuses the embedded centreline)
-meshforge volmesh outputs/mycase/scan_surface.vtp --thickness 1.5 \
+digitwin volmesh outputs/mycase/scan_surface.vtp --thickness 1.5 \
     --outputs outputs/mycase
 
 # volume mesh → complete solver deck (ccx/abaqus/nastran/lsdyna/ansys)
-meshforge deck outputs/mycase/scan_surface.vtp --thickness 1.5 \
+digitwin deck outputs/mycase/scan_surface.vtp --thickness 1.5 \
     --material elastic --E 1000 --nu 0.3 \
     --fix inlet,3 --pressure inner,0.016 --target ccx
 ```
@@ -177,7 +177,7 @@ Batch a folder:
 
 ```bash
 for f in "Example CSO Files"/*.cso; do
-  meshforge import-cso "$f" --outputs "outputs/batch/$(basename "$f" .cso)"
+  digitwin import-cso "$f" --outputs "outputs/batch/$(basename "$f" .cso)"
 done
 ```
 
@@ -189,11 +189,11 @@ Every command exits nonzero on failure and prints why (fail-loud rule).
 
 | Message / symptom | Meaning / fix |
 |---|---|
-| `truncated CSO: needed N more byte(s) for … at offset …` | The file is cut short (bad copy/transfer). Re-export or re-copy it; meshforge refuses partial parses of clinical data by design. |
+| `truncated CSO: needed N more byte(s) for … at offset …` | The file is cut short (bad copy/transfer). Re-export or re-copy it; DigiTwin refuses partial parses of clinical data by design. |
 | `CSO record N: implausible point count …` | Corrupt or non-CSO bytes where a contour was expected — the file is damaged or not Binary CSO (1,6,0). |
 | `coordinate magnitude … exceeds 1e+09` | A control point (or plane normal) is astronomically large — the file is corrupt (real coordinates are millimetres). Refused because such values silently overflow the meshing math into `NaN`. Re-export the segmentation. |
 | An `open editor contour` refusal / a "dropped open contour" note | A ring was left unclosed in MeVisLab. Default (`skip`) drops it and says so; use `on_open=close` for near-closed rings, or fix the segmentation and re-export. |
-| `unknown tag` errors | The file uses CSO features meshforge doesn't decode yet (e.g. VEC2/VEC4/MAT payloads). Send the file to the developer — support is added on evidence. |
+| `unknown tag` errors | The file uses CSO features DigiTwin doesn't decode yet (e.g. VEC2/VEC4/MAT payloads). Send the file to the developer — support is added on evidence. |
 | Import succeeded but the desktop window still shows the old geometry | The Workbench polls the session revision and re-syncs itself within a couple of seconds (session 34). If it genuinely doesn't, ⌘R still works — and say so, that's a bug. |
 | `inverted=N` (N > 0) after volmesh | Use `method=auto` on import (its trial-sweep exists precisely to prevent this), or fall back to `method=voxel`; coarsening `n_axial` can also help on extreme bends. |
 | `give either --thickness or --outer-surface` | volmesh needs exactly one thickness source. |

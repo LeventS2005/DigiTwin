@@ -1,4 +1,4 @@
-# constructor recipe — the self-contained meshforge Windows installer (.exe).
+# constructor recipe — the self-contained digitwin Windows installer (.exe).
 #
 # Mirrors ../construct-linux/construct.yaml with the Windows differences:
 # `installer_type: exe` (NSIS GUI installer; constructor pulls makensis on
@@ -14,7 +14,7 @@
 #
 # TRAP (D57): constructor resolves relative channel paths against the CWD —
 # run it from THIS directory (build_windows.sh does).
-name: meshforge
+name: digitwin
 version: 1.0.0
 
 channels:
@@ -23,17 +23,17 @@ channels:
 
 specs:
   - python 3.12.*
-  - meshforge 1.0.0
+  - digitwin 1.0.0
 
 installer_type:
   - exe
 
 # menuinst creates the Start-Menu shortcut from the package's Menu/
-# meshforge.json — its `win` platform block points the command at
-# Scripts\meshforge-desktop.exe (entry points live in Scripts\ on Windows,
+# digitwin.json — its `win` platform block points the command at
+# Scripts\digitwin-desktop.exe (entry points live in Scripts\ on Windows,
 # not bin/ — D69).
 menu_packages:
-  - meshforge
+  - digitwin
 
 # app bundle, not a dev conda — no system-Python registration, no shell init
 register_python: false

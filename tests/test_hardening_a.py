@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.geometry import compute_centerline, offset_wall
-from meshforge.geometry.sdf import sdf_offset_surface
-from meshforge.meshing import build_wall_lattice, get_backend
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline, offset_wall
+from digitwin.geometry.sdf import sdf_offset_surface
+from digitwin.meshing import build_wall_lattice, get_backend
+from digitwin.synth import generate
 
 # A genuinely folding case: r + t = 5 > bend radius 4.5, so an unguarded
 # swept wall must invert on the concave side (trap #2: do NOT soften this).
@@ -89,7 +89,7 @@ def test_lattice_guard_error_branches() -> None:
 
 
 def test_session_wall_default_is_sdf() -> None:
-    from meshforge.pipeline import STEP_KNOBS, MeshingSession
+    from digitwin.pipeline import STEP_KNOBS, MeshingSession
 
     assert STEP_KNOBS["wall"]["mode"][1] == "sdf"
     s = MeshingSession()

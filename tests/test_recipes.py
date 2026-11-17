@@ -8,8 +8,8 @@ import pytest
 
 yaml = pytest.importorskip("yaml")
 
-from meshforge.cli import main
-from meshforge.recipes import (
+from digitwin.cli import main
+from digitwin.recipes import (
     expand_variants,
     run_recipe,
     validate_recipe,

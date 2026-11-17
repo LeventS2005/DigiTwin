@@ -7,8 +7,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.solve.foam_case import CfdBC, CfdSpec, write_case
-from meshforge.solve.foam_runner import find_foam
+from digitwin.solve.foam_case import CfdBC, CfdSpec, write_case
+from digitwin.solve.foam_runner import find_foam
 
 RE = 1e4
 NU = 2e-4  # R=1 (D=2), U_mean=1 -> Re = 1e4
@@ -17,7 +17,7 @@ TURB_LENGTH = 0.14  # 0.07 * D
 
 
 def _ogrid_pipe(target_size: float, length: float, n_layers: int):
-    from meshforge.meshing import extrude_blocks, ogrid_disk
+    from digitwin.meshing import extrude_blocks, ogrid_disk
 
     theta = np.linspace(0, 2 * np.pi, 129)[:-1]
     circle = np.column_stack([np.cos(theta), np.sin(theta)])
@@ -149,7 +149,7 @@ def test_laminar_cases_untouched(tmp_path):
 
 
 def test_session_turbulence_knob_errors():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="turbulence knobs apply only"):
@@ -162,7 +162,7 @@ def test_session_turbulence_knob_errors():
 
 
 def test_cli_turbulence_error_paths(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["cfd", str(tmp_path), "--turbulence", "kOmegaSST"])
     assert rc == 1
@@ -193,7 +193,7 @@ def test_blasius_friction_benchmark():
     the Spalding all-y+ wall function is load-bearing: nutkWallFunction
     measured -21% here, Spalding -0.7%). dp/dz plateaus by z ~ 20-25, so
     friction is measured on z in [25, 38]. Tolerance 5% (~7x margin)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _ogrid_pipe(0.15, 40.0, 100)
@@ -230,8 +230,8 @@ def test_blasius_friction_benchmark():
 def test_cli_cfd_turbulent_smoke(tmp_path, capsys):
     """CLI e2e: polyMesh-only dir + --turbulence kOmegaSST solves and
     persists results (physics is the benchmark's job)."""
-    from meshforge.cli import main
-    from meshforge.export.foam import write_polymesh
+    from digitwin.cli import main
+    from digitwin.export.foam import write_polymesh
 
     case = tmp_path / "turb_cli"
     wall = _ogrid_pipe(0.3, 20.0, 50)

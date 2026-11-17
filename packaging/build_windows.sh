@@ -1,9 +1,9 @@
 #!/bin/bash
-# Session 31 — reproducible build of the self-contained meshforge WINDOWS
+# Session 31 — reproducible build of the self-contained digitwin WINDOWS
 # installer (.exe). Runs natively on a win-64 machine or runner under
 # Git-Bash — constructor's NSIS tooling cannot cross-build (probe, session 30):
 #
-#   bash packaging/build_windows.sh  ->  dist/meshforge-<ver>-Windows-x86_64.exe
+#   bash packaging/build_windows.sh  ->  dist/digitwin-<ver>-Windows-x86_64.exe
 #
 # Two modes:
 #   default          — full build: noarch package (build_channel.sh) + exe.
@@ -31,8 +31,8 @@ export CONDA_SOLVER=libmamba
 
 if [ "${SKIP_PKG_BUILD:-0}" = "1" ]; then
     echo "==> 1/3  SKIP_PKG_BUILD=1: using the prebuilt noarch channel"
-    ls "$LOCAL_CH"/noarch/meshforge-*.conda >/dev/null \
-        || { echo "ERROR: no meshforge package in $LOCAL_CH/noarch — build it first (build_channel.sh)"; exit 1; }
+    ls "$LOCAL_CH"/noarch/digitwin-*.conda >/dev/null \
+        || { echo "ERROR: no digitwin package in $LOCAL_CH/noarch — build it first (build_channel.sh)"; exit 1; }
     # the solve targets win-64: make sure the subdir exists and is indexed
     mkdir -p "$LOCAL_CH/win-64"
     "$CONDA" run -n base conda index "$LOCAL_CH"
@@ -48,4 +48,4 @@ mkdir -p "$DIST"
 ( cd "$HERE/construct-windows" && "$CONDA" run -n base constructor . --output-dir "$DIST" )
 
 echo "==> 3/3  artifacts:"
-ls -la "$DIST"/meshforge-*.exe
+ls -la "$DIST"/digitwin-*.exe

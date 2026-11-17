@@ -2,7 +2,7 @@
 
 ## Threat model
 
-meshforge is a **local, single-user, offline** tool: it runs on your machine, the
+DigiTwin is a **local, single-user, offline** tool: it runs on your machine, the
 web/desktop Workbench binds `127.0.0.1` only, and nothing is uploaded anywhere.
 The user and their own CLI arguments are therefore **trusted** — the real trust
 boundary is the **files you open** (`.dwg`/`.dxf`, `.stl`/`.ply`/`.vtp`, `.cso`,
@@ -13,16 +13,16 @@ hard rule is **fail loudly, never fail open** — a bad input must raise, not
 quietly produce a plausible-looking mesh or a corrupted solver deck.
 
 Out of scope: multi-tenant or networked deployment (the app refuses any non-
-loopback host), privilege boundaries, and the `MESHFORGE_CCX` /
-`MESHFORGE_MYSTRAN` / `MESHFORGE_OPENFOAM` executable-path overrides — those are
+loopback host), privilege boundaries, and the `DIGITWIN_CCX` /
+`DIGITWIN_MYSTRAN` / `DIGITWIN_OPENFOAM` executable-path overrides — those are
 documented, deliberately-trusted knobs, though the *output* of whatever they
 point at is still treated as untrusted and sanitised before it reaches your
-terminal.
+terminal. (The older `MESHFORGE_<X>` names are still read.)
 
 ## Reporting a vulnerability
 
 Please report privately rather than opening a public issue: use
-[GitHub's private vulnerability reporting](https://github.com/LeventS2005/meshforge/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/LeventS2005/DigiTwin/security/advisories/new)
 on this repository. Include the crafted input (a *synthetic* one — never a
 clinical file), the command or Workbench step that triggers it, and what went
 wrong.

@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.geometry import compute_centerline
-from meshforge.meshing import get_backend
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline
+from digitwin.meshing import get_backend
+from digitwin.synth import generate
 
 # ---------------------------------------------------------------------------
 # fix 1: centerline cap extension (BACKLOG #1)
@@ -108,7 +108,7 @@ def test_tet_optimize_lifts_sliver_floor() -> None:
 
 
 def test_interior_point_mask_matches_deprecated_filter() -> None:
-    from meshforge.geometry.compat import interior_point_mask
+    from digitwin.geometry.compat import interior_point_mask
 
     sphere = pv.Sphere(radius=5.0)
     # Off-lattice origin: points exactly ON the surface are legitimate

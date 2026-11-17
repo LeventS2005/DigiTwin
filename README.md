@@ -1,6 +1,6 @@
-# meshforge
+# DigiTwin
 
-[![CI](https://github.com/LeventS2005/meshforge/actions/workflows/ci.yml/badge.svg)](https://github.com/LeventS2005/meshforge/actions/workflows/ci.yml)
+[![CI](https://github.com/LeventS2005/DigiTwin/actions/workflows/ci.yml/badge.svg)](https://github.com/LeventS2005/DigiTwin/actions/workflows/ci.yml)
 
 Research-grade meshing toolkit: turns CAD drawings and closed/tubular
 triangulated surfaces (.dwg/.dxf/.stl/.ply/.vtp) into analysis-ready, tagged
@@ -9,7 +9,7 @@ volume meshes and complete solver input decks (CalculiX-verified Abaqus
 
 ## Feature map (vs TrueGrid's advertised set)
 
-| TrueGrid feature | meshforge | Where |
+| TrueGrid feature | DigiTwin | Where |
 |---|---|---|
 | The Projection Method | proxy block meshes snapped onto curved profiles, exact corner capture, TFI re-blend, quality gate | `meshing/project.py`, `blocks --project` |
 | Multi-block Structures | rectilinear block decomposition → structured quads (exact index-arithmetic edge merge) → tagged hexes | `meshing/blocks.py`, `blocks` |
@@ -23,7 +23,7 @@ volume meshes and complete solver input decks (CalculiX-verified Abaqus
 
 ### Beyond TrueGrid (roadmap v3)
 
-| Capability | meshforge | Where |
+| Capability | DigiTwin | Where |
 |---|---|---|
 | In-app solve + results read-back | CalculiX runner (temp-dir staged, fail-loud) + `.frd`/`.dat` parsers; displacements/stresses attached to the session mesh as point data (`DISP`, `U_mag`, `S_mises`), Lamé-validated end to end | `solve/`, `solve`, GUI "solve" step |
 | CFD mesh output (OpenFOAM) | `constant/polyMesh` writer: owner/neighbour extraction with outward winding (divergence-theorem verified), named patches from boundary groups, hard error on uncovered faces | `export/foam.py`, `foam`, `save("foam", …)` |
@@ -53,15 +53,15 @@ volume meshes and complete solver input decks (CalculiX-verified Abaqus
 
 ```bash
 conda env create -f environment.yml --solver=libmamba
-conda activate meshforge
+conda activate digitwin
 ```
 
 **This gives you the CLI.** `environment.yml` installs the base dependencies
 only, and the `-e .` inside it pulls no extras — everything optional is
 lazy-imported so the CLI never pays for a dependency it does not use. Check it
-with `meshforge --help`.
+with `digitwin --help`.
 
-> Already have a conda env called `meshforge`? `environment.yml` names it, so
+> Already have a conda env called `digitwin`? `environment.yml` names it, so
 > the command above targets *that* env and its editable install will be
 > repointed at this clone. Use `-n <other-name>` to keep them apart.
 
@@ -73,7 +73,7 @@ pip install -e ".[web]"
 conda install -c conda-forge trame-vtk trame-vuetify pyside6 qt6-webengine
 ```
 
-Then `meshforge-desktop` for a native window, or `meshforge-web` for the same
+Then `digitwin-desktop` for a native window, or `digitwin-web` for the same
 UI in a browser on `127.0.0.1`. Running either without these installed tells
 you exactly what is missing — it does not fail with a bare import error.
 
@@ -97,11 +97,11 @@ CalculiX/OpenFOAM/MYSTRAN installs.
 > build, not a download link.
 
 ```bash
-bash packaging/build.sh      # macOS arm64 -> dist/meshforge-1.0.0-MacOSX-arm64.pkg (+ .sh)
+bash packaging/build.sh      # macOS arm64 -> dist/digitwin-1.0.0-MacOSX-arm64.pkg (+ .sh)
 ```
 
 Double-click the resulting **`.pkg`** → the wizard lays down a self-contained
-environment and a **meshforge** app; launch it to open the Workbench (a native
+environment and a **DigiTwin** app; launch it to open the Workbench (a native
 window over the local 127.0.0.1 web UI). See
 [`packaging/README.md`](packaging/README.md) for the full recipe.
 The FEA/CFD **solvers stay external and optional** (CalculiX/OpenFOAM/MYSTRAN,
@@ -115,21 +115,21 @@ details in [`packaging/README.md`](packaging/README.md)).
 
 ## Use
 ```bash
-meshforge import-cad drawing.dwg --list-blocks    # CAD → cleaned profile
-meshforge blocks outputs/drawing_profile.json     # profile → hex mesh
-meshforge synth y_junction                        # synthetic surfaces + truths
-meshforge volmesh outputs/torus.vtp --thickness 0.4
-meshforge deck tube.vtp --thickness 1 --E 1000 --nu 0.3 \
+digitwin import-cad drawing.dwg --list-blocks    # CAD → cleaned profile
+digitwin blocks outputs/drawing_profile.json     # profile → hex mesh
+digitwin synth y_junction                        # synthetic surfaces + truths
+digitwin volmesh outputs/torus.vtp --thickness 0.4
+digitwin deck tube.vtp --thickness 1 --E 1000 --nu 0.3 \
     --fix inlet,3 --fix outlet,3 --pin-lateral --pressure inner,1 --target ccx
-meshforge solve outputs/tube_ccx.inp              # run CalculiX, read results back
-meshforge foam tube.vtp --thickness 1 --case outputs/tube_case   # OpenFOAM polyMesh
-meshforge cfd outputs/tube_case --nu 0.1 \
+digitwin solve outputs/tube_ccx.inp              # run CalculiX, read results back
+digitwin foam tube.vtp --thickness 1 --case outputs/tube_case   # OpenFOAM polyMesh
+digitwin cfd outputs/tube_case --nu 0.1 \
     --inlet inlet=0,0,1 --outlet outlet=0         # run OpenFOAM, read U/p back
-meshforge run study.yaml                          # parameter sweep
-meshforge repair damaged.stl                      # surface clean-up
-meshforge replay outputs/session.mfwork --set volmesh.thickness=0.6
-meshforge web                                     # web Workbench (browser, 127.0.0.1)
-meshforge desktop                                 # same Workbench in a native window
+digitwin run study.yaml                          # parameter sweep
+digitwin repair damaged.stl                      # surface clean-up
+digitwin replay outputs/session.mfwork --set volmesh.thickness=0.6
+digitwin web                                     # web Workbench (browser, 127.0.0.1)
+digitwin desktop                                 # same Workbench in a native window
 python -m pytest                                  # test suite
 ```
 
@@ -141,11 +141,11 @@ kept *outside* the repo tree; they are checksummed on sight and never copied in
 or committed. Cases are referred to only by pseudonymous
 study code (`VAM1`, `VAM997`, …) — never by a filename, because segmentation
 filenames carry patient initials and scan dates. The gated family tests locate
-that folder via `MESHFORGE_CSO_FAMILY_DIR` (or a git-ignored
+that folder via `DIGITWIN_CSO_FAMILY_DIR` (or a git-ignored
 `tests/.local_family_dir`) and skip cleanly when it is absent, which is what CI
 does.
 
-meshforge is research-grade software: **not a medical device**, not cleared or
+DigiTwin is research-grade software: **not a medical device**, not cleared or
 approved by any regulatory body, and not for diagnosis or treatment.
 
 ## License

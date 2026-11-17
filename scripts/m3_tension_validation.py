@@ -14,7 +14,7 @@ rebuilt here with the gate's own calls and checked point-identical to
 ``outputs/m2/gate/<case>/wall.vtu``. Then the D88 solve at 0.016 MPa, both
 caps encastre: by default on the wall's inner surface with NO thrombus (so
 ours should read higher where their thrombus carries load); with
-``MESHFORGE_TENSION_ILT=1`` the thrombus is a tied solid (D91, E 5 MPa) and
+``DIGITWIN_TENSION_ILT=1`` the thrombus is a tied solid (D91, E 5 MPa) and
 the pressure acts on its lumen faces, as in theirs. The tension follows the
 product's rule (``aaa_metrics.tension_thickness``): integrated along each
 column's measured normal thickness unless every column is 1.5 mm thick along
@@ -39,20 +39,21 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
+from digitwin.envvars import env_value
+
 ROOT = Path.cwd()
 ZEN = ROOT / "outputs/data/zenodo_19182977/extracted/Dataset_root"
 GATE = ROOT / "outputs/m2/gate"
 OUT = ROOT / "outputs/m3"
-#: MESHFORGE_TENSION_ILT=1: our model includes the thrombus as a tied solid
+#: DIGITWIN_TENSION_ILT=1: our model includes the thrombus as a tied solid
 #: (D91), like theirs; results go to the *_ilt files beside the wall-only ones
-WITH_ILT = os.environ.get("MESHFORGE_TENSION_ILT") == "1"
+WITH_ILT = env_value("TENSION_ILT") == "1"
 TAG = "_ilt" if WITH_ILT else ""
 WORK = OUT / f"tension_validation{TAG}"
 P_THEIRS_MPA = 0.016  # their *Dsload 16e-03 (MPa) = 120.0 mmHg
@@ -65,10 +66,10 @@ VARIANTS = ("neck", "bending", "none")
 
 def gate_wall(case: str):
     """The M2 gate wall, rebuilt with the gate script's calls."""
-    from meshforge.geometry import centerline_from_surface
-    from meshforge.geometry.crop import crop_aaa
-    from meshforge.io.zenodo_aaa import load_reference
-    from meshforge.meshing import get_backend
+    from digitwin.geometry import centerline_from_surface
+    from digitwin.geometry.crop import crop_aaa
+    from digitwin.io.zenodo_aaa import load_reference
+    from digitwin.meshing import get_backend
 
     ref = load_reference(ZEN / case)
     outer = ref.regions["lumen_ilt"].triangulate()
@@ -86,7 +87,7 @@ def compare(case: str, log) -> list[dict]:
     from scipy.spatial import cKDTree
     from scipy.stats import spearmanr
 
-    import meshforge.solve.aaa_metrics as am
+    import digitwin.solve.aaa_metrics as am
 
     t0 = time.time()
     wall, rep, lumen_ref, crop_res = gate_wall(case)
@@ -105,8 +106,8 @@ def compare(case: str, log) -> list[dict]:
     cols = am._columns(wall)
     ilt = None
     if WITH_ILT:
-        from meshforge.geometry.crop import planes_from_report
-        from meshforge.solve.ilt import build_ilt_mesh
+        from digitwin.geometry.crop import planes_from_report
+        from digitwin.solve.ilt import build_ilt_mesh
 
         ilt = build_ilt_mesh(crop_res.lumen, crop_res.surface, planes_from_report(rep))
         log(f"{case}: thrombus {len(ilt.tets)} C3D10, {ilt.volume_ml:.1f} mL")

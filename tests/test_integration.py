@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.pipeline import MeshingSession, replay
+from digitwin.pipeline import MeshingSession, replay
 
 
 @pytest.fixture()
@@ -42,8 +42,8 @@ def test_session_blocks_requires_profile():
 
 
 def test_session_repair_invalidates_downstream():
-    from meshforge.quality import degrade_surface
-    from meshforge.synth import generate
+    from digitwin.quality import degrade_surface
+    from digitwin.synth import generate
 
     s = MeshingSession()
     s.generate_synth("straight_tube", n_theta=32, n_axial=21)
@@ -61,8 +61,8 @@ def test_session_repair_invalidates_downstream():
 
 
 def test_repair_step_replays_from_workfile(tmp_path):
-    from meshforge.pipeline import load_workfile
-    from meshforge.synth import generate
+    from digitwin.pipeline import load_workfile
+    from digitwin.synth import generate
 
     s = MeshingSession()
     s.generate_synth("straight_tube", n_theta=32, n_axial=21)
@@ -87,7 +87,7 @@ def test_session_replay_step_wraps_replay():
 
 
 def test_session_screenshot_offscreen(tmp_path):
-    from meshforge.synth import generate
+    from digitwin.synth import generate
 
     s = MeshingSession()
     s.generate_synth("straight_tube", n_theta=32, n_axial=21)

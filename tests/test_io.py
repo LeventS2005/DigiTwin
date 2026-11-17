@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import pyvista as pv
 
-from meshforge.io import file_sha256, load_surface
+from digitwin.io import file_sha256, load_surface
 
 
 def test_load_surface_returns_polydata(sphere_stl: Path) -> None:

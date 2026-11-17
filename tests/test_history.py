@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from meshforge.cli import main
-from meshforge.pipeline import MeshingSession, load_workfile, replay
+from digitwin.cli import main
+from digitwin.pipeline import MeshingSession, load_workfile, replay
 
 
 def _run_pipeline(session: MeshingSession) -> None:

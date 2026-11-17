@@ -15,7 +15,7 @@ the curve is read from the Series IX text report (raw load), not the xls
 ("adjusted load" = raw load minus a 0-0.1 N offset, under 2 % at failure in
 the AAA data), because no xls reader is installed.
 
-The AAA band comes from ``meshforge.tissue`` (the library the investigational
+The AAA band comes from ``digitwin.tissue`` (the library the investigational
 index uses), quantiles from ``strength_quantiles`` for every band. The demo
 index is NOT changed: this chart only places the normal wall beside it.
 
@@ -41,8 +41,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))  # our own conversions and the strength library
 
-from meshforge.tissue import mechanics as mech  # noqa: E402
-from meshforge.tissue.strength import load_strength_library, strength_quantiles  # noqa: E402
+from digitwin.tissue import mechanics as mech  # noqa: E402
+from digitwin.tissue.strength import load_strength_library, strength_quantiles  # noqa: E402
 
 DOI = "10.17632/yfj4wfszbw.4"
 CREDIT = "USP normal abdominal aorta tensile data (Gomes et al.), Mendeley Data, CC BY 4.0, doi " + DOI
@@ -110,7 +110,7 @@ def validate_on_aaa(root: Path) -> dict:
     for line in (root / "_sha256.txt").read_text().splitlines():
         h, rel = line.split(maxsplit=1)
         sums[rel.removeprefix("./")] = h
-    lib = REPO / "src" / "meshforge" / "data" / "strength_v0.csv"
+    lib = REPO / "src" / "digitwin" / "data" / "strength_v0.csv"
     diffs = []
     for row in csv.DictReader(lib.read_text().splitlines()):
         if row["data_kind"] != "raw_curve" or not row["source_report"]:
@@ -191,7 +191,7 @@ def main(argv=None) -> int:
         pws = (float(s["systolic"]["von_mises_p99_mpa"]), float(s["systolic"]["pressure_mmhg"]))
     result = {
         "what": "wall failure strength (Cauchy, incompressible strip; first-peak rule), empirical P10/P50/P90",
-        "units": "MPa", "normal_source": CREDIT, "aaa_source": "meshforge strength library v0 (doi 10.17632/x64srrc39p.3)",
+        "units": "MPa", "normal_source": CREDIT, "aaa_source": "DigiTwin strength library v0 (doi 10.17632/x64srrc39p.3)",
         "method_note": "normal strips read from the Series IX text reports (raw load); the AAA library uses the "
                        "xls adjusted load (raw minus a 0-0.1 N offset)",
         "bands": bands, "demo_pws_mpa": pws[0] if pws else None,
@@ -253,7 +253,7 @@ def _chart(result: dict, pws, path: Path) -> None:
              fontsize=12, color=ink)
     fig.text(0.05, 0.048, f"Normal aorta: {CREDIT}.", fontsize=10.5, color=muted)
     fig.text(0.05, 0.028, "AAA: USP AAA tensile data (Gomes et al.), Mendeley Data, CC BY 4.0, doi "
-             "10.17632/x64srrc39p.3 (meshforge strength library v0).", fontsize=10.5, color=muted)
+             "10.17632/x64srrc39p.3 (DigiTwin strength library v0).", fontsize=10.5, color=muted)
     fig.text(0.05, 0.008, "Normal strips read from the instrument's text reports (raw load; on the AAA reports this "
              "reproduces the library within 1 %); first-peak rule for late peaks; empirical quantiles. Not a "
              "diagnosis.", fontsize=10.5, color=muted)

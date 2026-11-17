@@ -8,7 +8,7 @@
 # push should pay for. Constructor CANNOT cross-build (its winexe.py execs a
 # native makensis; probe, session 30) — hence the windows-latest job.
 #
-# TWO JOBS (D69): the meshforge package is NOARCH = platform-portable, and
+# TWO JOBS (D69): the digitwin package is NOARCH = platform-portable, and
 # conda-build's generated cmd wrapper died with a parse error on the first
 # windows-latest run — so the package builds on ubuntu (the proven Linux
 # path) and the Windows job only runs constructor + the smoke test.
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: meshforge-local-channel
+          name: digitwin-local-channel
           path: packaging/local-channel/
           retention-days: 1
           if-no-files-found: error
@@ -79,7 +79,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: meshforge-local-channel
+          name: digitwin-local-channel
           path: packaging/local-channel/
 
       - name: Build the installer from the prebuilt channel
@@ -94,12 +94,12 @@ jobs:
         timeout-minutes: 45
         shell: pwsh
         run: |
-          $installer = (Get-ChildItem dist/meshforge-*-Windows-*.exe).FullName
+          $installer = (Get-ChildItem dist/digitwin-*-Windows-*.exe).FullName
           Write-Host "installing $installer"
           $p = Start-Process -FilePath $installer -ArgumentList '/S','/D=C:\mfapp' -Wait -PassThru
           Write-Host "installer exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
-          if (!(Test-Path 'C:\mfapp\Scripts\meshforge.exe')) { Write-Host 'meshforge.exe missing after install'; exit 1 }
+          if (!(Test-Path 'C:\mfapp\Scripts\digitwin.exe')) { Write-Host 'digitwin.exe missing after install'; exit 1 }
 
       - name: Smoke test (CLI pipeline + web /health — no GUI assertion possible headlessly)
         timeout-minutes: 20
@@ -107,14 +107,14 @@ jobs:
           PREFIX=/c/mfapp
           # entry points live in Scripts\ on Windows (not bin/)
           SMOKE="$RUNNER_TEMP\\smoke"
-          "$PREFIX/Scripts/meshforge.exe" synth straight_tube --outputs "$SMOKE"
-          "$PREFIX/Scripts/meshforge.exe" volmesh "$SMOKE\\straight_tube.vtp" \
+          "$PREFIX/Scripts/digitwin.exe" synth straight_tube --outputs "$SMOKE"
+          "$PREFIX/Scripts/digitwin.exe" volmesh "$SMOKE\\straight_tube.vtp" \
               --thickness 0.5 --outputs "$SMOKE"
           # stdio DETACHED to a file: a background child holding the step's
           # stdout pipe keeps the bash step alive forever on windows runners
           # (run 2 hung this way — the MSYS kill takes the exe shim, not its
           # Windows python child, and the orphan pinned the pipe; D69).
-          "$PREFIX/Scripts/meshforge.exe" web --port 8765 \
+          "$PREFIX/Scripts/digitwin.exe" web --port 8765 \
               > "$RUNNER_TEMP/web.log" 2>&1 &
           server=$!
           ok=""
@@ -127,14 +127,14 @@ jobs:
             exit 1
           fi
           curl -fs http://127.0.0.1:8765/schema > /dev/null
-          curl -fs http://127.0.0.1:8765/app/ | grep -qi meshforge
+          curl -fs http://127.0.0.1:8765/app/ | grep -qi digitwin
           # kill the WHOLE tree, not just the shim (//T), then the MSYS job
-          taskkill //F //T //IM meshforge.exe || true
+          taskkill //F //T //IM digitwin.exe || true
           kill "$server" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v7
         with:
-          name: meshforge-windows-installer
-          path: dist/meshforge-*-Windows-*.exe
+          name: digitwin-windows-installer
+          path: dist/digitwin-*-Windows-*.exe
           retention-days: 14
           if-no-files-found: error

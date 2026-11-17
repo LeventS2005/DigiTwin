@@ -10,15 +10,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.solve.foam_case import CfdBC, CfdSpec, write_case
-from meshforge.solve.foam_runner import CfdResult, find_foam
+from digitwin.solve.foam_case import CfdBC, CfdSpec, write_case
+from digitwin.solve.foam_runner import CfdResult, find_foam
 
 # ---------------------------------------------------------------------------
 # fixtures
 
 
 def _pipe_wall(target_size: float, length: float, n_layers: int):
-    from meshforge.meshing import extrude_blocks, ogrid_disk
+    from digitwin.meshing import extrude_blocks, ogrid_disk
 
     theta = np.linspace(0, 2 * np.pi, 129)[:-1]
     circle = np.column_stack([np.cos(theta), np.sin(theta)])  # R = 1, CCW
@@ -121,14 +121,14 @@ def test_result_with_series_reports_frames():
 
 
 def test_series_knob_is_declared():
-    from meshforge.pipeline import STEP_KNOBS
+    from digitwin.pipeline import STEP_KNOBS
 
     assert "series" in STEP_KNOBS["cfd"]
 
 
 def test_cli_series_commensurability_is_loud(tmp_path, capsys):
     # Spec validation fires before OpenFOAM (or even a polyMesh) is needed.
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main([
         "cfd", str(tmp_path),
@@ -155,7 +155,7 @@ def test_startup_hagen_poiseuille_series_benchmark():
     the steady Hagen-Poiseuille profile (centerline -> 2*U_mean exactly
     in the limit; probe measured -1.25% at ts=0.15), the written times
     come back sorted and complete, and every frame lives on one mesh."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _pipe_wall(0.15, 10.0, 25)
@@ -194,7 +194,7 @@ def test_startup_hagen_poiseuille_series_benchmark():
 def test_series_replay_is_identical():
     """Replaying the journaled cfd step reproduces the identical series
     (same times, frame count, and read-back extrema)."""
-    from meshforge.pipeline import MeshingSession, replay
+    from digitwin.pipeline import MeshingSession, replay
 
     session = MeshingSession()
     session.volmesh = _pipe_wall(0.3, 10.0, 10)
@@ -218,7 +218,7 @@ def test_series_replay_is_identical():
 def test_series_works_on_existing_complete_case(tmp_path):
     """The series knob is a read-back knob: it applies to a complete
     external case as well (no BC/turbulence knobs involved)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     case = tmp_path / "pipe_ext"
     wall = _pipe_wall(0.3, 10.0, 10)
@@ -233,8 +233,8 @@ def test_series_works_on_existing_complete_case(tmp_path):
 
 @needs_foam
 def test_cli_cfd_series_e2e(tmp_path, capsys):
-    from meshforge.cli import main
-    from meshforge.export.foam import write_polymesh
+    from digitwin.cli import main
+    from digitwin.export.foam import write_polymesh
 
     case = tmp_path / "pipe_cli"
     wall = _pipe_wall(0.3, 10.0, 10)

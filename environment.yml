@@ -3,8 +3,8 @@
 #
 # GUI phase (M6) additions must come from conda-forge on macOS, NOT pip
 # (a pip PySide6 bundles a second Qt next to conda's qt6-main -> exit 134):
-#   conda install -n meshforge -c conda-forge pyside6 pyvistaqt
-name: meshforge
+#   conda install -n digitwin -c conda-forge pyside6 pyvistaqt
+name: digitwin
 channels:
   - conda-forge
 # Bands mirror pyproject.toml (V43, D65). numpy is capped tight because

@@ -26,7 +26,7 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -35,7 +35,7 @@ from meshforge.export.deck import (
     pressure_to_nodal_forces,
     write_deck,
 )
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.runner import find_ccx
 
 E, L = 1000.0, 20.0
 I_SEC = 1.0 / 12.0
@@ -45,7 +45,7 @@ AMP = 0.01  # mode-1 imperfection amplitude (0.05% of L) — a test seed, not a 
 
 def _bar_wall(n_cross: int = 4, n_layers: int = 60):
     """1 x 1 x L rectilinear hex bar via the V5 blocks path (V32 fixture)."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -178,7 +178,7 @@ def test_plain_decks_unchanged_by_riks(tmp_path):
 
 
 def test_session_riks_knob_validation():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="static-analysis knob"):
@@ -203,7 +203,7 @@ def test_session_riks_knob_validation():
 
 
 def test_cload_spec_parser():
-    from meshforge.pipeline import _parse_cload_spec
+    from digitwin.pipeline import _parse_cload_spec
 
     ld = _parse_cload_spec("back,3,-0.04")
     assert ld.kind == "cload" and ld.dof == 3 and ld.magnitude == -0.04
@@ -238,7 +238,7 @@ def test_riks_column_elastica():
     """Imperfection-seeded fixed-free column, *STATIC, RIKS: the traced
     (reaction, tip deflection) path recovers Euler P_cr at take-off and
     lies on the exact clamped-free elastica in deep post-buckling."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _seed_imperfection(_bar_wall())
     deck = write_deck(
@@ -283,7 +283,7 @@ def test_session_riks_e2e():
     reaction still crosses P_cr at take-off. Uses a DEAD cload (not the
     follower ``pressure`` — a follower load destabilises the free tip) and
     reduced C3D8R (FULL C3D8 shear-locks and stalls at the knee)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     # a coarse mesh needs a larger seed so the sharp knee doesn't cut back
@@ -307,7 +307,7 @@ def test_session_riks_e2e():
 def test_cli_deck_riks_solve_e2e(tmp_path, capsys):
     """CLI: deck --riks --nlgeom writes a *STATIC, RIKS deck; solve traces
     it and prints the per-increment arc-length count (load from RF)."""
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     # the seeded column, written straight to a runnable deck
     wall = _seed_imperfection(_bar_wall(n_cross=3, n_layers=40), amp=0.05)
@@ -321,7 +321,7 @@ def test_cli_deck_riks_solve_e2e(tmp_path, capsys):
     assert "riks incs" in out
 
     # and the deck CLI flag emits the RIKS card (fast, ungated path)
-    from meshforge.synth import generate
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"
@@ -342,8 +342,8 @@ def test_cli_deck_riks_solve_e2e(tmp_path, capsys):
 
 def test_cli_deck_riks_needs_nlgeom(tmp_path):
     """deck --riks without --nlgeom fails loud (rc 1)."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

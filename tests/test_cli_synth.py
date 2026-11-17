@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from meshforge.cli import main
+from digitwin.cli import main
 
 
 def test_synth_end_to_end(tmp_path: Path, capsys) -> None:
@@ -21,8 +21,8 @@ def test_synth_end_to_end(tmp_path: Path, capsys) -> None:
     assert "truth volume" in capsys.readouterr().out
 
     # The generated file must round-trip through our own loader/inspector.
-    from meshforge.io import file_sha256, load_surface
-    from meshforge.quality import inspect_surface
+    from digitwin.io import file_sha256, load_surface
+    from digitwin.quality import inspect_surface
 
     report = inspect_surface(
         load_surface(surface_path),

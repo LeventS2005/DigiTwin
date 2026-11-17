@@ -14,7 +14,7 @@ Parts (each is skipped, with a note, when its input is missing):
   markdown (``## ``, ``**``) stops the script. Then headless Chrome captures
   it (top, full page, phone width, print PDF);
 * Workbench twin panel before / with the run (``--workbench``: a RUNNING
-  Workbench, e.g. ``meshforge web --port 8139``; this script starts no
+  Workbench, e.g. ``digitwin web --port 8139``; this script starts no
   server): session reset → capture, work file loaded with replay off and
   the ``--flow-metrics`` attached (``POST /twin/flow``, as the copilot does
   with ``--server``; skipped if the work file already carries them) →
@@ -75,25 +75,25 @@ def report_preview(run: Path, out_dir: Path, flow_metrics: Path | None) -> Path:
     """report.html for the figures: re-rendered from the run's work file by this
     checkout's renderer (a live copilot run keeps its own page if this renderer
     wrote it). Refuses a page that still shows raw markdown."""
-    from meshforge.copilot.report import REPORT_HTML_MARKER
+    from digitwin.copilot.report import REPORT_HTML_MARKERS
 
     out_dir.mkdir(parents=True, exist_ok=True)
     page = run / "report.html"
     live = (run / "transcript.json").is_file()
-    if live and page.is_file() and REPORT_HTML_MARKER in page.read_text():
+    if live and page.is_file() and any(m in page.read_text() for m in REPORT_HTML_MARKERS):
         shutil.copy2(page, out_dir / "report.html")
         if (run / "report.md").is_file():
             shutil.copy2(run / "report.md", out_dir / "report.md")
     else:
         _rerender(run, out_dir, flow_metrics)
     html = (out_dir / "report.html").read_text()
-    if REPORT_HTML_MARKER not in html or "## " in html or "**" in html:
+    if not any(m in html for m in REPORT_HTML_MARKERS) or "## " in html or "**" in html:
         raise SystemExit(f"{out_dir / 'report.html'}: not the HTML report (raw markdown or no renderer marker)")
     return out_dir / "report.html"
 
 
 def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
-    from meshforge.copilot.report import render_report, tools_from_journal
+    from digitwin.copilot.report import render_report, tools_from_journal
 
     journal = json.loads((run / "session.mfwork").read_text())["journal"]
     tools, journal_flow, scan = tools_from_journal(journal)
@@ -109,7 +109,7 @@ def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
         guard_note="scripted dry run: no Claude summary", model="(none)",
         flow=(json.loads(flow_metrics.read_text()) if flow_metrics and flow_metrics.is_file()
               else journal_flow or None),
-        replay_hint="meshforge replay session.mfwork")
+        replay_hint="digitwin replay session.mfwork")
     (out_dir / "report.md").write_text(md)
     (out_dir / "report.html").write_text(html)
 
@@ -199,7 +199,7 @@ def _j(path: Path):
 
 
 def write_index(out: Path, made: dict[str, str], skipped: list[str], src: dict[str, Path]) -> None:
-    from meshforge.copilot.report import tools_from_journal
+    from digitwin.copilot.report import tools_from_journal
 
     stress, wss, rv, normal = (_j(src[k]) for k in ("stress", "wss", "rv", "normal"))
     val = _j(src["validation"]) if "10_validation_12cases.png" in made else None  # only when this build made it

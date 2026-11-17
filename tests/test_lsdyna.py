@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -26,7 +26,7 @@ from meshforge.export.deck import (
 
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 2, length: float = 2.0):
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -36,9 +36,9 @@ def _bar_wall(n_cross: int = 2, n_layers: int = 2, length: float = 2.0):
 def _tet_wall():
     """Tet mesh via the gmsh backend on the tube (skips without gmsh)."""
     pytest.importorskip("gmsh")
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -272,8 +272,8 @@ def test_lsdyna_refusals(tmp_path):
 
 
 def test_cli_deck_lsdyna_e2e(tmp_path, capsys):
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

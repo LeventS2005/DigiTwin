@@ -31,12 +31,12 @@ import time  # noqa: E402
 import numpy as np  # noqa: E402
 from scipy import ndimage  # noqa: E402
 
-import meshforge  # noqa: E402
-from meshforge.geometry.sac import recover_sac_from_files  # noqa: E402
-from meshforge.io.nrrd import read_nrrd  # noqa: E402
-from meshforge.io.segment import MAX_CT_VOXELS, write_ct_nifti  # noqa: E402
-from meshforge.io.zenodo_aaa import load_reference, validate_against_reference  # noqa: E402
-from meshforge.quality.overlap import slab_mask, voxelize_surface  # noqa: E402
+import digitwin  # noqa: E402
+from digitwin.geometry.sac import recover_sac_from_files  # noqa: E402
+from digitwin.io.nrrd import read_nrrd  # noqa: E402
+from digitwin.io.segment import MAX_CT_VOXELS, write_ct_nifti  # noqa: E402
+from digitwin.io.zenodo_aaa import load_reference, validate_against_reference  # noqa: E402
+from digitwin.quality.overlap import slab_mask, voxelize_surface  # noqa: E402
 
 LUMEN_HU = 150.0
 NEAR_MM = 5.0
@@ -122,7 +122,7 @@ def run_case(case_dir, out_dir):
 def main(root, out_dir, cases):
     root, out_dir = Path(root), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"meshforge from {meshforge.__file__}", flush=True)
+    print(f"digitwin from {digitwin.__file__}", flush=True)
     cases = cases or sorted(p.name for p in root.iterdir() if p.is_dir())
     rows = []
     for case in cases:

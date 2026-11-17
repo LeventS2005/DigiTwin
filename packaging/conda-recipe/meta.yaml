@@ -1,15 +1,15 @@
 {% set version = "1.0.0" %}
 
-# meshforge as a **noarch** conda package (it is pure-Python; the heavy native
+# digitwin as a **noarch** conda package (it is pure-Python; the heavy native
 # deps below come from conda-forge). This package is the single spec constructor
 # installs — its run deps pull the whole runtime, and it ships the menuinst
-# launcher (Menu/meshforge.json) so the installer creates a double-click .app.
+# launcher (Menu/digitwin.json) so the installer creates a double-click .app.
 #
 # Source is a CLEAN `git archive` staged by packaging/build.sh into
 # packaging/_build_src (tracked files only — no outputs/, .git, or the DWG).
 
 package:
-  name: meshforge
+  name: digitwin
   version: {{ version }}
 
 source:
@@ -20,10 +20,10 @@ build:
   number: 0
   # build steps live in build.sh (pip install + ship the menuinst launcher)
   entry_points:
-    - meshforge = meshforge.cli:main
-    - meshforge-web = meshforge.web.server:main
-    - meshforge-desktop = meshforge.gui.shell:main
-    - meshforge-gui = meshforge.gui.shell:main
+    - digitwin = digitwin.cli:main
+    - digitwin-web = digitwin.web.server:main
+    - digitwin-desktop = digitwin.gui.shell:main
+    - digitwin-gui = digitwin.gui.shell:main
 
 requirements:
   host:
@@ -59,11 +59,11 @@ requirements:
 
 test:
   imports:
-    - meshforge
-    - meshforge.gui.shell
-    - meshforge.web.server
+    - digitwin
+    - digitwin.gui.shell
+    - digitwin.web.server
 
 about:
-  home: https://github.com/LeventS2005/meshforge
+  home: https://github.com/LeventS2005/DigiTwin
   summary: Research-grade meshing toolkit — tubular/closed surfaces to solver-ready wall volume meshes
   license: Apache-2.0

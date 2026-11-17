@@ -20,7 +20,7 @@ test):
   Vorp DA. J Biomech 2000;33(4):475-482).
 * Linear, small strain (the stress step): sigma = E eps / (1 - nu)
   (equibiaxial, plane stress) or E eps (uniaxial), eps = lambda - 1, with E
-  and nu read from meshforge.solve.aaa_metrics (DEFAULT_E_MPA, DEFAULT_NU).
+  and nu read from digitwin.solve.aaa_metrics (DEFAULT_E_MPA, DEFAULT_NU).
 
 The demo PWS and the wall's largest displacement come from a saved
 ``aaa_stress`` summary (``--summary``), never typed in.
@@ -79,8 +79,8 @@ def main(argv=None) -> int:
     ap.add_argument("out", type=Path, help="output stem")
     a = ap.parse_args(argv)
 
-    from meshforge.solve.aaa_metrics import DEFAULT_E_MPA, DEFAULT_NU
-    from meshforge.solve.ilt import DEFAULT_E_ILT_MPA
+    from digitwin.solve.aaa_metrics import DEFAULT_E_MPA, DEFAULT_NU
+    from digitwin.solve.ilt import DEFAULT_E_ILT_MPA
 
     summ = json.loads(a.summary.read_text())
     E, nu = float(summ["material"]["E_mpa"]), float(summ["material"]["nu"])
@@ -99,7 +99,7 @@ def main(argv=None) -> int:
     tangent_eq = (rv_stress(np.array(lam_rv_eq + h), "equibiaxial") - rv_stress(np.array(lam_rv_eq - h), "equibiaxial")) / (2 * h)
     numbers = {
         "pws_kpa": round(1000 * pws, 1), "pressure_mmhg": p_mmhg, "u_max_mm": round(umax, 3),
-        "linear": {"E_mpa": E, "nu": nu, "source": "meshforge.solve.aaa_metrics DEFAULT_E_MPA / DEFAULT_NU "
+        "linear": {"E_mpa": E, "nu": nu, "source": "digitwin.solve.aaa_metrics DEFAULT_E_MPA / DEFAULT_NU "
                    "(the Zenodo AAA deck's wall, *Elastic 1e5 kPa)",
                    "strain_at_pws_equibiaxial_percent": round(100 * (lam_lin_eq - 1), 3)},
         "raghavan_vorp": {"alpha_mpa": RV_ALPHA_MPA, "beta_mpa": RV_BETA_MPA, "source": RV_SOURCE,
@@ -172,7 +172,7 @@ def main(argv=None) -> int:
         "On the loaded shape the stress is set by equilibrium",
         "(pressure, radius, thickness), not by the stiffness:",
         "ten times stiffer leaves the peak stress unchanged",
-        "(meshforge M3 check, D88).",
+        "(DigiTwin M3 check, D88).",
         f"The tissue law would need ~{100 * (lam_rv_eq - 1):.0f} % stretch to carry",
         "the same stress, and a growth-from-zero-pressure",
         "solve the CT cannot give.",
@@ -181,7 +181,7 @@ def main(argv=None) -> int:
         fig.text(x0, 0.56 - i * 0.034, line, fontsize=13, color=ink)
     fig.text(0.05, 0.05, f"Tissue law: {RV_SOURCE}; α 17.4, β 188.1 N/cm².", fontsize=10.5, color=muted)
     fig.text(0.05, 0.03, "Stiff-linear method on the loaded geometry: Joldes & Miller (BioPARR). Solver wall and "
-             "thrombus moduli: the Zenodo AAA FE deck (meshforge.solve defaults).", fontsize=10.5, color=muted)
+             "thrombus moduli: the Zenodo AAA FE deck (digitwin.solve defaults).", fontsize=10.5, color=muted)
     fig.text(0.05, 0.01, f"Demo numbers from {a.summary.name} (s1364, copilot natural path). Investigational, "
              "not a diagnosis.", fontsize=10.5, color=muted)
     a.out.parent.mkdir(parents=True, exist_ok=True)

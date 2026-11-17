@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Material,
@@ -18,21 +18,21 @@ from meshforge.export.deck import (
     pressure_to_nodal_forces,
     write_deck,
 )
-from meshforge.solve.mystran import (
+from digitwin.solve.mystran import (
     find_mystran,
     parse_f06_displacements,
     solve_bdf,
 )
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.runner import find_ccx
 
 A, B, LENGTH, PRESSURE, E_MOD, NU = 3.0, 4.0, 20.0, 1.0, 1000.0, 0.3
 
 
 @pytest.fixture(scope="module")
 def tube_wall():
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -95,9 +95,9 @@ def test_pressure_forces_loud_errors(tube_wall):
 def test_find_mystran_env_override(tmp_path, monkeypatch):
     fake = tmp_path / "mystran"
     fake.write_text("#!/bin/sh\n")
-    monkeypatch.setenv("MESHFORGE_MYSTRAN", str(fake))
+    monkeypatch.setenv("DIGITWIN_MYSTRAN", str(fake))
     assert find_mystran() == str(fake)
-    monkeypatch.setenv("MESHFORGE_MYSTRAN", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIGITWIN_MYSTRAN", str(tmp_path / "missing"))
     assert find_mystran() != str(tmp_path / "missing")  # falls through
 
 
@@ -153,7 +153,7 @@ def test_cross_solver_benchmark_closes_d29(tube_wall, tmp_path):
     Probe-measured: MYSTRAN mid-tube mean u_r(a) 0.75% off Lamé; vs ccx
     median 1.5%, mid-tube max 1.5% (clamped-end max 7.9% is element-
     formulation difference, excluded by the mid-tube window)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     bdf = write_deck(tube_wall, _spec(tube_wall, "nastran"), tmp_path / "x")
     my = solve_bdf(bdf, tmp_path / "out_my")
@@ -186,7 +186,7 @@ def test_cross_solver_benchmark_closes_d29(tube_wall, tmp_path):
 
 @needs_mystran
 def test_cli_solve_bdf_e2e(tube_wall, tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     bdf = write_deck(tube_wall, _spec(tube_wall, "nastran"), tmp_path / "tube")
     rc = main(["solve", str(bdf), "--outputs", str(tmp_path / "outputs")])

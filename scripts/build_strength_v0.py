@@ -6,10 +6,10 @@ CC BY 4.0 (Gomes, da Silva, da Silva, Gomes, Raghavan, Silvestre, Queiroz,
 Marques, Zyngier, Chung).
 
 Writes (derived data, CC BY 4.0, attribution in STRENGTH_V0_SOURCES.md):
-  src/meshforge/data/strength_v0.csv         one row per tensile strip
-  src/meshforge/data/strength_v0_donors.csv  age / sex / shape / Dmax per aneurysm
+  src/digitwin/data/strength_v0.csv         one row per tensile strip
+  src/digitwin/data/strength_v0_donors.csv  age / sex / shape / Dmax per aneurysm
 
-Run it with an interpreter that has xlrd + openpyxl (they are NOT meshforge
+Run it with an interpreter that has xlrd + openpyxl (they are NOT digitwin
 dependencies), isolated, never from inside the data folder:
 
     python -I scripts/build_strength_v0.py <dataset dir> [--check] [--out-dir DIR]
@@ -41,7 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))  # our own stdlib-only conversions
 
-from meshforge.tissue import mechanics as mech  # noqa: E402
+from digitwin.tissue import mechanics as mech  # noqa: E402
 
 DOI = "10.17632/x64srrc39p.3"
 LICENCE = "CC BY 4.0"
@@ -598,7 +598,7 @@ def build(root: Path) -> tuple[str, str, dict]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("dataset", type=Path, help="folder with extracted/, _sha256.txt, metadata JSON")
-    ap.add_argument("--out-dir", type=Path, default=REPO / "src" / "meshforge" / "data")
+    ap.add_argument("--out-dir", type=Path, default=REPO / "src" / "digitwin" / "data")
     ap.add_argument("--check", action="store_true",
                     help="rebuild in memory; fail unless the files on disk are identical")
     args = ap.parse_args(argv)

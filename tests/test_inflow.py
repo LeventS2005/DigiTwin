@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.solve.foam_runner import CfdResult, find_foam
-from meshforge.solve.inflow import (
+from digitwin.solve.foam_runner import CfdResult, find_foam
+from digitwin.solve.inflow import (
     LAMINAR_RE_LIMIT,
     cardiac_presets,
     flow_ends,
@@ -32,7 +32,7 @@ from meshforge.solve.inflow import (
 @pytest.fixture(scope="module")
 def tube_session():
     """Straight synthetic tube (r 3, along z) -> centreline -> O-grid lumen."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     s = MeshingSession()
     s.generate_synth("straight_tube")
@@ -42,7 +42,7 @@ def tube_session():
 
 
 def _fresh_tube_session():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     s = MeshingSession()
     s.generate_synth("straight_tube")
@@ -54,7 +54,7 @@ def _fresh_tube_session():
 def _stub_solve(monkeypatch, session):
     """Replace the OpenFOAM run: the case is still written; the 'result' is
     the session mesh with a uniform field (point data like the reader's)."""
-    import meshforge.solve as solve_pkg
+    import digitwin.solve as solve_pkg
 
     calls = {}
 
@@ -115,7 +115,7 @@ def test_inward_normals_follow_the_centreline(tube_session):
 
 
 def test_patch_geometry_ignores_face_winding():
-    from meshforge.meshing.base import BoundaryGroup
+    from digitwin.meshing.base import BoundaryGroup
 
     s = _fresh_tube_session()
     vol = s.volmesh
@@ -159,7 +159,7 @@ def test_scalar_speed_on_a_curved_patch_is_refused(tube_session):
 
 
 def test_parse_inlet_knob_forms():
-    from meshforge.pipeline import _parse_inlet_knob
+    from digitwin.pipeline import _parse_inlet_knob
 
     assert _parse_inlet_knob("inlet=150") == ("inlet", 150.0)
     assert _parse_inlet_knob("front=0,0,1") == ("front", (0.0, 0.0, 1.0))
@@ -221,7 +221,7 @@ def test_flow_ends_picks_the_nearest_cap(tube_session):
 
 
 def test_flow_ends_refuses_bad_points_and_ambiguous_meshes():
-    from meshforge.meshing.base import split_boundary_group
+    from digitwin.meshing.base import split_boundary_group
 
     s = _fresh_tube_session()
     with pytest.raises(ValueError, match="three finite numbers"):
@@ -255,7 +255,7 @@ def test_cardiac_presets_follow_the_length_unit():
 def test_length_unit_follows_the_source(tmp_path):
     from test_io_cso import _straight_tube_cso
 
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     s = MeshingSession()
     assert s.length_unit is None
@@ -313,7 +313,7 @@ def test_cfd_vector_inlet_still_works_and_warns_when_outward(tmp_path, monkeypat
 
 
 def test_cfd_scalar_inlet_errors_before_or_without_a_run(tmp_path, monkeypatch):
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     monkeypatch.chdir(tmp_path)
     with pytest.raises(RuntimeError, match="volmesh"):
@@ -338,14 +338,14 @@ def test_cfd_without_a_centreline_says_why_there_is_no_section(tmp_path, monkeyp
 
 
 def test_cli_cfd_refuses_the_scalar_form_with_a_reason(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["cfd", str(tmp_path), "--inlet", "front=1", "--outlet", "back=0"])
     assert rc == 1
     err = capsys.readouterr().err
     assert "needs the mesh in memory" in err
     # the remedy must exist: recipes have no cfd step, replay does
-    assert "meshforge replay" in err and "recipe" not in err
+    assert "digitwin replay" in err and "recipe" not in err
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +355,8 @@ def test_cli_cfd_refuses_the_scalar_form_with_a_reason(tmp_path, capsys):
 def test_section_follows_a_curved_tube_and_stays_inside():
     import pyvista as pv
 
-    from meshforge.geometry.ribbon import centerline_ribbon
-    from meshforge.pipeline import MeshingSession
+    from digitwin.geometry.ribbon import centerline_ribbon
+    from digitwin.pipeline import MeshingSession
 
     s = MeshingSession()
     s.generate_synth("curved_tube")
@@ -383,8 +383,8 @@ def test_section_rows_stop_at_the_first_wall_they_leave_through():
     the arch) must stop where it leaves the first."""
     import pyvista as pv
 
-    from meshforge.geometry.centerline import Centerline
-    from meshforge.geometry.ribbon import centerline_ribbon
+    from digitwin.geometry.centerline import Centerline
+    from digitwin.geometry.ribbon import centerline_ribbon
 
     def box(x0, x1):
         img = pv.ImageData(dimensions=(9, 9, 21), spacing=((x1 - x0) / 8, 0.25, 0.5),
@@ -410,8 +410,8 @@ def test_section_rows_stop_at_the_first_wall_they_leave_through():
 def test_section_refuses_a_centreline_outside_the_volume():
     import pyvista as pv
 
-    from meshforge.geometry.centerline import Centerline
-    from meshforge.geometry.ribbon import centerline_ribbon
+    from digitwin.geometry.centerline import Centerline
+    from digitwin.geometry.ribbon import centerline_ribbon
 
     volume = pv.ImageData(dimensions=(5, 5, 5)).cast_to_unstructured_grid()
     z = np.linspace(10.0, 12.0, 5)
@@ -435,7 +435,7 @@ needs_foam = pytest.mark.skipif(find_foam() is None, reason="OpenFOAM not availa
 def test_scalar_and_vector_inlets_solve_identically(tmp_path, monkeypatch):
     from test_cfd import _disk_wall_ogrid
 
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     monkeypatch.chdir(tmp_path)
     results = {}

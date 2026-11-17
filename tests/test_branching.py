@@ -6,9 +6,9 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.geometry import compute_sections, extract_tree, mesh_tree_wall
-from meshforge.synth import generate, generate_tree
+from digitwin.cli import main
+from digitwin.geometry import compute_sections, extract_tree, mesh_tree_wall
+from digitwin.synth import generate, generate_tree
 
 
 @pytest.fixture(scope="module")
@@ -103,7 +103,7 @@ def test_swept_refused_at_junctions(y_case):
 def test_tree_tet_wall(y_case):
     pytest.importorskip("gmsh")
     surface, _ = y_case
-    from meshforge.geometry.sdf import sdf_offset_surface
+    from digitwin.geometry.sdf import sdf_offset_surface
 
     wall = mesh_tree_wall(surface, thickness=0.4, mesh_size=0.6)
     q = wall.quality

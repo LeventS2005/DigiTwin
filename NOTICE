@@ -1,4 +1,4 @@
-meshforge
+DigiTwin
 Copyright 2026 Levent Sirtas
 
 This product includes software developed by Levent Sirtas.
@@ -9,17 +9,17 @@ You may obtain a copy of the License at
 
     http://www.apache.org/licenses/LICENSE-2.0
 
-meshforge is research-grade software. It is not a medical device, has not
+DigiTwin is research-grade software. It is not a medical device, has not
 been cleared or approved by any regulatory body, and must not be used for
 diagnosis or treatment.
 
 No patient data is contained in this repository. Clinical inputs are read
 only from paths outside the repository tree and are never committed.
 
-Third-party data: src/meshforge/data/strength_v0.csv and strength_v0_donors.csv
+Third-party data: src/digitwin/data/strength_v0.csv and strength_v0_donors.csv
 are derived from "Dataset on cadaveric human abdominal aorta aneurysm
 biomechanics (uniaxial) and histology" by Gomes VC et al., Mendeley Data v3,
 doi:10.17632/x64srrc39p.3, licensed CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). The values were changed (unit
-conversion, recomputation, flags); see src/meshforge/data/STRENGTH_V0_SOURCES.md.
+conversion, recomputation, flags); see src/digitwin/data/STRENGTH_V0_SOURCES.md.
 These files are not covered by the Apache License.

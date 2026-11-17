@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.geometry import ThicknessSpec, compute_centerline, offset_wall
-from meshforge.meshing import get_backend
-from meshforge.pipeline import MeshingSession
-from meshforge.synth import generate
+from digitwin.geometry import ThicknessSpec, compute_centerline, offset_wall
+from digitwin.meshing import get_backend
+from digitwin.pipeline import MeshingSession
+from digitwin.synth import generate
 
 R_IN, R_OUT, LENGTH = 3.0, 3.55, 20.0
 
@@ -70,7 +70,7 @@ def test_precedence_is_loud_everywhere(coterminal, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="both a scalar thickness"):
         s.compute_wall(thickness=0.5, outer_surface=str(outer_path))
 
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["volmesh", str(inner_path), "--thickness", "0.5",
                "--outer-surface", str(outer_path), "--outputs", str(tmp_path)])

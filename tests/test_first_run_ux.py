@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from meshforge.io.load import dedicated_importer, load_surface
-from meshforge.io.paths import normalize_path, normalize_path_str
-from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession
+from digitwin.io.load import dedicated_importer, load_surface
+from digitwin.io.paths import normalize_path, normalize_path_str
+from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession
 
 
 # ---- fix 1: extension routing ------------------------------------------
@@ -46,7 +46,7 @@ def test_known_suffix_names_its_own_importer(tmp_path, suffix, panel, subcommand
     message = str(excinfo.value)
     assert suffix in message
     assert panel in message
-    assert f"meshforge {subcommand}" in message
+    assert f"digitwin {subcommand}" in message
     assert "pyvista" not in message.lower()
 
 
@@ -173,7 +173,7 @@ def test_home_shortcut_loads(tmp_path, monkeypatch):
 def test_file_sha256_never_leaks_a_bare_errno():
     """Every rule-1 bracket hashes FIRST, so the CLI used to report
     `[Errno 2] No such file or directory` for a simple typo."""
-    from meshforge.io import file_sha256
+    from digitwin.io import file_sha256
 
     with pytest.raises(FileNotFoundError) as excinfo:
         file_sha256("~/definitely/not/here.stl")
@@ -185,15 +185,15 @@ def test_file_sha256_never_leaks_a_bare_errno():
 def test_file_sha256_still_hashes_a_real_file(tmp_path):
     import hashlib
 
-    from meshforge.io import file_sha256
+    from digitwin.io import file_sha256
 
     target = tmp_path / "payload.bin"
-    target.write_bytes(b"meshforge")
-    assert file_sha256(f'"{target}" ') == hashlib.sha256(b"meshforge").hexdigest()
+    target.write_bytes(b"digitwin")
+    assert file_sha256(f'"{target}" ') == hashlib.sha256(b"digitwin").hexdigest()
 
 
 def test_workfile_paths_are_normalised(tmp_path):
-    from meshforge.pipeline import load_workfile
+    from digitwin.pipeline import load_workfile
 
     session = MeshingSession()
     session.generate_synth("straight_tube")
@@ -206,7 +206,7 @@ def test_workfile_paths_are_normalised(tmp_path):
 def _budget_error(bbox_mm: float, thickness: float) -> str:
     import pyvista as pv
 
-    from meshforge.geometry.sdf import sdf_offset_surface
+    from digitwin.geometry.sdf import sdf_offset_surface
 
     surface = pv.Sphere(radius=bbox_mm / 2.0).triangulate()
     with pytest.raises(ValueError) as excinfo:
@@ -237,8 +237,8 @@ def test_quoted_minimum_thickness_actually_fits():
     import numpy as np
     import pyvista as pv
 
-    from meshforge.geometry.centerline import MAX_VOXELS
-    from meshforge.geometry.sdf import _grid_shape, min_thickness_for_budget
+    from digitwin.geometry.centerline import MAX_VOXELS
+    from digitwin.geometry.sdf import _grid_shape, min_thickness_for_budget
 
     bounds = pv.Sphere(radius=50.0).bounds
     t_min = min_thickness_for_budget(bounds)
@@ -255,7 +255,7 @@ def test_voxel_budget_is_refused_before_the_expensive_call(monkeypatch):
     unaffordable grid must never reach compute_implicit_distance."""
     import pyvista as pv
 
-    from meshforge.geometry.sdf import sdf_offset_surface
+    from digitwin.geometry.sdf import sdf_offset_surface
 
     def explode(*args, **kwargs):  # pragma: no cover - must never run
         raise AssertionError("compute_implicit_distance ran despite the budget")
@@ -270,7 +270,7 @@ def test_explicit_spacing_error_mentions_spacing():
     wording is for the panel user, who has no spacing knob."""
     import pyvista as pv
 
-    from meshforge.geometry.sdf import sdf_offset_surface
+    from digitwin.geometry.sdf import sdf_offset_surface
 
     surface = pv.Sphere(radius=50.0).triangulate()
     with pytest.raises(ValueError) as excinfo:
@@ -281,7 +281,7 @@ def test_explicit_spacing_error_mentions_spacing():
 def test_spacing_must_be_positive():
     import pyvista as pv
 
-    from meshforge.geometry.sdf import sdf_offset_surface
+    from digitwin.geometry.sdf import sdf_offset_surface
 
     with pytest.raises(ValueError, match="spacing must be positive"):
         sdf_offset_surface(pv.Sphere().triangulate(), 1.0, spacing=0.0)
@@ -307,7 +307,7 @@ def test_imports_lead_the_panel_order():
 
 
 def test_schema_json_is_served_in_display_order():
-    from meshforge.web.schema import schema_json, step_order
+    from digitwin.web.schema import schema_json, step_order
 
     assert list(schema_json()) == list(STEP_ORDER) == step_order()
 
@@ -324,5 +324,5 @@ def test_no_milestone_tags_in_knob_help():
 
 
 def test_no_milestone_tags_in_cli_help():
-    source = Path("src/meshforge/cli.py").read_text()
+    source = Path("src/digitwin/cli.py").read_text()
     assert re.search(r"\(V\d+", source) is None

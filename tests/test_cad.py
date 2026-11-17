@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import shutil
 from pathlib import Path
 
@@ -12,9 +11,10 @@ import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 
-from meshforge.cli import main
-from meshforge.io import file_sha256
-from meshforge.io.cad import (
+from digitwin.cli import main
+from digitwin.envvars import env_value
+from digitwin.io import file_sha256
+from digitwin.io.cad import (
     MODELSPACE,
     _point_in_loop,
     _signed_area,
@@ -27,7 +27,7 @@ COTTAGE_SHA256 = "a4cb1d4085881dde3a7821b4bc4768cf7e991c160d5ec7a6d53b46753e7d90
 
 
 def _cottage_dwg() -> Path | None:
-    env = os.environ.get("MESHFORGE_COTTAGE_DWG")
+    env = env_value("COTTAGE_DWG")
     if env and Path(env).is_file():
         return Path(env)
     cand = Path(__file__).resolve().parents[1] / "Cottage_Pane_Window.dwg"

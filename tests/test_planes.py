@@ -19,10 +19,10 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.meshing import get_backend
-from meshforge.meshing.planes import build_plane_lattice, parallel_caps
-from meshforge.synth import curved_tube, extrude_loops, straight_tube, tapered_tube
-from meshforge.synth.generators import _lattice_tube, eccentric_sac, eccentric_sac_profile
+from digitwin.meshing import get_backend
+from digitwin.meshing.planes import build_plane_lattice, parallel_caps
+from digitwin.synth import curved_tube, extrude_loops, straight_tube, tapered_tube
+from digitwin.synth.generators import _lattice_tube, eccentric_sac, eccentric_sac_profile
 
 T = 1.5  # wall thickness, mm
 S, N, L = 60, 32, 4  # default stations, samples, layers
@@ -42,7 +42,7 @@ def reference():
 
 
 def _centre_path(truth):
-    from meshforge.geometry.crop import _as_centerline
+    from digitwin.geometry.crop import _as_centerline
 
     idx = np.linspace(0, len(truth.points) - 1, 241).astype(int)
     return _as_centerline(truth.points[idx], truth.radii[idx], "eccentric_sac centre path")
@@ -280,7 +280,7 @@ def test_knob_validation():
         backend.mesh_wall(tube, 0.5, section_smoothing=1.0)
     with pytest.raises(ValueError, match="curvature_cap < 1"):
         backend.mesh_wall(tube, 0.5, sweep="planes", curvature_cap=1.0)
-    from meshforge.geometry.thickness import ThicknessSpec
+    from digitwin.geometry.thickness import ThicknessSpec
 
     spec = ThicknessSpec.from_outer_surface(straight_tube(radius=1.5)[0])
     with pytest.raises(ValueError, match="scalar thickness"):
@@ -338,7 +338,7 @@ def test_auto_takes_the_planes_only_when_the_centreline_wall_is_not_clean(sac):
 # service layer + CLI
 # ---------------------------------------------------------------------------
 def test_session_volmesh_plane_sweep_journal_and_replay(tmp_path):
-    from meshforge.pipeline import STEP_KNOBS, MeshingSession, load_workfile, replay
+    from digitwin.pipeline import STEP_KNOBS, MeshingSession, load_workfile, replay
 
     assert STEP_KNOBS["volmesh"]["sweep"][1] == "centreline"
     assert STEP_KNOBS["volmesh"]["side"][1] == "outward"
@@ -357,7 +357,7 @@ def test_session_volmesh_plane_sweep_journal_and_replay(tmp_path):
 
 
 def test_cli_volmesh_plane_sweep(tmp_path, capsys, sac):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     surface, _ = sac
     src = tmp_path / "eccentric sac.vtp"

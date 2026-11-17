@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.geometry import parallel_transport_frames
-from meshforge.synth import generate
+from digitwin.geometry import parallel_transport_frames
+from digitwin.synth import generate
 
 
 def _assert_orthonormal(t, n, b) -> None:

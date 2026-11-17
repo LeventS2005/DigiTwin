@@ -20,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Material,
@@ -28,8 +28,8 @@ from meshforge.export.deck import (
     lateral_pins,
     write_deck,
 )
-from meshforge.solve.frd import FrdField, FrdModel, nodal_temperatures
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.frd import FrdField, FrdModel, nodal_temperatures
+from digitwin.solve.runner import find_ccx
 
 # ---------------------------------------------------------------------------
 # fixtures (the V24/V31/V41 bar + tube)
@@ -37,7 +37,7 @@ from meshforge.solve.runner import find_ccx
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
     """1 x 1 x length rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -46,9 +46,9 @@ def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
 
 def _tube_wall(n_layers: int = 3):
     """Annulus a=3, b=4, L=20 (the V13/V24 fixture geometry)."""
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -320,7 +320,7 @@ def test_frd_nodal_temperatures_helper():
 
 
 def test_session_thermal_knob_refusals():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=4)
@@ -356,8 +356,8 @@ def test_session_thermal_knob_refusals():
 
 
 def test_cli_thermal_refusals(tmp_path):
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"
@@ -391,7 +391,7 @@ needs_ccx = pytest.mark.skipif(
 @needs_ccx
 def test_free_bar_expansion_exact():
     """Free bar, uniform dT: eps = alpha*dT exactly, stress ~ 0."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _bar_wall()
     a = _corner_node(wall, 0, 0, 0)
@@ -419,7 +419,7 @@ def test_free_bar_expansion_exact():
 @needs_ccx
 def test_constrained_bar_stress_exact():
     """Both ends axially fixed, uniform dT: sigma_z = -E*alpha*dT exactly."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _bar_wall()
     a = _corner_node(wall, 0, 0, 0)
@@ -447,7 +447,7 @@ def test_constrained_bar_stress_exact():
 def _tube_hoop_error(n_layers: int):
     """Heat solve -> chained static (plane strain) -> wall hoop-stress error
     vs the Timoshenko closed form, as a fraction of the closed-form value."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _tube_wall(n_layers)
     heat_spec = DeckSpec(
@@ -529,7 +529,7 @@ def test_tube_thermal_stress_flagship():
 def test_session_thermal_chain_e2e():
     """Heat solve -> static solve chained via temperature_from, all in one
     session; journal carries both entries; a foreign frd is refused."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _tube_wall(3)
@@ -564,8 +564,8 @@ def test_session_thermal_chain_e2e():
 def test_cli_thermal_stress_e2e(tmp_path, capsys):
     """CLI two-invocation chain: deck heat -> solve -> deck static
     --temperature-from -> solve."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

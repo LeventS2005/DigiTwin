@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.synth import GENERATORS, generate
+from digitwin.synth import GENERATORS, generate
 
 # Every shape must produce a watertight, all-triangle, outward-oriented
 # surface whose mesh volume/area track the analytic truth. Tolerances are
@@ -30,7 +30,7 @@ def test_generated_surfaces_are_mesh_ready(shape: str) -> None:
     assert surface.is_manifold
     assert surface.volume > 0  # outward orientation, not just |V|
 
-    from meshforge.quality import count_triangles
+    from digitwin.quality import count_triangles
 
     assert count_triangles(surface) == surface.n_cells
 
