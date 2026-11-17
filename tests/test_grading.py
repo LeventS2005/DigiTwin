@@ -8,9 +8,9 @@ import json
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.meshing import build_block_mesh, extrude_blocks, project_profile
-from meshforge.meshing.blocks import _graded_ticks
+from digitwin.cli import main
+from digitwin.meshing import build_block_mesh, extrude_blocks, project_profile
+from digitwin.meshing.blocks import _graded_ticks
 
 RECT = np.array([[0, 0], [10, 0], [10, 8], [0, 8]], dtype=float)
 HOLE = np.array([[3, 3], [3, 6], [7, 6], [7, 3]], dtype=float)  # CW

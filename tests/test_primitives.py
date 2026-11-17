@@ -7,9 +7,9 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.synth import PRIMITIVES, generate_primitive
-from meshforge.synth.primitives import (
+from digitwin.cli import main
+from digitwin.synth import PRIMITIVES, generate_primitive
+from digitwin.synth.primitives import (
     box,
     extrude_loops,
     plate_with_hole,
@@ -23,7 +23,7 @@ def _assert_mesh_ready(surface) -> None:
     assert surface.n_open_edges == 0
     assert surface.is_manifold
     assert surface.volume > 0  # outward orientation, not just |V|
-    from meshforge.quality import count_triangles
+    from digitwin.quality import count_triangles
 
     assert count_triangles(surface) == surface.n_cells
 

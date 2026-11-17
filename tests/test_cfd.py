@@ -7,21 +7,21 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.solve.foam_case import (
+from digitwin.solve.foam_case import (
     CfdBC,
     CfdSpec,
     read_patch_names,
     write_case,
     write_case_files,
 )
-from meshforge.solve.foam_runner import find_foam, run_foam_app, solve_case
+from digitwin.solve.foam_runner import find_foam, run_foam_app, solve_case
 
 # ---------------------------------------------------------------------------
 # fixtures: the fluid cylinder (projected disk, extruded) used throughout
 
 
 def _disk_wall(target_size: float, length: float, n_layers: int):
-    from meshforge.meshing import extrude_blocks, project_profile
+    from digitwin.meshing import extrude_blocks, project_profile
 
     theta = np.linspace(0, 2 * np.pi, 129)[:-1]
     circle = np.column_stack([np.cos(theta), np.sin(theta)])  # R = 1, CCW
@@ -30,7 +30,7 @@ def _disk_wall(target_size: float, length: float, n_layers: int):
 
 
 def _disk_wall_ogrid(target_size: float, length: float, n_layers: int):
-    from meshforge.meshing import extrude_blocks, ogrid_disk
+    from digitwin.meshing import extrude_blocks, ogrid_disk
 
     theta = np.linspace(0, 2 * np.pi, 129)[:-1]
     circle = np.column_stack([np.cos(theta), np.sin(theta)])  # R = 1, CCW
@@ -214,7 +214,7 @@ def test_solve_case_needs_controldict(tmp_path):
 
 
 def test_session_cfd_knob_errors():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="already carries its BCs"):
@@ -238,7 +238,7 @@ needs_foam = pytest.mark.skipif(
 def _run_hagen_poiseuille(wall):
     """Solve the pipe case on the given fluid cylinder and assert the
     exact-solution truths (shared by the projected and O-grid meshes)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = wall
@@ -320,9 +320,9 @@ def test_icofoam_transient_smoke(tmp_path):
 def test_wedge_blayers_case_checkmesh_clean(tmp_path):
     """Roadmap step 7: the V22 wedge boundary-layer polyMesh initialises
     and passes checkMesh in-app."""
-    from meshforge.pipeline import MeshingSession
-    from meshforge.solve import check_mesh
-    from meshforge.synth import generate_primitive
+    from digitwin.pipeline import MeshingSession
+    from digitwin.solve import check_mesh
+    from digitwin.synth import generate_primitive
 
     session = MeshingSession()
     session.surface, _truth = generate_primitive("solid_sphere", radius=2.0)
@@ -336,8 +336,8 @@ def test_wedge_blayers_case_checkmesh_clean(tmp_path):
 @needs_foam
 def test_cli_cfd_e2e(tmp_path, capsys):
     """polyMesh-only case dir + --inlet/--outlet flags -> solve + results."""
-    from meshforge.cli import main
-    from meshforge.export.foam import write_polymesh
+    from digitwin.cli import main
+    from digitwin.export.foam import write_polymesh
 
     case = tmp_path / "pipe_cli"
     wall = _disk_wall(0.3, 10.0, 20)
@@ -365,7 +365,7 @@ def test_cli_cfd_e2e(tmp_path, capsys):
 
 def test_cli_cfd_error_paths(tmp_path, capsys):
     # These fail before OpenFOAM is ever invoked — no gating needed.
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     # bad inlet syntax
     rc = main(["cfd", str(tmp_path), "--inlet", "oops", "--outlet", "back=0"])

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -17,8 +17,8 @@ from meshforge.export.deck import (
     Step,
     write_deck,
 )
-from meshforge.solve.dat import parse_eigenfrequencies
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.dat import parse_eigenfrequencies
+from digitwin.solve.runner import find_ccx
 
 # ---------------------------------------------------------------------------
 # meshes: slender blocks bar (modal) and swept tube wall (heat)
@@ -26,7 +26,7 @@ from meshforge.solve.runner import find_ccx
 
 def _bar_wall(n_cross: int = 3, n_layers: int = 40, length: float = 20.0):
     """1 x 1 x length rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -35,9 +35,9 @@ def _bar_wall(n_cross: int = 3, n_layers: int = 40, length: float = 20.0):
 
 def _tube_wall(n_layers: int = 4):
     """Annulus a=3, b=4, L=20 (the V13/V14 fixture geometry)."""
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -190,7 +190,7 @@ def test_spec_cross_validation():
 
 
 def test_session_solve_knob_validation():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="analysis must be"):
@@ -253,7 +253,7 @@ def test_modal_rod_spectrum_exact():
     is EXACTLY the 1-D rod's f_n = (n/2L)*sqrt(E/rho) — no plate/beam
     theory approximation (V24_SPEC: solid bar chosen over the tube, whose
     azimuthal shear modes interleave the rod modes)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall()  # 1x1x20, 40 axial layers
@@ -275,7 +275,7 @@ def test_modal_rod_spectrum_exact():
 @needs_ccx
 def test_heat_log_profile_exact():
     """Fixed T_a/T_b on the tube wall: T(r) = T_a + ΔT ln(r/a)/ln(b/a)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _tube_wall()
     spec = _heat_spec(
@@ -298,7 +298,7 @@ def test_heat_log_profile_exact():
 def test_heat_flux_profile_exact():
     """Flux q on the inner face, fixed T_b outside:
     T(r) = T_b + (q a / k) ln(b/r)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _tube_wall()
     spec = _heat_spec(
@@ -318,7 +318,7 @@ def test_heat_flux_profile_exact():
 @needs_ccx
 def test_session_heat_solve_e2e():
     """analysis='heat' through the session: temp knobs -> NDTEMP attached."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _tube_wall(n_layers=3)
@@ -335,8 +335,8 @@ def test_cli_deck_frequency_solve_e2e(tmp_path, capsys):
     """CLI: deck --analysis frequency on the tube, then solve it. The tube
     spectrum is NOT the pure rod's (shear modes interleave — V24_SPEC), so
     this asserts plumbing: 6 eigenfrequencies parsed and printed."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

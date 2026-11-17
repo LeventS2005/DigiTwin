@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.quality.overlap import (
+from digitwin.quality.overlap import (
     compare_to_regions,
     dice,
     sample_surface,
@@ -170,7 +170,7 @@ def write_synthetic_zenodo_case(case_dir, *, r_lumen=4.0, r_ilt=6.0, z0=-10.0, z
 
 
 def test_zenodo_reference_regions_from_a_synthetic_case(tmp_path):
-    from meshforge.io.zenodo_aaa import load_reference, validate_against_reference
+    from digitwin.io.zenodo_aaa import load_reference, validate_against_reference
 
     case = write_synthetic_zenodo_case(tmp_path / "P99")
     ref = load_reference(case)
@@ -193,7 +193,7 @@ def test_zenodo_reference_regions_from_a_synthetic_case(tmp_path):
 
 
 def test_zenodo_reference_refusals(tmp_path):
-    from meshforge.io.zenodo_aaa import load_reference
+    from digitwin.io.zenodo_aaa import load_reference
 
     with pytest.raises(FileNotFoundError):
         load_reference(tmp_path / "nope")
@@ -223,7 +223,7 @@ def test_zenodo_reference_refusals(tmp_path):
 def test_zenodo_end_planes_tolerate_a_vertex_a_hair_off_its_plane(tmp_path):
     """D85: P05 / P16 each carry one annulus vertex 0.009 / 0.002 mm off its
     plane; rounding to 1e-3 used to call that a third z level and refuse."""
-    from meshforge.io.zenodo_aaa import load_reference
+    from digitwin.io.zenodo_aaa import load_reference
 
     case = write_synthetic_zenodo_case(tmp_path / "P05")
     w = pv.read(case / "WallSurface.vtp")

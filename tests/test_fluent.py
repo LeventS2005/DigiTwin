@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export.fluent import write_fluent
-from meshforge.meshing.base import BoundaryGroup, WallMesh
-from meshforge.quality.volume import volume_quality
-from meshforge.solve.foam_runner import find_foam
+from digitwin.export.fluent import write_fluent
+from digitwin.meshing.base import BoundaryGroup, WallMesh
+from digitwin.quality.volume import volume_quality
+from digitwin.solve.foam_runner import find_foam
 
 # ---------------------------------------------------------------------------
 # minimal independent reader for the file we write (all indices hex)
@@ -204,9 +204,9 @@ def test_mixed_cell_type_body(tmp_path):
 
 @pytest.fixture(scope="module")
 def tube_wall() -> WallMesh:
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -282,7 +282,7 @@ def test_unsupported_cell_type_is_loud(tmp_path):
 
 def test_session_save_fluent_journaled(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.generate_synth("straight_tube")
@@ -298,8 +298,8 @@ def test_session_save_fluent_journaled(tmp_path, monkeypatch):
 
 
 def test_cli_fluent_end_to_end(tmp_path):
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     vtp = tmp_path / "tube.vtp"
@@ -318,7 +318,7 @@ def test_cli_fluent_end_to_end(tmp_path):
 
 
 def test_cli_fluent_error_paths(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["fluent", str(tmp_path / "x.vtp")])
     assert rc == 1

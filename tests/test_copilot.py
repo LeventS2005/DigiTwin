@@ -15,12 +15,12 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from meshforge.copilot import agent as ag
-from meshforge.copilot.backend import HttpBackend, StepOutcome
-from meshforge.copilot.guard import check_numbers, numbers_in
+from digitwin.copilot import agent as ag
+from digitwin.copilot.backend import HttpBackend, StepOutcome
+from digitwin.copilot.guard import check_numbers, numbers_in
 import re
 
-from meshforge.copilot.report import (
+from digitwin.copilot.report import (
     REPORT_HTML_MARKER,
     render_report,
     shown_path,
@@ -30,7 +30,7 @@ from meshforge.copilot.report import (
     twin_card_html,
     twin_from_journal,
 )
-from meshforge.copilot.tools import TOOLS, PipelineTools
+from digitwin.copilot.tools import TOOLS, PipelineTools
 
 
 # --- fakes ---------------------------------------------------------------------
@@ -279,7 +279,7 @@ def test_the_gate_under_the_peak_limit_and_payload(tmp_path):
 
 
 def test_the_gate_under_the_peak_checks_both_pressures():
-    from meshforge.copilot.tools import pws_wall_check
+    from digitwin.copilot.tools import pws_wall_check
 
     ok = {"top1pct_wall_thickness_mm": {"median": 1.5, "min": 1.4}}
     thin = {"top1pct_wall_thickness_mm": {"median": 0.8, "min": 0.7}}
@@ -677,8 +677,8 @@ def test_copilot_cli_prints_and_records_no_local_folder(tmp_path, monkeypatch, c
     """The CLI prints the report/transcript/replay paths relative to the cwd
     (or by file name) and writes a transcript that names the CT by its file
     name; the work file it replays from is not touched."""
-    import meshforge.copilot as cp
-    from meshforge.cli import main
+    import digitwin.copilot as cp
+    from digitwin.cli import main
 
     ct = "/Users/someone/scans/s1364/ct.nii.gz"
 
@@ -766,7 +766,7 @@ FLOW_LINES = ["14% of the sac volume flows backward", "inflow 1 L/min"]
 
 def _flow_record(metrics=S1364_FLOW):
     """The record the session itself journals (MeshingSession.attach_flow_metrics)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.attach_flow_metrics(dict(metrics))
@@ -819,9 +819,9 @@ def test_attached_flow_survives_a_recrop_and_a_new_scan_clears_it(tmp_path):
 
 
 def test_copilot_cli_journals_the_flow_metrics_before_the_report(tmp_path, monkeypatch, capsys):
-    import meshforge.copilot as cp
-    from meshforge.cli import main
-    from meshforge.copilot.backend import SessionBackend
+    import digitwin.copilot as cp
+    from digitwin.cli import main
+    from digitwin.copilot.backend import SessionBackend
 
     made = []
 
@@ -861,8 +861,8 @@ def test_copilot_cli_journals_the_flow_metrics_before_the_report(tmp_path, monke
 
 
 def test_copilot_cli_refuses_a_bad_flow_metrics_file_before_any_call(tmp_path, monkeypatch, capsys):
-    import meshforge.copilot as cp
-    from meshforge.cli import main
+    import digitwin.copilot as cp
+    from digitwin.cli import main
 
     def never(*a, **kw):
         raise AssertionError("the copilot ran on a bad --flow-metrics file")
@@ -920,7 +920,7 @@ def test_http_backend_attaches_flow_metrics_over_the_twin_route():
 
 
 def test_session_backend_attach_is_loud_on_a_bad_set():
-    from meshforge.copilot.backend import SessionBackend
+    from digitwin.copilot.backend import SessionBackend
 
     b = SessionBackend()
     out = b.attach_flow_metrics({"umax_mm_s": 12.0})
@@ -971,7 +971,7 @@ def test_report_opens_with_the_plain_words_then_the_steps_in_plain_names(tmp_pat
 
 
 def test_launch_helpers_start_reset_open_and_stage(tmp_path, monkeypatch):
-    from meshforge.copilot import launch
+    from digitwin.copilot import launch
 
     # port_of: loud without a port or off the loopback
     assert launch.port_of("http://127.0.0.1:8765") == 8765
@@ -980,7 +980,7 @@ def test_launch_helpers_start_reset_open_and_stage(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         launch.port_of("http://10.0.0.5:8765")
 
-    # start_workbench: spawns `python -m meshforge.web.server --port N` detached, waits for /health
+    # start_workbench: spawns `python -m digitwin.web.server --port N` detached, waits for /health
     spawned = []
 
     class FakeProc:
@@ -1000,7 +1000,7 @@ def test_launch_helpers_start_reset_open_and_stage(tmp_path, monkeypatch):
     proc, secs = launch.start_workbench("http://127.0.0.1:8777", tmp_path / "wb.log",
                                         popen=FakeProc, sleep=lambda s: None)
     argv, kw = spawned[0]
-    assert argv[1:] == ["-m", "meshforge.web.server", "--port", "8777"]
+    assert argv[1:] == ["-m", "digitwin.web.server", "--port", "8777"]
     assert kw["start_new_session"] is True and kw["stdin"] is not None
     assert proc.pid == 4242 and secs >= 0
 
@@ -1047,9 +1047,9 @@ def test_copilot_cli_runs_the_flow_case_then_attaches_the_metrics(tmp_path, monk
     fresh copy of the case (journaled `cfd`), THEN the metrics are attached,
     so the twin reads both; the report names it; a failed solve is loud and
     fails the exit code; nothing opens without a terminal."""
-    import meshforge.copilot as cp
-    from meshforge.cli import main
-    from meshforge.copilot.backend import SessionBackend
+    import digitwin.copilot as cp
+    from digitwin.cli import main
+    from digitwin.copilot.backend import SessionBackend
 
     made = []
 
@@ -1102,9 +1102,9 @@ def test_copilot_cli_starts_the_workbench_when_none_answers(tmp_path, monkeypatc
     """--server with nothing listening: the CLI starts a Workbench on that
     port, opens its window in Demo mode, and says so; --reset empties one
     that already answers; --no-launch leaves the old loud error."""
-    import meshforge.copilot as cp
-    from meshforge.cli import main
-    from meshforge.copilot import launch
+    import digitwin.copilot as cp
+    from digitwin.cli import main
+    from digitwin.copilot import launch
 
     events = []
 
@@ -1182,8 +1182,8 @@ def test_live_flow_case_is_built_from_the_crop_lumen_with_the_neck_as_inflow(tmp
     pytest.importorskip("gmsh")
     import pyvista as pv
 
-    from meshforge.copilot import flow
-    from meshforge.pipeline import MeshingSession
+    from digitwin.copilot import flow
+    from digitwin.pipeline import MeshingSession
 
     helper = MeshingSession()
     helper.generate_synth("straight_tube")
@@ -1213,10 +1213,10 @@ def test_live_flow_case_is_built_from_the_crop_lumen_with_the_neck_as_inflow(tmp
 
 
 def test_copilot_cli_solves_the_live_flow_first_and_falls_back_to_the_case(tmp_path, monkeypatch, capsys):
-    import meshforge.copilot as cp
-    from meshforge.cli import main
-    from meshforge.copilot import flow as liveflow
-    from meshforge.copilot.backend import SessionBackend
+    import digitwin.copilot as cp
+    from digitwin.cli import main
+    from digitwin.copilot import flow as liveflow
+    from digitwin.copilot.backend import SessionBackend
 
     made = []
 

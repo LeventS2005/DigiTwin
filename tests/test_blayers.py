@@ -9,11 +9,11 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export.foam import write_polymesh
-from meshforge.meshing.base import BoundaryGroup, WallMesh
-from meshforge.meshing.prism import mesh_boundary_layers
-from meshforge.quality.volume import volume_quality
-from meshforge.synth import generate_primitive
+from digitwin.export.foam import write_polymesh
+from digitwin.meshing.base import BoundaryGroup, WallMesh
+from digitwin.meshing.prism import mesh_boundary_layers
+from digitwin.quality.volume import volume_quality
+from digitwin.synth import generate_primitive
 
 from test_foam import (  # reuse the polyMesh readers + divergence check
     _boundary_volume,
@@ -147,7 +147,7 @@ def test_sphere_blayers_polymesh_divergence(tmp_path, sphere):
 
 def test_session_blayers_then_foam(tmp_path, monkeypatch, sphere):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession, load_workfile, replay
+    from digitwin.pipeline import MeshingSession, load_workfile, replay
 
     session = MeshingSession()
     session.generate_synth("straight_tube")
@@ -169,7 +169,7 @@ def test_session_blayers_then_foam(tmp_path, monkeypatch, sphere):
 
 
 def test_cli_blayers_e2e(tmp_path, sphere):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     vtp = tmp_path / "sphere.vtp"
     sphere.save(vtp)

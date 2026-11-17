@@ -8,7 +8,7 @@ import gzip
 import numpy as np
 import pytest
 
-from meshforge.io.nrrd import read_nrrd, read_nrrd_header
+from digitwin.io.nrrd import read_nrrd, read_nrrd_header
 
 
 def _write_nrrd(
@@ -134,7 +134,7 @@ def test_header_parse_skips_comments_and_key_values(tmp_path):
 def test_voxel_budget_refused_from_header_before_decompressing(tmp_path, monkeypatch):
     """F-IMG-7 pattern: a header declaring a huge grid over a tiny payload is
     refused from ``sizes`` alone — gzip is never opened."""
-    import meshforge.io.nrrd as nrrd_mod
+    import digitwin.io.nrrd as nrrd_mod
 
     p = _write_nrrd(
         tmp_path / "bomb.nrrd",

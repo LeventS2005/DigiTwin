@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from meshforge.io import file_sha256, load_surface
-from meshforge.quality import inspect_surface
+from digitwin.io import file_sha256, load_surface
+from digitwin.quality import inspect_surface
 
 from conftest import SPHERE_RADIUS
 

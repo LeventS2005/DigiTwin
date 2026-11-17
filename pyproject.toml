@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "meshforge"
+name = "digitwin"
 version = "1.0.0"
 description = "Research-grade meshing toolkit: tubular/closed surfaces to solver-ready wall volume meshes"
 requires-python = ">=3.10"
@@ -92,19 +92,19 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LeventS2005/meshforge"
-Repository = "https://github.com/LeventS2005/meshforge"
-Issues = "https://github.com/LeventS2005/meshforge/issues"
+Homepage = "https://github.com/LeventS2005/DigiTwin"
+Repository = "https://github.com/LeventS2005/DigiTwin"
+Issues = "https://github.com/LeventS2005/DigiTwin/issues"
 
 [project.scripts]
-meshforge = "meshforge.cli:main"
-meshforge-web = "meshforge.web.server:main"
-meshforge-desktop = "meshforge.gui.shell:main"
+digitwin = "digitwin.cli:main"
+digitwin-web = "digitwin.web.server:main"
+digitwin-desktop = "digitwin.gui.shell:main"
 
 [project.gui-scripts]
-# Back-compat alias: the Qt knob panels were retired (D55); meshforge-gui now
+# Back-compat alias: the Qt knob panels were retired (D55); digitwin-gui now
 # opens the desktop shell (the web Workbench in a native QtWebEngine window).
-meshforge-gui = "meshforge.gui.shell:main"
+digitwin-gui = "digitwin.gui.shell:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -114,9 +114,9 @@ where = ["src"]
 # web/desktop UI serves a blank page. Editable installs read it from src/ and hid
 # this gap until V37 packaging.
 [tool.setuptools.package-data]
-"meshforge.web" = ["static/*"]
+"digitwin.web" = ["static/*"]
 # Tissue strength library v0 (CC BY 4.0 derived data + its attribution file).
-"meshforge.data" = ["*.csv", "*.md"]
+"digitwin.data" = ["*.csv", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

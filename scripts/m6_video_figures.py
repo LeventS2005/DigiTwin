@@ -75,7 +75,7 @@ def report_preview(run: Path, out_dir: Path, flow_metrics: Path | None) -> Path:
     """report.html for the figures: re-rendered from the run's work file by this
     checkout's renderer (a live copilot run keeps its own page if this renderer
     wrote it). Refuses a page that still shows raw markdown."""
-    from meshforge.copilot.report import REPORT_HTML_MARKER
+    from digitwin.copilot.report import REPORT_HTML_MARKER
 
     out_dir.mkdir(parents=True, exist_ok=True)
     page = run / "report.html"
@@ -93,7 +93,7 @@ def report_preview(run: Path, out_dir: Path, flow_metrics: Path | None) -> Path:
 
 
 def _rerender(run: Path, out_dir: Path, flow_metrics: Path | None) -> None:
-    from meshforge.copilot.report import render_report, tools_from_journal
+    from digitwin.copilot.report import render_report, tools_from_journal
 
     journal = json.loads((run / "session.mfwork").read_text())["journal"]
     tools, journal_flow, scan = tools_from_journal(journal)
@@ -199,7 +199,7 @@ def _j(path: Path):
 
 
 def write_index(out: Path, made: dict[str, str], skipped: list[str], src: dict[str, Path]) -> None:
-    from meshforge.copilot.report import tools_from_journal
+    from digitwin.copilot.report import tools_from_journal
 
     stress, wss, rv, normal = (_j(src[k]) for k in ("stress", "wss", "rv", "normal"))
     val = _j(src["validation"]) if "10_validation_12cases.png" in made else None  # only when this build made it

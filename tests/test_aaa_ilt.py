@@ -11,12 +11,12 @@ import math
 import numpy as np
 import pytest
 
-import meshforge.solve.aaa_metrics as am
-from meshforge.geometry.crop import planes_from_report
-from meshforge.pipeline import MeshingSession
-from meshforge.solve import find_ccx
-from meshforge.solve.ilt import build_ilt_mesh
-from meshforge.synth import generate
+import digitwin.solve.aaa_metrics as am
+from digitwin.geometry.crop import planes_from_report
+from digitwin.pipeline import MeshingSession
+from digitwin.solve import find_ccx
+from digitwin.solve.ilt import build_ilt_mesh
+from digitwin.synth import generate
 
 P140 = 140 * 1.33322e-4  # MPa
 requires_ccx = pytest.mark.skipif(find_ccx() is None, reason="CalculiX (ccx) not available")
@@ -80,7 +80,7 @@ THIN_SHIFT = 3.2  # lumen r 6 off-centre in a sac r 10: an 0.8 mm thin side
 def _thin_case():
     """The thrombus between an eccentric lumen and its sac (gap 0.8 mm on +x,
     7.2 mm on -x), plus the arguments ``_boundary_faces`` was called with."""
-    import meshforge.solve.ilt as ilt
+    import digitwin.solve.ilt as ilt
 
     sac, lumen = _tube(10.0), _tube(6.0).translate((THIN_SHIFT, 0.0, 0.0), inplace=False)
     seen, real = {}, ilt._boundary_faces
@@ -98,7 +98,7 @@ def _thin_case():
 
 
 def _face_corners(m, faces):
-    from meshforge.solve.ilt import _TET_FACES
+    from digitwin.solve.ilt import _TET_FACES
 
     corners = [m.points[m.tets[t, list(_TET_FACES[label])]] for t, label in faces]
     return np.array(corners, dtype=float).reshape(-1, 3, 3)
@@ -145,7 +145,7 @@ def test_thin_thrombus_faces_are_labelled_by_the_surface_they_lie_on():
 
 
 def test_the_face_classifier_refuses_rather_than_guesses():
-    import meshforge.solve.ilt as ilt
+    import digitwin.solve.ilt as ilt
 
     _, (points, tets, lumen_r, sac_r, caps, recut, tol), _, _ = _thin_case()
     # the sac moved 0.2 mm along the tube: its cap faces lie on neither surface
@@ -192,7 +192,7 @@ def _with_near_zero_edges(surface, n: int, gap: float = 4e-4):
 
 
 def test_short_edge_collapse_removes_near_zero_edges_and_keeps_the_shape():
-    from meshforge.solve.ilt import collapse_short_edges
+    from digitwin.solve.ilt import collapse_short_edges
 
     sac = _tube(10.0)
     bad = _with_near_zero_edges(sac, 12)
@@ -212,7 +212,7 @@ def test_short_edge_collapse_removes_near_zero_edges_and_keeps_the_shape():
 def test_the_gmsh_guard_stops_a_call_that_overruns():
     import time
 
-    from meshforge.solve.ilt import _run_gmsh, _tri_arrays
+    from digitwin.solve.ilt import _run_gmsh, _tri_arrays
 
     points, tris = _tri_arrays(_tube(6.0))
     t0 = time.monotonic()
@@ -223,7 +223,7 @@ def test_the_gmsh_guard_stops_a_call_that_overruns():
 
 
 def test_the_gmsh_guard_passes_the_child_error_through():
-    from meshforge.solve.ilt import _run_gmsh, _tri_arrays
+    from digitwin.solve.ilt import _run_gmsh, _tri_arrays
 
     points, tris = _tri_arrays(_tube(6.0))
     with pytest.raises(RuntimeError, match="unexpected keyword argument 'stray'"):
@@ -233,7 +233,7 @@ def test_the_gmsh_guard_passes_the_child_error_through():
 def test_the_thrombus_ladder_survives_a_hung_attempt(monkeypatch):
     """The first rung times out (as gmsh did on s1364): the next one meshes,
     and the notes say what happened. Every rung failing is a loud error."""
-    import meshforge.solve.ilt as ilt
+    import digitwin.solve.ilt as ilt
 
     real = ilt._remesh
 

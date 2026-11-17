@@ -1,6 +1,6 @@
 """D89 (M4): tissue strength library v0 + rupture-potential index band.
 
-Runs on the packaged library (src/meshforge/data/strength_v0.csv, derived
+Runs on the packaged library (src/digitwin/data/strength_v0.csv, derived
 from the open USP AAA dataset, CC BY 4.0) and on toy libraries written here.
 The dataset itself is not needed: the parser that built the CSV
 (scripts/build_strength_v0.py) needs xlrd/openpyxl, which are not meshforge
@@ -17,8 +17,8 @@ from importlib import resources
 
 import pytest
 
-from meshforge.tissue import mechanics as mech
-from meshforge.tissue.strength import (
+from digitwin.tissue import mechanics as mech
+from digitwin.tissue.strength import (
     CAVEAT,
     REQUIRED_COLUMNS,
     StrengthLibraryError,
@@ -35,7 +35,7 @@ DOI = "10.17632/x64srrc39p.3"
 
 
 def packaged_text(name: str = "strength_v0.csv") -> str:
-    return resources.files("meshforge.data").joinpath(name).read_text(encoding="utf-8")
+    return resources.files("digitwin.data").joinpath(name).read_text(encoding="utf-8")
 
 
 def toy_row(strip_id: str, case: str, cauchy: float, *, strain: float = 0.25,
@@ -388,7 +388,7 @@ def test_pws_from_summary_is_tolerant_and_loud(tmp_path):
 
 # -- pipeline step, work file, CLI, web -------------------------------------------
 def test_session_tissue_index_step_journal_and_replay(tmp_path):
-    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
+    from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
 
     # solve -> aaa_stress -> tissue_index: the index reads the wall-stress PWS
     assert STEP_ORDER.index("tissue_index") == STEP_ORDER.index("aaa_stress") + 1
@@ -417,7 +417,7 @@ def test_session_tissue_index_step_journal_and_replay(tmp_path):
 
 
 def test_cli_tissue_index(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     out = tmp_path / "m4" / "band.json"
     assert main(["tissue-index", "--pws", "0.3", "--out", str(out)]) == 0
@@ -445,7 +445,7 @@ def test_web_step_tissue_index():
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    from meshforge.web.app import create_app
+    from digitwin.web.app import create_app
 
     client = TestClient(create_app())
     r = client.post("/step/tissue_index", json={"pws_mpa": 0.3})

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from meshforge.cli import main
-from meshforge.io import file_sha256
+from digitwin.cli import main
+from digitwin.io import file_sha256
 
 
 def test_inspect_end_to_end(sphere_stl: Path, tmp_path: Path, capsys) -> None:

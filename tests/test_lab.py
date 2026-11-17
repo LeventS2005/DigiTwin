@@ -23,7 +23,7 @@ import pytest
 
 nib = pytest.importorskip("nibabel")
 
-from meshforge.io.upload import SUFFIX_HELP, UploadStore, scan_name  # noqa: E402
+from digitwin.io.upload import SUFFIX_HELP, UploadStore, scan_name  # noqa: E402
 
 FAKE_TS = '''#!{python}
 import json, os, sys
@@ -105,7 +105,7 @@ def client():
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    from meshforge.web.app import create_app
+    from digitwin.web.app import create_app
 
     with TestClient(create_app()) as c:
         yield c
@@ -168,13 +168,13 @@ def test_upload_takes_only_raw_bytes_and_honours_the_ceiling(client, monkeypatch
     # a form or text/plain post (CORS-simple: no preflight) is refused
     for ctype in ("multipart/form-data; boundary=x", "text/plain", "application/x-www-form-urlencoded"):
         assert _octet(client, "a.nii.gz", gz, ctype).status_code == 415
-    monkeypatch.setattr("meshforge.io.upload.MAX_SCAN_BYTES", 16)
+    monkeypatch.setattr("digitwin.io.upload.MAX_SCAN_BYTES", 16)
     r = _octet(client, "a.nii.gz", b"\x1f\x8b" + b"\0" * 62)  # 64 bytes declared
     assert r.status_code == 413 and "upload ceiling" in r.json()["detail"]
 
 
 def test_upload_store_streams_under_the_ceiling_and_cleans_up(tmp_path, monkeypatch):
-    monkeypatch.setattr("meshforge.io.upload.MAX_SCAN_BYTES", 10)
+    monkeypatch.setattr("digitwin.io.upload.MAX_SCAN_BYTES", 10)
     store = UploadStore()
     up = store.begin("big.nii.gz")
     up.write(b"\x1f\x8b" + b"x" * 6)
@@ -191,7 +191,7 @@ def test_the_upload_folder_goes_when_the_server_stops(tmp_path):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    from meshforge.web.app import create_app
+    from digitwin.web.app import create_app
 
     with TestClient(create_app()) as c:
         r = _octet(c, "scan.nii.gz", gzip.compress(b"\0" * 1000))
@@ -213,8 +213,8 @@ def test_scan_names_are_made_safe():
 
 
 def test_the_frontend_calls_the_upload_route_that_exists():
-    from meshforge.web.app import create_app
-    import meshforge.web as web_pkg
+    from digitwin.web.app import create_app
+    import digitwin.web as web_pkg
 
     js = (Path(web_pkg.__file__).parent / "static" / "app.js").read_text()
     assert "/upload/scan" in js

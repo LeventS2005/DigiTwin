@@ -15,7 +15,7 @@ the curve is read from the Series IX text report (raw load), not the xls
 ("adjusted load" = raw load minus a 0-0.1 N offset, under 2 % at failure in
 the AAA data), because no xls reader is installed.
 
-The AAA band comes from ``meshforge.tissue`` (the library the investigational
+The AAA band comes from ``digitwin.tissue`` (the library the investigational
 index uses), quantiles from ``strength_quantiles`` for every band. The demo
 index is NOT changed: this chart only places the normal wall beside it.
 
@@ -41,8 +41,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))  # our own conversions and the strength library
 
-from meshforge.tissue import mechanics as mech  # noqa: E402
-from meshforge.tissue.strength import load_strength_library, strength_quantiles  # noqa: E402
+from digitwin.tissue import mechanics as mech  # noqa: E402
+from digitwin.tissue.strength import load_strength_library, strength_quantiles  # noqa: E402
 
 DOI = "10.17632/yfj4wfszbw.4"
 CREDIT = "USP normal abdominal aorta tensile data (Gomes et al.), Mendeley Data, CC BY 4.0, doi " + DOI

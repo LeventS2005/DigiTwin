@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from meshforge.cli import main
-from meshforge.io import file_sha256
+from digitwin.cli import main
+from digitwin.io import file_sha256
 
 
 def test_export_end_to_end(sphere_stl: Path, tmp_path: Path, capsys) -> None:

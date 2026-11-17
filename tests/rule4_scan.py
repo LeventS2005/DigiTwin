@@ -5,10 +5,10 @@ in the file — including docstrings and comments. This walks the AST instead,
 so only *real code references* count:
 
 - ``import``/``from ... import`` of a forbidden module (absolute or
-  relative — ``from ..meshing import x`` inside ``meshforge.web`` resolves
-  to ``meshforge.meshing``),
+  relative — ``from ..meshing import x`` inside ``digitwin.web`` resolves
+  to ``digitwin.meshing``),
 - dynamic imports with a literal module string
-  (``importlib.import_module("meshforge.meshing")`` / ``__import__``),
+  (``importlib.import_module("digitwin.meshing")`` / ``__import__``),
 - any ``Name``/``Attribute`` reference to a forbidden entry point.
 
 Shared by the web-layer and desktop-shell scans. The static *JS* scans stay
@@ -23,10 +23,10 @@ from pathlib import Path
 # Modules that hold meshing/geometry/solve logic — the GUI-agnostic layers
 # (web, desktop shell) may only talk to MeshingSession (rule 4).
 FORBIDDEN_MODULES = (
-    "meshforge.geometry",
-    "meshforge.meshing",
-    "meshforge.synth",
-    "meshforge.solve",
+    "digitwin.geometry",
+    "digitwin.meshing",
+    "digitwin.synth",
+    "digitwin.solve",
 )
 # Entry points of the meshing/export internals; a reference from a UI layer
 # means logic leaked past the service boundary.
@@ -40,7 +40,7 @@ FORBIDDEN_NAMES = (
     "write_fluent",
 )
 # Tails of the forbidden modules, to resolve relative imports from inside
-# the meshforge package ("..geometry" -> meshforge.geometry).
+# the meshforge package ("..geometry" -> digitwin.geometry).
 _FORBIDDEN_TAILS = tuple(mod.split(".", 1)[1] for mod in FORBIDDEN_MODULES)
 
 

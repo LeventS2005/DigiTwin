@@ -9,14 +9,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.meshing import (
+from digitwin.cli import main
+from digitwin.meshing import (
     build_block_mesh,
     extrude_blocks,
     project_profile,
     quad_scaled_jacobians,
 )
-from meshforge.meshing.smooth import smooth_lattice
+from digitwin.meshing.smooth import smooth_lattice
 
 SQUARE = np.array([[-10, -10], [10, -10], [10, 10], [-10, 10]], dtype=float)
 RECT = np.array([[0, 0], [10, 0], [10, 8], [0, 8]], dtype=float)

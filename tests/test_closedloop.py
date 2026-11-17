@@ -10,10 +10,10 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.geometry import compute_centerline, parallel_transport_frames
-from meshforge.geometry.frames import _transport
-from meshforge.meshing import get_backend
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline, parallel_transport_frames
+from digitwin.geometry.frames import _transport
+from digitwin.meshing import get_backend
+from digitwin.synth import generate
 
 
 def _loop_with_holonomy(n: int = 256) -> tuple[np.ndarray, np.ndarray]:

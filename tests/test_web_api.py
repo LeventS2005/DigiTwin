@@ -16,8 +16,8 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from meshforge.pipeline import STEP_KNOBS  # noqa: E402
-from meshforge.web.app import create_app  # noqa: E402
+from digitwin.pipeline import STEP_KNOBS  # noqa: E402
+from digitwin.web.app import create_app  # noqa: E402
 
 
 @pytest.fixture()
@@ -191,7 +191,7 @@ def test_write_path_guard_refuses_overwriting_input(client: TestClient, tmp_path
 
 
 def _static_dir() -> Path:
-    import meshforge.web as web_pkg
+    import digitwin.web as web_pkg
 
     return Path(web_pkg.__file__).parent / "static"
 
@@ -199,7 +199,7 @@ def _static_dir() -> Path:
 def test_catalog_lists_synth_shapes(client: TestClient) -> None:
     # The frontend's shape dropdown source: the web layer can't import synth
     # (rule 4), so it exposes the catalog by asking the session.
-    from meshforge.synth import GENERATORS
+    from digitwin.synth import GENERATORS
 
     body = client.get("/catalog").json()
     assert body["shapes"] == sorted(GENERATORS)
@@ -251,19 +251,19 @@ def test_frontend_endpoints_all_exist_on_app() -> None:
     assert "/step/" in js
     assert any(p.startswith("/step/") for p in route_paths)
     # Rule 4, mirrored for the static frontend: no meshing internals.
-    for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+    for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
         assert forbidden not in js
 
 
 def test_web_layer_holds_no_meshing_logic() -> None:
-    """Rule 4: src/meshforge/web/ imports no meshing/geometry/solve internals;
+    """Rule 4: src/digitwin/web/ imports no meshing/geometry/solve internals;
     it only calls MeshingSession (+ the shared guard_output_path, sanctioned).
     AST-based (V43): only real imports/name references count — a token in a
     docstring or comment no longer trips the scan (the scanner itself is
     exercised in test_rule4_scan.py)."""
     from rule4_scan import assert_holds_no_meshing_logic
 
-    import meshforge.web as web_pkg
+    import digitwin.web as web_pkg
 
     web_dir = Path(web_pkg.__file__).parent
     py_files = sorted(web_dir.glob("*.py"))
@@ -320,7 +320,7 @@ def test_geometry_cell_field_is_served_as_point_data_with_a_matching_label(clien
 
     import numpy as np
 
-    from meshforge.web.viewport import _JS_TYPE_OF_DTYPE
+    from digitwin.web.viewport import _JS_TYPE_OF_DTYPE
 
     _drive_to_volmesh(client)
     assert client.post("/step/volmesh", json={"n_axial": 30}).status_code == 200
@@ -342,7 +342,7 @@ def test_viewport_display_copy_leaves_the_session_mesh_alone_and_labels_every_dt
     import numpy as np
     import pyvista as pv
 
-    from meshforge.web import viewport
+    from digitwin.web import viewport
 
     m = pv.Sphere(theta_resolution=8, phi_resolution=8)
     for dt in (np.uint8, np.int32, np.int64, np.float32, np.float64):
@@ -416,7 +416,7 @@ def test_atlas_lists_only_the_scan_the_session_loaded(client: TestClient, tmp_pa
     patient, ever."""
     import json
 
-    from meshforge import atlas as atlas_mod
+    from digitwin import atlas as atlas_mod
 
     body = client.get("/atlas").json()
     assert [r["id"] for r in body["regions"]] == [rid for rid, _ in atlas_mod.REGIONS]
@@ -455,7 +455,7 @@ def test_viewport_ghost_is_decimated_fieldless_and_leaves_the_outline_alone() ->
     import numpy as np
     import pyvista as pv
 
-    from meshforge.web import viewport
+    from digitwin.web import viewport
 
     m = pv.Sphere(theta_resolution=80, phi_resolution=80)  # 12k triangles
     m.point_data["v"] = np.full(m.n_points, 0.5)
@@ -505,7 +505,7 @@ def test_geometry_artifact_serves_a_held_result_or_says_why_not(client: TestClie
     # the colour range of a CFD seen from outside is the 2nd-98th percentile, not min/max
     import numpy as np
 
-    from meshforge.web import viewport
+    from digitwin.web import viewport
 
     grid.point_data["p"] = np.r_[np.linspace(0.0, 10.0, grid.n_points - 1), 1000.0]  # one stagnation spike
     body = client.get("/geometry").json()
@@ -575,13 +575,13 @@ def test_vendor_assets_served_and_locked(client: TestClient) -> None:
 def test_viewport_module_is_rule4_clean() -> None:
     # The display module is scanned by the rule-4 guard (globs web/*.py); assert
     # it exists and calls the serializer, not any meshing internal.
-    import meshforge.web as web_pkg
+    import digitwin.web as web_pkg
 
     vp = Path(web_pkg.__file__).parent / "viewport.py"
     assert vp.is_file(), "web/viewport.py missing"
     src = vp.read_text()
     assert "vtk_mesh" in src  # the display serializer it delegates to
-    for token in ("offset_wall", "mesh_wall(", "get_backend", "meshforge.synth"):
+    for token in ("offset_wall", "mesh_wall(", "get_backend", "digitwin.synth"):
         assert token not in src
 
 
@@ -594,7 +594,7 @@ def test_frontend_viewport_wiring() -> None:
         r.path.startswith("/geometry") for r in create_app().routes
     )
     vp_js = (_static_dir() / "viewport.js").read_text()
-    for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+    for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
         assert forbidden not in vp_js
 
 
@@ -614,7 +614,7 @@ def test_frontend_browse_button_wiring() -> None:
     assert "addBrowseButton" in js
     assert 'step.startsWith("import_")' in js
     # still no meshing logic and no new fetch endpoint smuggled in
-    for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+    for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
         assert forbidden not in js
 
 
@@ -683,7 +683,7 @@ def test_frontend_autorefresh_and_overlay_wiring() -> None:
     html = (_static_dir() / "index.html").read_text()
     assert "vp-overlay" in html
     for js in (app_js, vp_js):
-        for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+        for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
             assert forbidden not in js
 
 
@@ -711,11 +711,11 @@ def test_serve_without_the_web_extra_names_the_fix(monkeypatch) -> None:
     That must name the install, not raise a bare ModuleNotFoundError."""
     import sys
 
-    from meshforge.web import server
+    from digitwin.web import server
 
     for mod in [m for m in sys.modules if m.startswith(("uvicorn", "fastapi"))]:
         monkeypatch.delitem(sys.modules, mod, raising=False)
-    monkeypatch.delitem(sys.modules, "meshforge.web.app", raising=False)
+    monkeypatch.delitem(sys.modules, "digitwin.web.app", raising=False)
     _block_imports(monkeypatch, "uvicorn", "fastapi")
 
     with pytest.raises(RuntimeError) as exc:
@@ -830,7 +830,7 @@ def test_twin_flow_route_fills_the_panel_with_the_reports_lines(client: TestClie
     lines the copilot's report prints for the same metrics."""
     import json
 
-    from meshforge.copilot.report import render_report, tools_from_journal, twin_card
+    from digitwin.copilot.report import render_report, tools_from_journal, twin_card
 
     wf = tmp_path / "copilot.mfwork"
     wf.write_text(json.dumps({"version": 1, "journal": _copilot_journal()}))
@@ -969,7 +969,7 @@ def test_state_reports_the_running_step_while_it_holds_the_lock(client, monkeypa
     ``running_for`` (seconds) while a step runs under the session lock, and
     both are None otherwise — so a Workbench driven from outside (the copilot
     over HTTP) can show "meshing… 12 s"."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     holder = client.app.state.holder
     assert client.get("/state").json()["running"] is None

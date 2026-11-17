@@ -5,9 +5,9 @@ import math
 import numpy as np
 import pytest
 
-from meshforge.geometry import compute_sections, detect_constrictions
-from meshforge.geometry.centerline import Centerline
-from meshforge.synth import generate
+from digitwin.geometry import compute_sections, detect_constrictions
+from digitwin.geometry.centerline import Centerline
+from digitwin.synth import generate
 
 
 def _truth_centerline(truth) -> Centerline:

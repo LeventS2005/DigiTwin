@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -26,7 +26,7 @@ from meshforge.export.deck import (
 
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 2, length: float = 2.0):
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -36,9 +36,9 @@ def _bar_wall(n_cross: int = 2, n_layers: int = 2, length: float = 2.0):
 def _tet_wall():
     """Tet mesh via the gmsh backend on the tube (skips without gmsh)."""
     pytest.importorskip("gmsh")
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -270,7 +270,7 @@ def test_sfe_faces_cover_group(tmp_path):
     """One SFE per boundary face of the loaded group; each LKEY names the
     SOLID185 face whose node set is exactly the boundary face (LKEY is
     load-bearing: ANSYS applies PRES to that face)."""
-    from meshforge.export.ansys import _ANSYS_HEX_FACES
+    from digitwin.export.ansys import _ANSYS_HEX_FACES
 
     wall = _bar_wall(n_cross=3, n_layers=4, length=2.0)
     deck = write_deck(
@@ -302,7 +302,7 @@ def test_tet_sfe_faces_cover_group(tmp_path):
     """Pressure on a tet-backend group: degenerate-SOLID185 faces keep
     LKEY 1/2/3/5 only, and each SFE names the face whose node set is
     exactly the boundary face."""
-    from meshforge.export.ansys import _ANSYS_TET_FACES
+    from digitwin.export.ansys import _ANSYS_TET_FACES
 
     wall = _tet_wall()
     deck = write_deck(
@@ -380,8 +380,8 @@ def test_component_name_refusals(tmp_path):
 
 
 def test_cli_deck_ansys_e2e(tmp_path, capsys):
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

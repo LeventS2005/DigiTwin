@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.io import cso as csomod
-from meshforge.io.cso import cso_to_surface, load_cso
+from digitwin.io import cso as csomod
+from digitwin.io.cso import cso_to_surface, load_cso
 
 try:
     import pydicom  # noqa: F401
@@ -146,7 +146,7 @@ def _clean_surface(tmp_path):
 
 @pytest.mark.parametrize("bad", [np.nan, np.inf])
 def test_nonfinite_embedded_centerline_rejected(tmp_path, bad):
-    from meshforge.geometry import centerline_from_surface
+    from digitwin.geometry import centerline_from_surface
 
     surf = _clean_surface(tmp_path)
     pts = np.array([[0.0, 0.0, 0.0], [bad, 1.0, 2.0], [3.0, 4.0, 5.0]])
@@ -158,8 +158,8 @@ def test_nonfinite_embedded_centerline_rejected(tmp_path, bad):
 
 
 def test_embed_centerline_rejects_nonfinite(tmp_path):
-    from meshforge.geometry import embed_centerline
-    from meshforge.geometry.centerline import Centerline
+    from digitwin.geometry import embed_centerline
+    from digitwin.geometry.centerline import Centerline
 
     surf = _clean_surface(tmp_path)
     cl = Centerline(
@@ -175,8 +175,8 @@ def test_embed_centerline_rejects_nonfinite(tmp_path):
 
 def test_embedded_centerline_roundtrip_still_works(tmp_path):
     """A finite embedded centreline must still survive (no regression)."""
-    from meshforge.geometry import centerline_from_surface, embed_centerline
-    from meshforge.geometry.centerline import Centerline
+    from digitwin.geometry import centerline_from_surface, embed_centerline
+    from digitwin.geometry.centerline import Centerline
 
     surf = _clean_surface(tmp_path)
     cl = Centerline(
@@ -261,7 +261,7 @@ def _write_mf_dcm(path, *, spacing=(0.75, 0.75, 0.9), origin=(-10.0, -20.0, -30.
 @pytest.mark.skipif(not HAS_PYDICOM, reason="pydicom not installed")
 @pytest.mark.parametrize("bad_px", [np.nan, np.inf, 0.0, -1.0])
 def test_dicom_bad_pixel_spacing_refused(tmp_path, bad_px):
-    from meshforge.io.image import dicom_grid
+    from digitwin.io.image import dicom_grid
 
     p = _write_mf_dcm(tmp_path / "bad_px.dcm", spacing=(bad_px, 0.75, 0.9))
     with pytest.raises(ValueError, match="spacing"):
@@ -270,7 +270,7 @@ def test_dicom_bad_pixel_spacing_refused(tmp_path, bad_px):
 
 @pytest.mark.skipif(not HAS_PYDICOM, reason="pydicom not installed")
 def test_dicom_nonfinite_origin_refused(tmp_path):
-    from meshforge.io.image import dicom_grid
+    from digitwin.io.image import dicom_grid
 
     p = _write_mf_dcm(tmp_path / "bad_org.dcm", origin=(np.nan, 0.0, 0.0))
     with pytest.raises(ValueError, match="finite|origin|position"):
@@ -279,7 +279,7 @@ def test_dicom_nonfinite_origin_refused(tmp_path):
 
 @pytest.mark.skipif(not HAS_PYDICOM, reason="pydicom not installed")
 def test_dicom_clean_grid_still_loads(tmp_path):
-    from meshforge.io.image import dicom_grid
+    from digitwin.io.image import dicom_grid
 
     dims, sp, org = dicom_grid(_write_mf_dcm(tmp_path / "ok.dcm"))
     assert dims == (5, 5, 4)
@@ -333,8 +333,8 @@ def _write_series_dir(dirpath, n=4, **kw):
 def test_dicom_series_max_voxels_ceiling(tmp_path, monkeypatch):
     """The directory-of-slices loader must refuse an oversized declared stack
     BEFORE reading any pixel data (mirrors the multi-frame path's ceiling)."""
-    from meshforge.geometry import centerline as clmod
-    from meshforge.io import image as imgmod
+    from digitwin.geometry import centerline as clmod
+    from digitwin.io import image as imgmod
 
     d = _write_series_dir(tmp_path / "series", n=4, rows=5, cols=5)  # 100 voxels
     monkeypatch.setattr(clmod, "MAX_VOXELS", 50, raising=True)
@@ -347,7 +347,7 @@ def test_dicom_series_max_voxels_ceiling(tmp_path, monkeypatch):
 def test_dicom_series_straggler_still_skipped(tmp_path):
     """A genuine non-DICOM straggler (no DICM header → InvalidDicomError) is
     still skipped — the narrowed except must not regress the intended behaviour."""
-    from meshforge.io.image import load_volume
+    from digitwin.io.image import load_volume
 
     d = _write_series_dir(tmp_path / "series", n=4, rows=5, cols=5)
     (d / "README.txt").write_bytes(b"not a dicom file at all\n")
@@ -363,7 +363,7 @@ def test_dicom_series_corrupt_read_surfaces(tmp_path, monkeypatch):
     into a truncated/empty series (the over-broad `except Exception` bug)."""
     import pydicom
 
-    from meshforge.io.image import load_volume
+    from digitwin.io.image import load_volume
 
     d = _write_series_dir(tmp_path / "series", n=4, rows=5, cols=5)
     real = pydicom.dcmread
@@ -382,7 +382,7 @@ def test_dicom_series_corrupt_read_surfaces(tmp_path, monkeypatch):
 @pytest.mark.skipif(not HAS_PYDICOM, reason="pydicom not installed")
 def test_dicom_series_clean_loads(tmp_path):
     """No regression: a clean 4-slice series still loads with correct geometry."""
-    from meshforge.io.image import load_volume
+    from digitwin.io.image import load_volume
 
     d = _write_series_dir(tmp_path / "series", n=4, rows=5, cols=6,
                           spacing=(0.5, 0.5))
@@ -401,8 +401,8 @@ def test_nifti_max_voxels_ceiling_before_fdata(tmp_path, monkeypatch):
     (which would allocate the full array first)."""
     import nibabel as nib
 
-    from meshforge.geometry import centerline as clmod
-    from meshforge.io.image import load_volume
+    from digitwin.geometry import centerline as clmod
+    from digitwin.io.image import load_volume
 
     vol = np.zeros((8, 8, 8), dtype=np.float32)  # 512 voxels
     nii = tmp_path / "big.nii"
@@ -426,7 +426,7 @@ def test_nifti_max_voxels_ceiling_before_fdata(tmp_path, monkeypatch):
 @pytest.mark.skipif(not HAS_NIBABEL, reason="nibabel not installed")
 def test_nifti_within_ceiling_still_loads(tmp_path):
     """No regression: a small NIfTI under the ceiling still round-trips."""
-    from meshforge.io.image import load_volume
+    from digitwin.io.image import load_volume
 
     vol = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     nii = tmp_path / "ok.nii"
@@ -447,7 +447,7 @@ def test_load_cso_checked_single_read(tmp_path):
     equal the sha256 of the file bytes and the parse must match load_cso."""
     import hashlib
 
-    from meshforge.io.cso import load_cso_checked
+    from digitwin.io.cso import load_cso_checked
 
     recs = [_ring_bytes(_circle(3.0, i * 1.5)) for i in range(6)]
     p = _write_cso(tmp_path / "ok.cso", recs)
@@ -465,7 +465,7 @@ def test_load_cso_checked_reads_once(tmp_path, monkeypatch):
     asserting Path.read_bytes is called exactly once for the input file."""
     from pathlib import Path as _Path
 
-    from meshforge.io.cso import load_cso_checked
+    from digitwin.io.cso import load_cso_checked
 
     recs = [_ring_bytes(_circle(3.0, i * 1.5)) for i in range(4)]
     p = _write_cso(tmp_path / "ok.cso", recs)
@@ -490,7 +490,7 @@ def test_compute_import_cso_records_matching_sha(tmp_path, monkeypatch):
     import hashlib
 
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     recs = [_ring_bytes(_circle(3.0, i * 1.5)) for i in range(6)]
     p = _write_cso(tmp_path / "arch.cso", recs)
@@ -580,7 +580,7 @@ def test_dicom_grid_checked_reads_once(tmp_path, monkeypatch):
     PATH (which would be a second, unchecksummed read — TOCTOU)."""
     import hashlib
 
-    from meshforge.io.image import dicom_grid_checked
+    from digitwin.io.image import dicom_grid_checked
 
     p = _write_mf_dcm(tmp_path / "ok.dcm")
     expected_sha = hashlib.sha256(p.read_bytes()).hexdigest()
@@ -620,7 +620,7 @@ def test_import_cso_dicom_anchor_single_read(tmp_path, monkeypatch):
     import hashlib
 
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     # a grid that comfortably contains the tube below
     dcm = _write_mf_dcm(tmp_path / "anchor.dcm", spacing=(0.5, 0.5, 0.5),

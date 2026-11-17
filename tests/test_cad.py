@@ -12,9 +12,9 @@ import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 
-from meshforge.cli import main
-from meshforge.io import file_sha256
-from meshforge.io.cad import (
+from digitwin.cli import main
+from digitwin.io import file_sha256
+from digitwin.io.cad import (
     MODELSPACE,
     _point_in_loop,
     _signed_area,

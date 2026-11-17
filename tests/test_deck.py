@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.cli import main
-from meshforge.export.deck import (
+from digitwin.cli import main
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -18,10 +18,10 @@ from meshforge.export.deck import (
     lateral_pins,
     write_deck,
 )
-from meshforge.geometry import compute_centerline
-from meshforge.meshing import get_backend
-from meshforge.meshing.base import WallMesh
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline
+from digitwin.meshing import get_backend
+from digitwin.meshing.base import WallMesh
+from digitwin.synth import generate
 
 
 @pytest.fixture(scope="module")
@@ -330,10 +330,10 @@ def test_cli_deck_missing_material_params(tmp_path, capsys):
 # ccx-gated benchmarks (skip cleanly when the solver is absent — trap #16)
 
 
-# V13 promoted the ccx lookup + .dat parsers into meshforge.solve; the
+# V13 promoted the ccx lookup + .dat parsers into digitwin.solve; the
 # benchmarks below now exercise the shared implementations.
-from meshforge.solve import find_ccx as _find_ccx  # noqa: E402
-from meshforge.solve.dat import (  # noqa: E402
+from digitwin.solve import find_ccx as _find_ccx  # noqa: E402
+from digitwin.solve.dat import (  # noqa: E402
     parse_displacements as _parse_dat_displacements,
     parse_stresses as _parse_dat_stresses,
 )

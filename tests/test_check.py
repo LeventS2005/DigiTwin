@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pyvista as pv
 
-from meshforge.io import file_sha256, load_surface
-from meshforge.quality import check_surface
+from digitwin.io import file_sha256, load_surface
+from digitwin.quality import check_surface
 
 
 def _check_for(path: Path):

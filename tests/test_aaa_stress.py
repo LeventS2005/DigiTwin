@@ -15,9 +15,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import meshforge.solve.aaa_metrics as am
-from meshforge.pipeline import MeshingSession
-from meshforge.solve import find_ccx
+import digitwin.solve.aaa_metrics as am
+from digitwin.pipeline import MeshingSession
+from digitwin.solve import find_ccx
 
 P140 = 140 * 1.33322e-4  # MPa
 
@@ -218,7 +218,7 @@ def test_volmesh_records_the_wall_thickness_along_the_normal():
 
 
 def test_cli_refusal_exits_1_and_writes_the_sentinel(tmp_path):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     wall = _cylinder()
     vtu = tmp_path / "w.vtu"
@@ -622,8 +622,8 @@ def test_end_zones_that_leave_too_little_are_refused(tmp_path):
 
 @requires_ccx
 def test_cli_end_to_end_and_input_unchanged(tmp_path):
-    from meshforge.cli import main
-    from meshforge.io import file_sha256
+    from digitwin.cli import main
+    from digitwin.io import file_sha256
 
     wall = _cylinder()
     vtu = tmp_path / "cyl.vtu"
@@ -646,8 +646,8 @@ def test_cli_end_to_end_and_input_unchanged(tmp_path):
 
 @requires_ccx
 def test_session_step_journal_replay_and_mfwork_cli(tmp_path, monkeypatch):
-    from meshforge.cli import main
-    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, load_workfile, replay
+    from digitwin.cli import main
+    from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, load_workfile, replay
 
     assert "aaa_stress" in STEP_ORDER and STEP_KNOBS["aaa_stress"]["end_zone"][1] == "neck"
     monkeypatch.chdir(tmp_path)

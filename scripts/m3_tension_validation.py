@@ -65,10 +65,10 @@ VARIANTS = ("neck", "bending", "none")
 
 def gate_wall(case: str):
     """The M2 gate wall, rebuilt with the gate script's calls."""
-    from meshforge.geometry import centerline_from_surface
-    from meshforge.geometry.crop import crop_aaa
-    from meshforge.io.zenodo_aaa import load_reference
-    from meshforge.meshing import get_backend
+    from digitwin.geometry import centerline_from_surface
+    from digitwin.geometry.crop import crop_aaa
+    from digitwin.io.zenodo_aaa import load_reference
+    from digitwin.meshing import get_backend
 
     ref = load_reference(ZEN / case)
     outer = ref.regions["lumen_ilt"].triangulate()
@@ -86,7 +86,7 @@ def compare(case: str, log) -> list[dict]:
     from scipy.spatial import cKDTree
     from scipy.stats import spearmanr
 
-    import meshforge.solve.aaa_metrics as am
+    import digitwin.solve.aaa_metrics as am
 
     t0 = time.time()
     wall, rep, lumen_ref, crop_res = gate_wall(case)
@@ -105,8 +105,8 @@ def compare(case: str, log) -> list[dict]:
     cols = am._columns(wall)
     ilt = None
     if WITH_ILT:
-        from meshforge.geometry.crop import planes_from_report
-        from meshforge.solve.ilt import build_ilt_mesh
+        from digitwin.geometry.crop import planes_from_report
+        from digitwin.solve.ilt import build_ilt_mesh
 
         ilt = build_ilt_mesh(crop_res.lumen, crop_res.surface, planes_from_report(rep))
         log(f"{case}: thrombus {len(ilt.tets)} C3D10, {ilt.volume_ml:.1f} mL")

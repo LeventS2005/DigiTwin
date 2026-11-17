@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.cli import main
-from meshforge.quality import check_surface, degrade_surface, repair_surface
-from meshforge.synth import generate
+from digitwin.cli import main
+from digitwin.quality import check_surface, degrade_surface, repair_surface
+from digitwin.synth import generate
 
 
 def _tube():
@@ -102,8 +102,8 @@ def test_degraded_tube_full_pipeline_regression():
     check = check_surface(repaired, path="degraded", sha256="-")
     assert check.mesh_ready
 
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
 
     cl = compute_centerline(repaired)
     wall = get_backend("swept").mesh_wall(

@@ -21,7 +21,7 @@ import re
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -30,7 +30,7 @@ from meshforge.export.deck import (
     Step,
     write_deck,
 )
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.runner import find_ccx
 
 # ---------------------------------------------------------------------------
 # mesh (the V24/V31 bar fixture)
@@ -38,7 +38,7 @@ from meshforge.solve.runner import find_ccx
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
     """1 x 1 x length rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -230,7 +230,7 @@ def test_unknown_radiate_surface_is_loud(tmp_path):
 
 
 def test_session_radiate_knob_validation():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=2)
@@ -293,7 +293,7 @@ def test_steady_radiation_bar_exact():
     """Fixed T at one end, environmental radiation at the other, sides
     insulated. Steady 1-D balance k*(T1-Tb)/L = eps*sigma*((Tb+off)^4 -
     (Tenv+off)^4) is a scalar root -> exact (probe: 0.000% of dT)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     L, K, EPS, SIGMA, OFF = 20.0, 671.0, 0.9, 5.67e-8, 273.15
     T1, TENV = 700.0, 25.0
@@ -324,7 +324,7 @@ def test_temperature_dependent_conductivity_exact():
     """Bar, fixed T at both ends, sides insulated, k(T)=k0+k1*T. Steady q is
     constant so int_{T(x)}^{T_A} k dT = (x/L) int_{T_B}^{T_A} k dT -> the
     exact variable-k profile (probe: 0.017% of dT; clearly non-linear)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     L, TA, TB, k0, k1 = 20.0, 500.0, 100.0, 2.0, 0.01
     wall = _bar_wall(n_layers=40, length=L)
@@ -360,7 +360,7 @@ def test_temperature_dependent_conductivity_exact():
 def test_radiation_and_kt_combined_solves():
     """Radiation on a temperature-dependent-conductivity bar solves (both
     V41 cards active together) with a physical interior temperature field."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _bar_wall(n_layers=20)
     spec = DeckSpec(
@@ -380,7 +380,7 @@ def test_radiation_and_kt_combined_solves():
 @needs_ccx
 def test_session_radiation_e2e():
     """Radiation cooling through the session: knobs -> journal -> temp_range."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=8)
@@ -398,8 +398,8 @@ def test_session_radiation_e2e():
 @needs_ccx
 def test_cli_deck_radiation_and_kt_solve_e2e(tmp_path, capsys):
     """CLI: deck --radiate (+ --conductivity-table) on the tube, then solve."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

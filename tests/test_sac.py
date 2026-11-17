@@ -13,8 +13,8 @@ import json
 import numpy as np
 import pytest
 
-from meshforge.geometry import sac as sacmod
-from meshforge.geometry.sac import (
+from digitwin.geometry import sac as sacmod
+from digitwin.geometry.sac import (
     BRIGHT,
     NO_FAT,
     RESOLVED,
@@ -263,7 +263,7 @@ def test_refuses_a_non_axial_grid_and_bad_parameters():
 # ---------------------------------------------------------------------------
 def _write_case(dirpath, *, centred=False, mask_shape=None):
     """CT (int16) + lumen mask (uint8) NIfTI with LPS-like negative x/y axes."""
-    from meshforge.io.segment import write_ct_nifti
+    from digitwin.io.segment import write_ct_nifti
 
     ct, lumen, _ = _phantom()
     ni, nj, nk = SHAPE
@@ -282,8 +282,8 @@ def _write_case(dirpath, *, centred=False, mask_shape=None):
 
 
 def test_from_files_reads_only_and_reports(tmp_path):
-    from meshforge.io.load import file_sha256
-    from meshforge.quality.check import check_surface
+    from digitwin.io.load import file_sha256
+    from digitwin.quality.check import check_surface
 
     ct_p, m_p, aff = _write_case(tmp_path / "in put")
     before = (file_sha256(ct_p), file_sha256(m_p))
@@ -315,7 +315,7 @@ def test_from_files_refuses_a_mismatched_or_empty_mask(tmp_path):
 
 def test_session_sac_step_journal_and_replay(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
+    from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
 
     assert STEP_ORDER.index("sac") == STEP_ORDER.index("segment") + 1
     assert set(STEP_KNOBS["sac"]) == {
@@ -344,7 +344,7 @@ def test_cli_sac_with_a_synthetic_zenodo_reference(tmp_path, capsys):
     a synthetic reference whose lumen+thrombus tube IS the phantom's sac."""
     from test_overlap import write_synthetic_zenodo_case
 
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     # a straight phantom (constant radius) so a reference tube can match it
     monkey_r = 23.0
@@ -359,7 +359,7 @@ def test_cli_sac_with_a_synthetic_zenodo_reference(tmp_path, capsys):
         ring = (np.hypot(x - SAC_C[0], y - SAC_C[1]) <= monkey_r) & (sl < 150)
         sl[ring] = 40.0
         sl[np.hypot(x - SAC_C[0], y - SAC_C[1]) > monkey_r] = -100.0
-    from meshforge.io.segment import write_ct_nifti
+    from digitwin.io.segment import write_ct_nifti
 
     write_ct_nifti(np.rint(ct).astype(np.int16), aff, ct_p)
     case = write_synthetic_zenodo_case(
@@ -388,7 +388,7 @@ def test_cli_sac_with_a_synthetic_zenodo_reference(tmp_path, capsys):
 
 
 def test_cli_sac_refusal_is_loud(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     ct_p, m_p, _ = _write_case(tmp_path / "x", mask_shape=SHAPE)  # empty mask
     rc = main(["sac", str(ct_p), "--lumen-mask", str(m_p), "--outputs", str(tmp_path / "o")])
@@ -414,7 +414,7 @@ def _jitter_end_vertex(case, dz):
 def test_zenodo_end_planes_tolerate_float_jitter_but_not_a_third_plane(tmp_path):
     from test_overlap import write_synthetic_zenodo_case
 
-    from meshforge.io.zenodo_aaa import load_reference
+    from digitwin.io.zenodo_aaa import load_reference
 
     case = write_synthetic_zenodo_case(tmp_path / "P05like")
     _jitter_end_vertex(case, 0.009)  # one vertex 9 um off, as in P05

@@ -7,13 +7,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.meshing import (
+from digitwin.meshing import (
     build_block_mesh,
     extrude_blocks,
     split_boundary_group,
 )
-from meshforge.solve.foam_case import CfdBC, CfdSpec, write_case
-from meshforge.solve.foam_runner import find_foam
+from digitwin.solve.foam_case import CfdBC, CfdSpec, write_case
+from digitwin.solve.foam_runner import find_foam
 
 # Ghia, Ghia & Shin (1982), tables I/II, Re=100 (verified against the
 # published dataset this session). Interior rows only (endpoints are
@@ -260,7 +260,7 @@ def test_split_boundary_group_is_loud():
 
 
 def test_session_split_patch_step():
-    from meshforge.pipeline import STEP_KNOBS, _WORKFILE_STEPS, MeshingSession
+    from digitwin.pipeline import STEP_KNOBS, _WORKFILE_STEPS, MeshingSession
 
     assert "split_patch" in STEP_KNOBS
     assert "split_patch" in _WORKFILE_STEPS
@@ -285,7 +285,7 @@ def test_session_split_patch_step():
 
 
 def test_session_cfd_closed_cavity_knob_errors():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="already carries its BCs"):
@@ -295,7 +295,7 @@ def test_session_cfd_closed_cavity_knob_errors():
 
 
 def test_cli_closed_cavity_flag_errors(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["cfd", str(tmp_path), "--closed-cavity"])
     assert rc == 1
@@ -339,7 +339,7 @@ def test_ghia_lid_driven_cavity_benchmark():
     moving wall, empty front/back, pRefCell — max centerline deviation
     < 0.02 of lid speed (probe: 0.0055 / 0.0085; the plateau is the
     reference's own 129^2 accuracy, not ours)."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _cavity_wall(64)
@@ -360,8 +360,8 @@ def test_ghia_lid_driven_cavity_benchmark():
 
 @needs_foam
 def test_cli_cavity_e2e(tmp_path, capsys):
-    from meshforge.cli import main
-    from meshforge.export.foam import write_polymesh
+    from digitwin.cli import main
+    from digitwin.export.foam import write_polymesh
 
     case = tmp_path / "cavity_cli"
     wall = _cavity_wall(16)

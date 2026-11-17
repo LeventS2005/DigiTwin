@@ -16,11 +16,11 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from meshforge.web.app import create_app  # noqa: E402
+from digitwin.web.app import create_app  # noqa: E402
 
 
 def _static(name: str) -> str:
-    import meshforge.web as web_pkg
+    import digitwin.web as web_pkg
 
     return (Path(web_pkg.__file__).parent / "static" / name).read_text()
 
@@ -92,7 +92,7 @@ def test_picker_routes_are_read_only(client: TestClient) -> None:
 
 def test_geometry_payload_carries_the_flow_section(client: TestClient) -> None:
     pytest.importorskip("trame_vtk")
-    from meshforge.geometry.ribbon import centerline_ribbon
+    from digitwin.geometry.ribbon import centerline_ribbon
 
     _drive_to_lumen(client)
     s = client.app.state.holder.session
@@ -151,7 +151,7 @@ def test_picker_writes_the_scalar_knob_form_only() -> None:
     # the pick finds its panel by class: a step box need not be a <fieldset>
     # (a collapsible <details> is pending), and a tag lookup would null out
     assert 'wrap.closest(".step-box")' in js and 'closest("fieldset")' not in js
-    for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+    for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
         assert forbidden not in js
 
 
@@ -176,5 +176,5 @@ def test_viewport_pick_mode_and_section_wiring() -> None:
         assert f"{name}: {name}" in vp
     html = _static("index.html")
     assert 'id="vp-section"' in html and 'id="vp-section-ctl" hidden' in html
-    for forbidden in ("meshforge.geometry", "meshforge.meshing", "offset_wall"):
+    for forbidden in ("digitwin.geometry", "digitwin.meshing", "offset_wall"):
         assert forbidden not in vp

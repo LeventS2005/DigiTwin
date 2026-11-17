@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from meshforge.geometry import compute_centerline
-from meshforge.meshing import get_backend
-from meshforge.quality.volume import volume_quality
-from meshforge.synth import generate
+from digitwin.geometry import compute_centerline
+from digitwin.meshing import get_backend
+from digitwin.quality.volume import volume_quality
+from digitwin.synth import generate
 
 T_WALL = 0.6
 N_THETA = 32

@@ -6,8 +6,8 @@ CC BY 4.0 (Gomes, da Silva, da Silva, Gomes, Raghavan, Silvestre, Queiroz,
 Marques, Zyngier, Chung).
 
 Writes (derived data, CC BY 4.0, attribution in STRENGTH_V0_SOURCES.md):
-  src/meshforge/data/strength_v0.csv         one row per tensile strip
-  src/meshforge/data/strength_v0_donors.csv  age / sex / shape / Dmax per aneurysm
+  src/digitwin/data/strength_v0.csv         one row per tensile strip
+  src/digitwin/data/strength_v0_donors.csv  age / sex / shape / Dmax per aneurysm
 
 Run it with an interpreter that has xlrd + openpyxl (they are NOT meshforge
 dependencies), isolated, never from inside the data folder:
@@ -41,7 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))  # our own stdlib-only conversions
 
-from meshforge.tissue import mechanics as mech  # noqa: E402
+from digitwin.tissue import mechanics as mech  # noqa: E402
 
 DOI = "10.17632/x64srrc39p.3"
 LICENCE = "CC BY 4.0"

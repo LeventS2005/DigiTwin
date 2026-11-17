@@ -15,7 +15,7 @@ import re
 import numpy as np
 import pytest
 
-from meshforge.export.deck import (
+from digitwin.export.deck import (
     BoundaryCondition,
     DeckSpec,
     Load,
@@ -23,8 +23,8 @@ from meshforge.export.deck import (
     Step,
     write_deck,
 )
-from meshforge.solve.frd import read_frd
-from meshforge.solve.runner import find_ccx
+from digitwin.solve.frd import read_frd
+from digitwin.solve.runner import find_ccx
 
 # ---------------------------------------------------------------------------
 # meshes (the V24 fixtures)
@@ -32,7 +32,7 @@ from meshforge.solve.runner import find_ccx
 
 def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
     """1 x 1 x length rectilinear hex bar via the V5 blocks path."""
-    from meshforge.meshing import build_block_mesh, extrude_blocks
+    from digitwin.meshing import build_block_mesh, extrude_blocks
 
     rect = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
     bm = build_block_mesh([rect], target_size=1.0 / n_cross)
@@ -41,9 +41,9 @@ def _bar_wall(n_cross: int = 2, n_layers: int = 20, length: float = 20.0):
 
 def _tube_wall(n_layers: int = 4):
     """Annulus a=3, b=4, L=20 (the V13/V14 fixture geometry)."""
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -255,7 +255,7 @@ def test_spec_transient_cross_validation(tmp_path):
 
 
 def test_session_transient_knob_validation():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     with pytest.raises(ValueError, match="only to session-built"):
@@ -397,7 +397,7 @@ def test_steady_film_tube_exact():
     """Conduction + convective resistance in series: q' = ΔT / (ln(b/a)/2πk
     + 1/2πbh), T(r) = T_i − q'·ln(r/a)/2πk — exact (probe: +0.34% of ΔT
     at the outer wall)."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     wall = _tube_wall()
     spec = DeckSpec(
@@ -425,7 +425,7 @@ def test_transient_lumped_capacitance_exact():
     follows T∞ + ΔT·exp(−t/τ), τ = ρ c_p V / (h A). ccx integrates
     backward Euler (probe: per-step factor exactly 1/(1+Δt/τ)), so the
     truth needs dt << τ: DIRECT dt=0.25 over one τ gave 0.186% of ΔT."""
-    from meshforge.solve import solve_deck
+    from digitwin.solve import solve_deck
 
     h, rho, cp, k, t0, tinf = 0.01, 1.0, 1.0, 10.0, 100.0, 20.0
     wall = _bar_wall()  # 1 x 1 x 20
@@ -463,7 +463,7 @@ def test_transient_lumped_capacitance_exact():
 def test_session_transient_film_e2e():
     """Transient film cooling through the session: knobs -> journal ->
     time_steps in the summary."""
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     session = MeshingSession()
     session.volmesh = _bar_wall(n_layers=4)
@@ -483,8 +483,8 @@ def test_session_transient_film_e2e():
 def test_cli_deck_transient_film_solve_e2e(tmp_path, capsys):
     """CLI: deck --transient --film on the tube, then solve — the printed
     result carries the time-series line."""
-    from meshforge.cli import main
-    from meshforge.synth import generate
+    from digitwin.cli import main
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"

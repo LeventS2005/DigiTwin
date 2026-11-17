@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.pipeline import MeshingSession, _parse_fix_spec, _parse_pressure_spec
-from meshforge.solve import (
+from digitwin.pipeline import MeshingSession, _parse_fix_spec, _parse_pressure_spec
+from digitwin.solve import (
     find_ccx,
     frd_to_grid,
     parse_displacements,
@@ -227,7 +227,7 @@ def test_solve_deck_missing_deck_and_missing_ccx(tmp_path, monkeypatch):
     monkeypatch.setenv("MESHFORGE_CCX", "")
     monkeypatch.setenv("PATH", str(tmp_path))  # hide any real ccx
     monkeypatch.setattr(
-        "meshforge.solve.runner._CCX_FALLBACK", tmp_path / "absent"
+        "digitwin.solve.runner._CCX_FALLBACK", tmp_path / "absent"
     )
     with pytest.raises(RuntimeError, match="not found: set MESHFORGE_CCX"):
         solve_deck(deck, tmp_path / "out")
@@ -382,7 +382,7 @@ def test_workfile_replay_includes_solve(tmp_path, monkeypatch):
     session.compute_solve(deck=str(_dummy_deck(tmp_path)), ccx=exe)
     wf = session.save_workfile(tmp_path / "s.mfwork")
 
-    from meshforge.pipeline import load_workfile, replay
+    from digitwin.pipeline import load_workfile, replay
 
     fresh = load_workfile(wf)
     results = replay(fresh)
@@ -442,13 +442,13 @@ def test_cli_solve_end_to_end(tmp_path):
     """CLI solve on a real deck: results .vtu + summary JSON land in outputs."""
     if find_ccx() is None:
         pytest.skip("CalculiX (ccx) not available")
-    from meshforge.cli import main
-    from meshforge.export.deck import (
+    from digitwin.cli import main
+    from digitwin.export.deck import (
         BoundaryCondition, DeckSpec, Load, Material, Step, lateral_pins, write_deck,
     )
-    from meshforge.geometry import compute_centerline
-    from meshforge.meshing import get_backend
-    from meshforge.synth import generate
+    from digitwin.geometry import compute_centerline
+    from digitwin.meshing import get_backend
+    from digitwin.synth import generate
 
     surface, _ = generate("straight_tube")
     cl = compute_centerline(surface)
@@ -484,7 +484,7 @@ def test_cli_solve_end_to_end(tmp_path):
 
 
 def test_cli_solve_error_paths(tmp_path):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["solve", str(tmp_path / "nope.inp"), "--outputs", str(tmp_path / "o")])
     assert rc == 1

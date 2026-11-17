@@ -12,7 +12,7 @@ import json
 import numpy as np
 import pytest
 
-from meshforge.meshing import (
+from digitwin.meshing import (
     build_block_mesh,
     extrude_blocks,
     split_boundary_group,
@@ -93,7 +93,7 @@ def test_foam_default_patch_refuses_dict_injection():
     backstop never sees it): ``default_patch`` is minted at write time and
     lands directly in the polyMesh/FLUENT zone list. It is validated at the
     writer (``export/foam.py`` ``_patch_face_map``)."""
-    from meshforge.export.foam import _patch_face_map
+    from digitwin.export.foam import _patch_face_map
 
     wall = _cavity_wall()
     for bad in (EVIL_NAME,) + FOAM_DICT_PAYLOADS:
@@ -114,7 +114,7 @@ def test_split_boundary_group_refuses_newline_name():
 
 
 def test_boundary_group_constructor_backstop():
-    from meshforge.meshing import BoundaryGroup
+    from digitwin.meshing import BoundaryGroup
 
     with pytest.raises(ValueError, match="invalid boundary-group name"):
         BoundaryGroup(
@@ -130,7 +130,7 @@ def test_workfile_split_patch_injection_refused(tmp_path):
     # lets a hand-edited .mfwork carry a forged split_patch name. The mint-
     # site validator now refuses it on replay instead of producing an
     # injected deck.
-    from meshforge.pipeline import load_workfile, replay
+    from digitwin.pipeline import load_workfile, replay
 
     journal = [
         {
@@ -157,7 +157,7 @@ def test_workfile_split_patch_injection_refused(tmp_path):
 def test_cfd_spec_refuses_injected_patch_name():
     # The CFD sink: patch names become boundaryField dict keys. CfdSpec's
     # constructor backstop refuses a forged name.
-    from meshforge.solve.foam_case import CfdBC, CfdSpec
+    from digitwin.solve.foam_case import CfdBC, CfdSpec
 
     with pytest.raises(ValueError, match="invalid boundary-group name"):
         CfdSpec(
@@ -177,7 +177,7 @@ ANSI_PAYLOAD = "start\x1b[2J\x1b]0;pwned\x07mid\rend\x7fdel"
 
 
 def test_scrub_neutralises_control_chars_keeps_newline_tab():
-    from meshforge.textguard import scrub
+    from digitwin.textguard import scrub
 
     out = scrub(ANSI_PAYLOAD)
     # Every C0/C1 control char is gone (ESC, BEL, CR, DEL)...
@@ -193,7 +193,7 @@ def test_scrub_neutralises_control_chars_keeps_newline_tab():
 def test_dat_parser_error_message_is_terminal_safe():
     # A crafted .dat whose eigenvalue row carries an ESC sequence: the parse
     # error must not carry the raw control bytes into the printed message.
-    from meshforge.solve.dat import parse_eigenfrequencies
+    from digitwin.solve.dat import parse_eigenfrequencies
 
     crafted = (
         "         E I G E N V A L U E   O U T P U T\n"
@@ -216,7 +216,7 @@ def test_dwg2dxf_timeout_is_loud(monkeypatch):
     import subprocess
     from pathlib import Path
 
-    from meshforge.io import cad
+    from digitwin.io import cad
 
     monkeypatch.setattr(cad.shutil, "which", lambda _name: "/usr/bin/dwg2dxf")
 
@@ -239,8 +239,8 @@ def test_image_ingest_refuses_oversized_volume():
     # paths use. A zero-memory broadcast view lets us trip the real 40M limit
     # without allocating a giant array — the guard reads only array.shape and
     # fires before any full-array scan.
-    from meshforge.geometry.centerline import MAX_VOXELS
-    from meshforge.io.image import volume_to_surface
+    from digitwin.geometry.centerline import MAX_VOXELS
+    from digitwin.io.image import volume_to_surface
 
     n = 350  # 350**3 = 42_875_000 > 40_000_000
     assert n ** 3 > MAX_VOXELS

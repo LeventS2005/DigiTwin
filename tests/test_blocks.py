@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.meshing import build_block_mesh, extrude_blocks
+from digitwin.cli import main
+from digitwin.meshing import build_block_mesh, extrude_blocks
 
 RECT = np.array([[0, 0], [10, 0], [10, 8], [0, 8]], dtype=float)
 HOLE = np.array([[3, 3], [3, 6], [7, 6], [7, 3]], dtype=float)  # CW
@@ -145,8 +145,8 @@ def test_cottage_window_multiblock_end_to_end(tmp_path) -> None:
     outer frame rectangle minus the 20 pane rectangles, hex-meshed by
     rectilinear block decomposition. Loop edges all lie on grid lines, so
     the mesh volume equals (A_outer - 20*A_pane) x thickness EXACTLY."""
-    from meshforge.io import file_sha256
-    from meshforge.io.cad import _signed_area, load_profile
+    from digitwin.io import file_sha256
+    from digitwin.io.cad import _signed_area, load_profile
 
     dwg = _cottage_dwg()
     before = file_sha256(dwg)

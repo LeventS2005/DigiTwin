@@ -20,10 +20,10 @@ build:
   number: 0
   # build steps live in build.sh (pip install + ship the menuinst launcher)
   entry_points:
-    - meshforge = meshforge.cli:main
-    - meshforge-web = meshforge.web.server:main
-    - meshforge-desktop = meshforge.gui.shell:main
-    - meshforge-gui = meshforge.gui.shell:main
+    - digitwin = digitwin.cli:main
+    - digitwin-web = digitwin.web.server:main
+    - digitwin-desktop = digitwin.gui.shell:main
+    - digitwin-gui = digitwin.gui.shell:main
 
 requirements:
   host:
@@ -59,9 +59,9 @@ requirements:
 
 test:
   imports:
-    - meshforge
-    - meshforge.gui.shell
-    - meshforge.web.server
+    - digitwin
+    - digitwin.gui.shell
+    - digitwin.web.server
 
 about:
   home: https://github.com/LeventS2005/meshforge

@@ -6,8 +6,8 @@ import meshio
 import numpy as np
 import pytest
 
-from meshforge.export import export_surface, guard_output_path
-from meshforge.io import load_surface
+from digitwin.export import export_surface, guard_output_path
+from digitwin.io import load_surface
 
 
 @pytest.mark.parametrize("fmt", ["vtu", "vtk", "ply", "obj"])

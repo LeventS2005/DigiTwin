@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.io.image import (
+from digitwin.io.image import (
     dicom_grid,
     load_volume,
     volume_input_sha256,
@@ -147,7 +147,7 @@ def test_nifti_roundtrip_and_rotated_affine_refused(tmp_path):
     # affine-aware loader, which import_image uses and which maps it exactly.
     with pytest.raises(ValueError, match="re-orient it first, or load it with load_volume_affine"):
         load_volume(bad)
-    from meshforge.io.image import load_volume_affine
+    from digitwin.io.image import load_volume_affine
 
     _, affine, _ = load_volume_affine(bad)
     np.testing.assert_allclose(affine, rot)
@@ -171,7 +171,7 @@ def test_volume_input_sha256_file_and_dir(tmp_path):
 
 def test_session_import_image_and_replay(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession, load_workfile, replay
+    from digitwin.pipeline import MeshingSession, load_workfile, replay
 
     npy = tmp_path / "sphere.npy"
     np.save(npy, _sphere_volume())
@@ -194,7 +194,7 @@ def test_session_import_image_and_replay(tmp_path, monkeypatch):
 
 
 def test_cli_import_image_e2e(tmp_path):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     npy = tmp_path / "sphere.npy"
     np.save(npy, _sphere_volume())
@@ -214,7 +214,7 @@ def test_cli_import_image_e2e(tmp_path):
 
 
 def test_cli_import_image_error_paths(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     npy = tmp_path / "sphere.npy"
     np.save(npy, _sphere_volume(n=16, r=5.0))

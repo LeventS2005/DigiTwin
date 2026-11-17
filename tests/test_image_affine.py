@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from meshforge.io.image import (
+from digitwin.io.image import (
     check_affine,
     load_volume_affine,
     mask_to_surface,
@@ -139,7 +139,7 @@ def test_mask_tube_cut_by_the_field_of_view_closes_with_flat_caps():
 def test_mask_crop_keeps_a_big_grid_small_object_under_max_voxels(monkeypatch):
     """A full-CT-size mask (here 200^3 = 8 M voxels against a ceiling lowered
     to 200 k) still extracts: only the object's bounding box is meshed."""
-    from meshforge.geometry import centerline as clmod
+    from digitwin.geometry import centerline as clmod
 
     monkeypatch.setattr(clmod, "MAX_VOXELS", 200_000, raising=True)
     m = np.zeros((200, 200, 200), dtype=bool)
@@ -220,7 +220,7 @@ def test_load_volume_affine_units_and_orientation(tmp_path):
 def test_import_image_maps_a_rotated_negative_nifti_and_sets_mm(tmp_path, monkeypatch):
     """Formerly refused (``re-orient``): now the session maps it exactly."""
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     lin = _AFFINES["oblique_30"] @ np.diag([-1.0, 1.0, 1.0])  # reflected too
     a = _affine(lin)
@@ -253,7 +253,7 @@ def test_oversized_mask_is_block_averaged_not_refused():
     import numpy as np
     import pytest
 
-    from meshforge.io.image import mask_to_surface
+    from digitwin.io.image import mask_to_surface
 
     sp = np.array([0.5, 0.5, 1.0])
     shape = (80, 80, 60)
@@ -289,7 +289,7 @@ def test_merged_slivers_are_deleted_not_demoted():
     import numpy as np
     import pyvista as pv
 
-    from meshforge.io.image import _clean_triangles
+    from digitwin.io.image import _clean_triangles
 
     pts = np.array(
         [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [1, 1, 0]], dtype=float

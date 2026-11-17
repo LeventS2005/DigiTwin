@@ -21,11 +21,11 @@ from pathlib import Path
 
 import pytest
 
-from meshforge.pipeline import STEP_KNOBS, STEP_ORDER
+from digitwin.pipeline import STEP_KNOBS, STEP_ORDER
 
 
 def _static_dir() -> Path:
-    import meshforge.web as web_pkg
+    import digitwin.web as web_pkg
 
     return Path(web_pkg.__file__).parent / "static"
 
@@ -249,7 +249,7 @@ def test_browser_mode_explains_itself_once(app_js: str, styles_css: str) -> None
 
 
 def test_the_desktop_shell_exposes_all_three_dialog_slots() -> None:
-    shell = (Path(__file__).resolve().parents[1] / "src/meshforge/gui/shell.py").read_text()
+    shell = (Path(__file__).resolve().parents[1] / "src/digitwin/gui/shell.py").read_text()
     for slot in ("open_file", "open_directory", "save_file"):
         assert f"def {slot}(" in shell, f"_FileBridge lost the {slot} slot"
 
@@ -341,7 +341,7 @@ def _slice_between(source: str, start_marker: str, end_marker: str) -> str:
 
 def test_twin_outline_is_the_reports_own_svg(index_html: str) -> None:
     # one body outline for the report header and the Workbench panel
-    from meshforge.copilot.report import BODY_SVG
+    from digitwin.copilot.report import BODY_SVG
 
     assert BODY_SVG in index_html
     for cls in ("tw-body", "tw-next", "tw-aorta"):
@@ -406,11 +406,11 @@ def _demo_steps(app_js: str) -> list[tuple[str, str, str]]:
 def test_demo_switch_is_in_the_top_bar_and_persists(index_html: str, app_js: str) -> None:
     assert 'id="demo-toggle"' in index_html
     assert index_html.index('id="demo-toggle"') < index_html.index('id="workbench"')
-    assert 'localStorage.setItem("meshforge.demo"' in app_js
+    assert 'localStorage.setItem("digitwin.demo"' in app_js
     assert 'searchParams.set("demo", "1")' in app_js
     assert 'classList.toggle("demo", on)' in app_js
     # the URL wins over the stored preference, so ?demo=1 opens a fresh server in Demo mode
-    assert 'get("demo")' in app_js and 'getItem("meshforge.demo")' in app_js
+    assert 'get("demo")' in app_js and 'getItem("digitwin.demo")' in app_js
 
 
 def test_demo_tabs_are_the_aaa_path_in_run_order(app_js: str) -> None:
@@ -482,7 +482,7 @@ def test_demo_mesh_wall_tab_shows_the_gate_failure_in_the_reports_own_words(app_
     fixed note; app.js matches that note's start, so pin the two together."""
     import inspect
 
-    from meshforge.copilot import report
+    from digitwin.copilot import report
 
     assert 'const WALL_GATE_FAIL_NOTE = "last wall gate FAIL";' in app_js
     assert 'f"last wall gate FAIL: {' in inspect.getsource(report)
@@ -577,13 +577,13 @@ def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_
     index_html: str, app_js: str, styles_css: str
 ) -> None:
     """D108 addendum 6: the patient atlas replaces the coverage illustration.
-    The body map is exactly the 15 regions of meshforge.atlas.REGIONS (same
+    The body map is exactly the 15 regions of digitwin.atlas.REGIONS (same
     ids, same names, in order), each focusable and labelled; six modality
     chips with All on; every study row comes from GET /atlas (nothing about
     the demo scan is written into the page); the empty state names what
     WOULD list and invents nothing; hover / focus / selected rules exist only
     under body.demo."""
-    from meshforge import atlas as atlas_mod
+    from digitwin import atlas as atlas_mod
 
     assert '<template id="atlas-svg">' in index_html
     t0 = index_html.index('<template id="atlas-svg">')
@@ -721,10 +721,10 @@ def test_lab_switch_sits_beside_demo_never_both_on_and_persists(index_html: str,
     assert switches.index('id="demo-toggle"') < switches.index('id="lab-toggle"')
     assert '<span class="demo-switch-label">Lab</span>' in switches
     assert '<span class="demo-switch-label">Demo</span>' in switches  # Demo's own switch, unchanged
-    assert 'localStorage.setItem("meshforge.lab"' in app_js
+    assert 'localStorage.setItem("digitwin.lab"' in app_js
     assert 'searchParams.set("lab", "1")' in app_js
     assert 'classList.toggle("lab", on)' in app_js
-    assert 'get("lab")' in app_js and 'getItem("meshforge.lab")' in app_js
+    assert 'get("lab")' in app_js and 'getItem("digitwin.lab")' in app_js
     init = _function_body(app_js, "function initLabMode()")
     assert "if (lab.checked && isDemo()) applyDemo(false);" in init  # Lab on turns Demo off
     assert "if (demo.checked && isLab()) applyLab(false);" in init  # and the other way round

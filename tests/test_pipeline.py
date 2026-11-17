@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from meshforge.pipeline import MeshingSession
+from digitwin.pipeline import MeshingSession
 
 
 @pytest.fixture(scope="module")

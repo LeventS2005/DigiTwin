@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from conftest import cso_family_dir, example_cso_dir
 
-from meshforge.geometry.centerline import Centerline
-from meshforge.meshing.lumen import fill_lumen
-from meshforge.pipeline import MeshingSession, load_workfile, replay
-from meshforge.synth import generate
+from digitwin.geometry.centerline import Centerline
+from digitwin.meshing.lumen import fill_lumen
+from digitwin.pipeline import MeshingSession, load_workfile, replay
+from digitwin.synth import generate
 
 
 def _tube_radius_length(surf, truth):
@@ -92,7 +92,7 @@ def test_knob_refusals_are_loud():
 
 
 def test_ogrid_count_overrides_validate():
-    from meshforge.meshing.ogrid import ogrid_disk
+    from digitwin.meshing.ogrid import ogrid_disk
 
     theta = np.linspace(0, 2 * np.pi, 32, endpoint=False)
     loop = np.column_stack([np.cos(theta), np.sin(theta)])
@@ -122,7 +122,7 @@ def test_tet_method_direct():
 
 def test_auto_falls_back_to_tet_with_loud_note(monkeypatch):
     pytest.importorskip("gmsh")
-    import meshforge.meshing.lumen as lumen_mod
+    import digitwin.meshing.lumen as lumen_mod
 
     def boom(*a, **k):
         raise ValueError("synthetic structured failure")
@@ -219,7 +219,7 @@ def test_tilted_end_caps_patches_are_the_caps(method):
 def test_tilted_end_caps_reproduce_the_clipped_patch_without_anchoring(monkeypatch):
     """The fixture is a faithful reproduction: with cap detection off the old
     centreline-normal end sections come back clipped to well under the cap."""
-    import meshforge.meshing.lumen as lumen_mod
+    import digitwin.meshing.lumen as lumen_mod
 
     monkeypatch.setattr(lumen_mod, "_end_caps", lambda *a, **k: {})
     surf, cl, caps = _tilted_cap_tube()
@@ -258,7 +258,7 @@ def test_cap_filter_rejects_coplanar_wall_facets():
     vertices) and creases against the wall (>= 10°). A straight tube's flat
     wall strips (64 of them, 5.6° creases) are coplanar disks but not caps;
     a 4-triangle planar fan is too small a ring to be one."""
-    from meshforge.meshing import lumen as lumen_mod
+    from digitwin.meshing import lumen as lumen_mod
 
     surf, _ = generate("straight_tube", radius=_R, length=20.0, n_theta=64, n_axial=41)
     tri, pts, regions = lumen_mod._coplanar_regions(surf)
@@ -297,7 +297,7 @@ def test_session_step_records_and_replays(tmp_path):
 
 
 def test_cli_lumen_end_to_end(tmp_path, capsys):
-    from meshforge import cli
+    from digitwin import cli
 
     surf, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"
@@ -318,7 +318,7 @@ def test_cli_lumen_end_to_end(tmp_path, capsys):
 
 
 def test_cli_lumen_bad_method_exits_nonzero(tmp_path, capsys):
-    from meshforge import cli
+    from digitwin import cli
 
     surf, _ = generate("straight_tube")
     src = tmp_path / "tube.vtp"
@@ -339,7 +339,7 @@ _FAMILY = sorted(_FAMILY_DIR.glob("*.cso")) if _FAMILY_DIR is not None else []
 @pytest.mark.parametrize("cso_path", _FAMILY, ids=lambda p: p.stem.split("_")[0])
 def test_real_family_lumen_inverted_zero(cso_path):
     pytest.importorskip("gmsh")
-    from meshforge.io.cso import cso_input_sha256
+    from digitwin.io.cso import cso_input_sha256
 
     before = cso_input_sha256(cso_path)
     s = MeshingSession()
@@ -389,7 +389,7 @@ def test_example_family_end_patches_are_the_caps(cso_path):
     stopped short of them (one outlet 25.8 mm inside). Every patch now lies on
     its cap and matches its area — including the small seed-contour caps at
     the aortic root, which the surface itself pinches down to."""
-    from meshforge.io.cso import cso_input_sha256
+    from digitwin.io.cso import cso_input_sha256
 
     before = cso_input_sha256(cso_path)
     s = MeshingSession()
@@ -421,8 +421,8 @@ def test_surface_tet_fills_the_surface_itself_and_tags_the_caps():
     assert set(wm.boundary) == {"wall", "inlet", "outlet"}
     assert abs(wm.grid.volume) == pytest.approx(abs(surf.volume), rel=0.01)
     # each patch is the WHOLE cap after the gmsh remesh, not a rim-less core
-    from meshforge.meshing.lumen import flat_cap_cells
-    from meshforge.solve.inflow import patch_geometry
+    from digitwin.meshing.lumen import flat_cap_cells
+    from digitwin.solve.inflow import patch_geometry
 
     tri = surf.triangulate()
     cap_areas = sorted(float(tri.extract_cells(c).area) for c in flat_cap_cells(tri))
@@ -432,7 +432,7 @@ def test_surface_tet_fills_the_surface_itself_and_tags_the_caps():
 
 def test_surface_tet_refuses_a_surface_without_two_flat_caps(monkeypatch):
     # inlet/outlet come from the two flat caps; one (or three) is ambiguous
-    import meshforge.meshing.lumen as lumen
+    import digitwin.meshing.lumen as lumen
 
     real = lumen.flat_cap_cells
     monkeypatch.setattr(lumen, "flat_cap_cells", lambda s: real(s)[:1])
@@ -445,7 +445,7 @@ def test_auto_falls_back_to_surface_tet_when_the_ring_shell_is_invalid(monkeypat
     # A centreline bending tighter than the vessel makes the station rings
     # overlap: the O-grid fails AND the ring shell self-intersects. Simulate
     # both and check auto still delivers a mesh, loudly.
-    import meshforge.meshing.lumen as lumen
+    import digitwin.meshing.lumen as lumen
 
     def bad_sweep(*a, **k):
         raise ValueError("simulated O-grid failure")

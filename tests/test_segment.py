@@ -25,8 +25,8 @@ nib = pytest.importorskip("nibabel")
 
 from conftest import local_data_dir  # noqa: E402
 
-from meshforge.io import segment as segmod  # noqa: E402
-from meshforge.io.segment import (  # noqa: E402
+from digitwin.io import segment as segmod  # noqa: E402
+from digitwin.io.segment import (  # noqa: E402
     EMPTY_MASK_MESSAGE,
     find_totalseg,
     segment_ct,
@@ -346,7 +346,7 @@ def test_argument_validation(tmp_path, fake_ts):
 
 def test_session_segment_step_journal_and_replay(tmp_path, fake_ts, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
+    from digitwin.pipeline import STEP_KNOBS, STEP_ORDER, MeshingSession, load_workfile, replay
 
     assert STEP_ORDER.index("segment") == STEP_ORDER.index("import_cso") + 1
     assert set(STEP_KNOBS["segment"]) == {
@@ -382,7 +382,7 @@ def test_web_segment_endpoint(tmp_path, fake_ts):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    from meshforge.web.app import create_app
+    from digitwin.web.app import create_app
 
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
     client = TestClient(create_app())
@@ -400,7 +400,7 @@ def test_cli_segment_with_a_synthetic_zenodo_reference(tmp_path, fake_ts, capsys
     lumen+thrombus tube matches the segmented tube."""
     from test_overlap import write_synthetic_zenodo_case
 
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct(), origin_lps=(0.0, 0.0, -20.0))
     # reference tubes coaxial with the CT tube, ends inside the CT's z range
@@ -436,7 +436,7 @@ def test_cli_segment_with_a_synthetic_zenodo_reference(tmp_path, fake_ts, capsys
 
 
 def test_cli_segment_error_is_loud(tmp_path, fake_ts, monkeypatch, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     monkeypatch.setenv("FAKE_TS_MODE", "empty")
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
@@ -470,7 +470,7 @@ def test_real_totalseg_on_zenodo_never_fails_open(case, frame):
     its ``aorta`` label is EMPTY on P01 and an 84-voxel speck on P17, so the
     step must refuse loudly. Should a future version segment these crops,
     the result must be a closed surface that agrees with the reference."""
-    from meshforge.io.zenodo_aaa import validate_against_reference
+    from digitwin.io.zenodo_aaa import validate_against_reference
 
     ct = ZENODO_DIR / case / "4D_CTA" / frame
     try:
@@ -487,7 +487,7 @@ def test_real_totalseg_on_zenodo_never_fails_open(case, frame):
 def test_ct_ceiling_admits_a_full_body_cta():
     # A chest-to-pelvis CTA at 0.6 mm is ~1100-1200 slices of 512 x 512; the
     # first ceiling (1024 slices) refused a real public AAA scan outright.
-    from meshforge.io.segment import MAX_CT_VOXELS
+    from digitwin.io.segment import MAX_CT_VOXELS
 
     assert MAX_CT_VOXELS >= 512 * 512 * 1800
 
@@ -509,7 +509,7 @@ def _lumen_ct() -> np.ndarray:
 
 
 def test_ct_lumen_is_the_bright_core_of_the_mask_and_drops_detached_calcium(tmp_path):
-    from meshforge.io.segment import ct_lumen_surface, write_ct_nifti
+    from digitwin.io.segment import ct_lumen_surface, write_ct_nifti
 
     ct = _lumen_ct()
     aff = np.diag([SPACING, SPACING, SLICE, 1.0])
@@ -538,8 +538,8 @@ def test_ct_lumen_is_the_bright_core_of_the_mask_and_drops_detached_calcium(tmp_
 
 
 def test_cli_segment_writes_the_threshold_lumen(tmp_path, fake_ts, capsys):
-    from meshforge.cli import main
-    from meshforge.io.segment import write_ct_nifti
+    from digitwin.cli import main
+    from digitwin.io.segment import write_ct_nifti
 
     ct_path = tmp_path / "ct.nii.gz"
     write_ct_nifti(_lumen_ct(), np.diag([SPACING, SPACING, SLICE, 1.0]), ct_path)

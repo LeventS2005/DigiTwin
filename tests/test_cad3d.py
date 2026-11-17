@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from meshforge.io.cad3d import load_solid
+from digitwin.io.cad3d import load_solid
 
 try:
     import gmsh  # noqa: F401
@@ -111,7 +111,7 @@ def test_garbage_step_is_loud(tmp_path):
 @needs_gmsh
 def test_session_step_and_replay(cad_files, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    from meshforge.pipeline import MeshingSession, load_workfile, replay
+    from digitwin.pipeline import MeshingSession, load_workfile, replay
 
     session = MeshingSession()
     result = session.compute_import_cad3d(path=str(cad_files["box.step"]))
@@ -132,7 +132,7 @@ def test_session_step_and_replay(cad_files, tmp_path, monkeypatch):
 
 @needs_gmsh
 def test_cli_import_cad3d_e2e(cad_files, tmp_path):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     outdir = tmp_path / "out"
     rc = main([
@@ -149,7 +149,7 @@ def test_cli_import_cad3d_e2e(cad_files, tmp_path):
 @needs_gmsh
 def test_cli_full_pipeline_step_to_volmesh(cad_files, tmp_path):
     """The new-format-to-volume path: STEP cylinder -> surface -> swept wall."""
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     outdir = tmp_path / "out"
     rc = main(["import-cad3d", str(cad_files["cyl.step"]), "--outputs", str(outdir)])
@@ -167,7 +167,7 @@ def test_cli_full_pipeline_step_to_volmesh(cad_files, tmp_path):
 
 
 def test_cli_import_cad3d_error_path(tmp_path, capsys):
-    from meshforge.cli import main
+    from digitwin.cli import main
 
     rc = main(["import-cad3d", str(tmp_path / "nope.step")])
     assert rc == 1

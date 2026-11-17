@@ -8,9 +8,9 @@ import json
 import numpy as np
 import pytest
 
-from meshforge.cli import main
-from meshforge.io.cad import _signed_area
-from meshforge.meshing import (
+from digitwin.cli import main
+from digitwin.io.cad import _signed_area
+from digitwin.meshing import (
     extrude_blocks,
     ogrid_disk,
     project_profile,
@@ -157,7 +157,7 @@ def test_refusals_are_loud():
 
 
 def test_smoothing_refuses_ogrid_meshes():
-    from meshforge.meshing.smooth import smooth_lattice
+    from digitwin.meshing.smooth import smooth_lattice
 
     bm = ogrid_disk([_circle(64)], target_size=0.2)
     with pytest.raises(ValueError, match="no global rectilinear lattice"):
@@ -169,7 +169,7 @@ def test_smoothing_refuses_ogrid_meshes():
 
 
 def _circle_profile():
-    from meshforge.io.cad import Profile2D
+    from digitwin.io.cad import Profile2D
 
     return Profile2D(
         loops=[_circle(64)],
@@ -181,7 +181,7 @@ def _circle_profile():
 
 
 def test_session_ogrid_knobs():
-    from meshforge.pipeline import MeshingSession
+    from digitwin.pipeline import MeshingSession
 
     s = MeshingSession()
     s.profile = _circle_profile()
