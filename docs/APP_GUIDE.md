@@ -278,7 +278,7 @@ for three steps only. One knob, `tet_engine` = `gmsh` | `tetgen`, on `lumen`
   says how to install it.
 - **Licence rule:** TetGen is AGPL v3. Private use only; a commercial TetGen
   licence, or its removal, is required before DigiTwin is ever distributed,
-  published or hosted for others. It is never added to the public Meshforge
+  published or hosted for others. It is never added to the public demo
   edition (see NOTICE).
 
 ### 3.6 import_cad (2-D DWG/DXF profile), import_cad3d (STEP/IGES/BREP),

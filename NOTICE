@@ -33,4 +33,4 @@ installed in the private `digitwin` environment and run in a child process;
 nothing of it is vendored in this repository. Rule: private use only. A
 commercial TetGen licence, or removing TetGen, is required before DigiTwin is
 ever distributed, published or hosted for others. TetGen is never added to
-the public Meshforge edition.
+the public demo edition.
