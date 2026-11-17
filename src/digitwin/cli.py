@@ -188,6 +188,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip gmsh mesh optimization (tet only; default: Netgen with fallback)",
     )
+    p_vol.add_argument(
+        "--tet-engine",
+        choices=("gmsh", "tetgen"),
+        type=str.lower,
+        default="gmsh",
+        help="tet engine of the tet backend: gmsh (default) | tetgen (tet only; "
+        "TetGen never falls back to gmsh)",
+    )
     p_vol.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
     p_vol.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
 
@@ -224,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         help="tet-fallback target size (default: 1.5x median ring edge)",
+    )
+    p_lumen.add_argument(
+        "--tet-engine",
+        choices=("gmsh", "tetgen"),
+        type=str.lower,
+        default="gmsh",
+        help="engine of the tet fill: gmsh (default) | tetgen (needs --method tet; "
+        "TetGen never falls back to gmsh)",
     )
     p_lumen.add_argument("--out", type=_path_arg, default=None, help="output .vtu path")
     p_lumen.add_argument("--outputs", type=_path_arg, default=Path("outputs"))
@@ -1017,6 +1033,10 @@ def main(argv: list[str] | None = None) -> int:
                        "FE model)")
     p_aaa.add_argument("--ilt-size", type=float, default=3.0,
                        help="thrombus tet size, mm (default 3)")
+    p_aaa.add_argument("--tet-engine", choices=("gmsh", "tetgen"), type=str.lower,
+                       default="gmsh",
+                       help="engine of the thrombus tet fill: gmsh (default) | tetgen "
+                       "(never falls back to gmsh; used with --lumen)")
     p_aaa.add_argument("--ccx", default=None, help="CalculiX executable")
     p_aaa.add_argument("--timeout", type=float, default=600.0,
                        help="solver limit per solve, seconds")
@@ -3055,6 +3075,7 @@ def _cmd_aaa_stress(args: argparse.Namespace) -> int:
             systolic_mmhg=args.systolic, whatif_mmhg=args.whatif, E=args.E, nu=args.nu,
             end_zone=args.end_zone, ccx=args.ccx, timeout=args.timeout, input_path=src,
             lumen=lumen, sac=sac, E_ilt=args.E_ilt, ilt_size=args.ilt_size,
+            tet_engine=args.tet_engine,
         )
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -3173,6 +3194,11 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
         elif (args.sweep != "centreline" or args.side != "outward"
               or args.max_tilt is not None or args.section_smoothing):
             raise ValueError("--sweep/--side/--max-tilt/--section-smoothing are swept-only")
+        if args.backend == "swept" and args.tet_engine != "gmsh":
+            raise ValueError("--tet-engine is tet-only (the swept backend has no tet fill); "
+                             "use --backend tet")
+        if args.backend == "tet":
+            kwargs["tet_engine"] = args.tet_engine
         if args.backend == "tet" and args.mesh_size is not None:
             kwargs["mesh_size"] = args.mesh_size
         if args.backend == "tet" and args.no_optimize:
@@ -3193,6 +3219,8 @@ def _cmd_volmesh(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     wall.grid.save(out)
     summary = wall.summary()
+    if args.backend == "tet":
+        summary["tet_engine"] = args.tet_engine
     summary_path = out.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -3251,6 +3279,7 @@ def _cmd_lumen(args: argparse.Namespace) -> int:
             core_fraction=args.core_fraction,
             smooth=args.smooth,
             mesh_size=args.mesh_size,
+            tet_engine=args.tet_engine,
         )
         guard_output_path(out, input_paths=[surface_path])
     except (FileNotFoundError, TypeError, ValueError, RuntimeError) as exc:
@@ -3264,6 +3293,8 @@ def _cmd_lumen(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     lumen.grid.save(out)
     summary = lumen.summary()
+    if summary["backend"] in ("lumen-tet", "lumen-surface-tet"):
+        summary["tet_engine"] = args.tet_engine
     summary_path = out.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
 

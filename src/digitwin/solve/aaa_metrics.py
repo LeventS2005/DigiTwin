@@ -926,12 +926,20 @@ def run_aaa_stress(
     E_ilt: float = DEFAULT_E_ILT_MPA,
     nu_ilt: float = DEFAULT_NU_ILT,
     ilt_size: float = DEFAULT_ILT_SIZE_MM,
+    tet_engine: str = "gmsh",
 ) -> AaaStressResult:
     """Wall stress at a systolic and a what-if pressure (two real solves),
     PWS / principal / tension outside the end zones, fields on a copy of the
     wall grid. A refusal returns the sentinel (metrics None) with the reasons
     in ``refused`` and ``summary['refused']``; a wall that fails the gate is
-    not solved at all."""
+    not solved at all.
+
+    ``tet_engine`` (``gmsh`` default | ``tetgen``) fills the thrombus; it is
+    checked here even with no thrombus (a bad value is never ignored) and is
+    used only with ``lumen``. TetGen never falls back to gmsh."""
+    from digitwin.meshing.engine import normalize_tet_engine
+
+    tet_engine = normalize_tet_engine(tet_engine)
     t_start = time.perf_counter()
     p_sys, p_wif = mmhg_to_mpa(systolic_mmhg), mmhg_to_mpa(whatif_mmhg)
     lat = (summary or {}).get("lattice") or {}
@@ -1029,7 +1037,8 @@ def run_aaa_stress(
                 "modelling the thrombus needs the sac surface the wall was built from "
                 "(--sac): the thrombus fills the space between it and the lumen"
             )
-        ilt = build_ilt_mesh(lumen, sac, planes_from_report(crop_report), size=ilt_size)
+        ilt = build_ilt_mesh(lumen, sac, planes_from_report(crop_report), size=ilt_size,
+                             tet_engine=tet_engine)
         out["thrombus"] = {"modelled": True, "E_mpa": float(E_ilt), "nu": float(nu_ilt),
                            "element": "C3D10", **ilt.summary()}
         out["boundary"] = ("pressure on the lumen (thrombus inner faces); thrombus tied to "

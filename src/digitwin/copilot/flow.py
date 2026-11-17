@@ -27,16 +27,26 @@ NU_BLOOD_MM2_S = 3.3
 
 
 def build_lumen_case(crop_lumen: str | Path, case_dir: str | Path, *,
-                     q_lmin: float = Q_LMIN, nu: float = NU_BLOOD_MM2_S) -> dict[str, Any]:
+                     q_lmin: float = Q_LMIN, nu: float = NU_BLOOD_MM2_S,
+                     mesh_size: float | None = None,
+                     tet_engine: str = "gmsh") -> dict[str, Any]:
     """Write a complete steady laminar simpleFoam case for the cropped lumen
     surface at ``crop_lumen`` into ``case_dir`` (replaced if it exists).
     Returns what was built: cells, the fill method, the inflow patch, its
     area and the speed that gives ``q_lmin``. Loud when the surface has no
-    two flat caps."""
+    two flat caps.
+
+    ``mesh_size`` is the tet fill's target size (default: the fill's own).
+    ``tet_engine`` is ``gmsh`` unless asked. With ``tetgen`` the fill is ONE
+    attempt, ``method='tet'`` with TetGen: the tet -> auto -> surface-tet
+    ladder below is gmsh's, and a TetGen failure must never become a gmsh
+    mesh, so it is a RuntimeError naming TetGen and nothing else is tried."""
+    from digitwin.meshing.engine import normalize_tet_engine
     from digitwin.pipeline import MeshingSession
     from digitwin.solve import CfdBC, CfdSpec, write_case
     from digitwin.solve.inflow import patch_geometry, resolve_inlet_speed
 
+    tet_engine = normalize_tet_engine(tet_engine)
     crop_lumen, case_dir = Path(crop_lumen), Path(case_dir)
     if not crop_lumen.is_file():
         raise FileNotFoundError(f"no cropped lumen at {crop_lumen}")
@@ -51,14 +61,26 @@ def build_lumen_case(crop_lumen: str | Path, case_dir: str | Path, *,
     # topology) ran to endTime unconverged. Then the automatic choice, then
     # the surface tet fill.
     helper.compute_repair()
+    knobs: dict[str, Any] = {}
+    if mesh_size is not None:
+        knobs["mesh_size"] = float(mesh_size)
     errors: list[str] = []
     filled = None
-    for method in ("tet", "auto", "surface-tet"):
+    if tet_engine != "gmsh":
+        knobs["tet_engine"] = tet_engine
         try:
-            filled = helper.compute_lumen(method=method)
-            break
-        except Exception as exc:  # noqa: BLE001 - gmsh raises bare Exceptions
-            errors.append(f"{method}: {exc}")
+            filled = helper.compute_lumen(method="tet", **knobs)
+        except Exception as exc:  # noqa: BLE001 - one attempt, never a gmsh fallback
+            raise RuntimeError(
+                f"the lumen could not be filled with TetGen (no fallback to gmsh) — tet: {exc}"
+            ) from exc
+    else:
+        for method in ("tet", "auto", "surface-tet"):
+            try:
+                filled = helper.compute_lumen(method=method, **knobs)
+                break
+            except Exception as exc:  # noqa: BLE001 - gmsh raises bare Exceptions
+                errors.append(f"{method}: {exc}")
     if filled is None:
         raise RuntimeError("the lumen could not be filled — " + "; ".join(errors))
     vol = helper.volmesh
@@ -90,6 +112,7 @@ def build_lumen_case(crop_lumen: str | Path, case_dir: str | Path, *,
         "case": str(case_dir),
         "n_cells": summary.get("n_cells"),
         "fill": summary.get("backend"),
+        "tet_engine": tet_engine,
         "inflow_patch": neck,
         "inflow_area_mm2": round(area, 1),
         "inflow_speed_mm_s": round(speed, 2),

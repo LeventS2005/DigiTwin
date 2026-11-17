@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
@@ -77,6 +78,53 @@ def test_full_pipeline_over_http(client: TestClient) -> None:
     assert body["summary"]["quality"]["n_inverted"] == 0
     assert body["summary"]["n_cells"] > 0
     assert "volmesh[swept]" in body["text"]
+
+
+def _form_defaults(step: str) -> dict:
+    """What the Workbench form posts: every knob of the step at its declared default
+    (``None`` defaults are left out, as the form leaves them empty)."""
+    return {k: d for k, (_t, d, _h) in STEP_KNOBS[step].items() if d is not None}
+
+
+def test_volmesh_swept_with_every_form_default_is_200_and_records_no_tet_engine(client: TestClient) -> None:
+    _drive_to_volmesh(client)
+    r = client.post("/step/volmesh", json={**_form_defaults("volmesh"), "n_axial": 30})
+    assert r.status_code == 200, r.text
+    assert r.json()["summary"]["quality"]["n_inverted"] == 0
+    (record,) = [j for j in client.get("/journal").json()["journal"] if j["step"] == "volmesh"]
+    assert "tet_engine" not in record["params"]  # a swept wall never records the tet knob
+
+
+def test_volmesh_tet_with_every_form_default_is_200_not_a_500(client: TestClient, monkeypatch) -> None:
+    """The form posts the swept-only knobs (n_layers, sweep, side, ...) at their
+    defaults even for backend=tet; they used to reach TetBackend.mesh_wall and
+    raise TypeError -> HTTP 500. gmsh is not in this env, so the fill is stubbed:
+    what matters is what mesh_wall is called with."""
+    from digitwin.meshing import tet as tet_mod
+    from digitwin.meshing.tetfill import TetFill
+
+    seen = {}
+
+    def fake_fill(shells, size, holes=(), engine="gmsh", *, site, **opts):
+        seen["engine"], seen["site"] = engine, site
+        pts, tris = shells[0]
+        # one tet per shell triangle against the shell's centroid: enough for the wrapper
+        c = pts.mean(axis=0)
+        points = np.vstack([pts, c])
+        tets = np.column_stack([tris, np.full(len(tris), len(pts))])
+        return TetFill(points=points, tets=tets, opt_note="stub")
+
+    monkeypatch.setattr("digitwin.meshing.tetfill.fill_shells", fake_fill)
+    monkeypatch.setattr("digitwin.meshing.tetfill.require_gmsh", lambda site: None)
+    _drive_to_volmesh(client)
+    r = client.post("/step/volmesh", json={**_form_defaults("volmesh"), "backend": "tet", "n_axial": 20})
+    assert r.status_code == 200, r.text
+    assert seen == {"engine": "gmsh", "site": "wall"}
+    assert r.json()["summary"]["tet_engine"] == "gmsh"
+    # a swept-only knob that is NOT at its default is a loud 400, not a 500
+    bad = client.post("/step/volmesh", json={"backend": "tet", "n_layers": 2})
+    assert bad.status_code == 400 and "n_layers is not a tet setting" in bad.text
+    assert tet_mod  # the module under test was imported
 
 
 def test_journal_mirrors_calls(client: TestClient) -> None:

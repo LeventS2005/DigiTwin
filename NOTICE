@@ -23,3 +23,14 @@ doi:10.17632/x64srrc39p.3, licensed CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). The values were changed (unit
 conversion, recomputation, flags); see src/digitwin/data/STRENGTH_V0_SOURCES.md.
 These files are not covered by the Apache License.
+
+Third-party software (optional, private use only): TetGen, by Hang Si (WIAS
+Berlin), is bundled in the PyPI package `tetgen` 0.8.4 (PyVista's Python
+wrapper, MIT licence). TetGen itself is licensed under the GNU Affero General
+Public License v3 (AGPL v3). DigiTwin uses it only as an optional second tet
+engine (`tet_engine=tetgen` on the lumen, aaa_stress and volmesh steps),
+installed in the private `digitwin` environment and run in a child process;
+nothing of it is vendored in this repository. Rule: private use only. A
+commercial TetGen licence, or removing TetGen, is required before DigiTwin is
+ever distributed, published or hosted for others. TetGen is never added to
+the public Meshforge edition.

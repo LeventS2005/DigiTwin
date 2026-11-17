@@ -89,6 +89,8 @@ class IltMesh:
     notes: list[str] = field(default_factory=list)
     # the ends on the cap planes and the lumen's re-cut caps: no load, no tie
     free_faces: list[tuple[int, str]] = field(default_factory=list)
+    # the engine that filled the thrombus (the remesh of its two surfaces is gmsh either way)
+    tet_engine: str = "gmsh"
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -100,6 +102,7 @@ class IltMesh:
             "n_pressure_faces": len(self.inner_faces),
             "n_tied_faces": len(self.outer_faces),
             "n_free_faces": len(self.free_faces),
+            "tet_engine": self.tet_engine,
             "notes": list(self.notes),
         }
 
@@ -284,14 +287,55 @@ def _remesh(surface: pv.PolyData, size: float, what: str = "surface",
     return out, n_collapsed
 
 
-def _fill_between(outer: pv.PolyData, inner: pv.PolyData, size: float):
+def _interior_point(surface: pv.PolyData) -> np.ndarray:
+    """A point well inside the closed ``surface`` (the cavity marker TetGen
+    needs; the centroid of a concave sac need not be inside). The best of the
+    centroid and the vertices nudged inward: the enclosed one farthest from
+    the surface."""
+    tri = surface.triangulate().clean()
+    pts = np.asarray(tri.points, dtype=float)
+    step = max(1, len(pts) // 400)
+    centre = pts.mean(axis=0)
+    normals = np.asarray(tri.compute_normals(point_normals=True, cell_normals=False,
+                                             auto_orient_normals=False)["Normals"], dtype=float)
+    size = float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)))
+    cand = [centre]
+    for sign in (1.0, -1.0):
+        cand.extend(pts[::step] + sign * 0.02 * size * normals[::step])
+    cand = np.asarray(cand)
+    inside = np.asarray(pv.PolyData(cand).select_enclosed_points(
+        tri, check_surface=False).point_data["SelectedPoints"]) > 0.5
+    if not inside.any():
+        raise ValueError("no interior point found for the thrombus's lumen cavity")
+    cand = cand[inside]
+    dist = np.abs(np.asarray(pv.PolyData(cand).compute_implicit_distance(tri)
+                             .point_data["implicit_distance"], dtype=float))
+    return cand[int(np.argmax(dist))]
+
+
+def _fill_between(outer: pv.PolyData, inner: pv.PolyData, size: float,
+                  engine: str = "gmsh"):
     """Linear tets of inside(outer) minus inside(inner)."""
     (op, ot), (ip, it) = _tri_arrays(outer), _tri_arrays(inner)
-    out = _run_gmsh("fill", "thrombus mesh: the tet fill", size=size, outer_points=op,
-                    outer_tris=ot, inner_points=ip, inner_tris=it)
-    points, tets = out["points"], np.asarray(out["tets"], dtype=np.int64)
+    if engine == "gmsh":
+        out = _run_gmsh("fill", "thrombus mesh: the tet fill", size=size, outer_points=op,
+                        outer_tris=ot, inner_points=ip, inner_tris=it)
+        points, tets = out["points"], np.asarray(out["tets"], dtype=np.int64)
+        if len(tets) == 0:
+            raise RuntimeError("gmsh produced no thrombus tetrahedra")
+        return points, tets
+    # TetGen: fill_shells runs it in its own child process with a timeout, so the
+    # gmsh child is not needed; nothing here falls back to gmsh.
+    from digitwin.meshing.engine import fill_with_engine
+    from digitwin.meshing.tetfill import fill_shells
+
+    filled = fill_with_engine(engine, "thrombus fill", lambda: fill_shells(
+        [(op, ot), (ip, it)], size, holes=[_interior_point(inner)],
+        engine=engine, site="thrombus",
+    ))
+    points, tets = filled.points, np.asarray(filled.tets, dtype=np.int64)
     if len(tets) == 0:
-        raise RuntimeError("gmsh produced no thrombus tetrahedra")
+        raise RuntimeError("TetGen produced no thrombus tetrahedra")
     return points, tets
 
 
@@ -391,13 +435,20 @@ def _boundary_faces(points, tets, lumen: pv.PolyData, sac: pv.PolyData, cap_plan
 def build_ilt_mesh(lumen: pv.PolyData, sac: pv.PolyData, planes, *,
                    size: float = DEFAULT_ILT_SIZE_MM,
                    inset: float = DEFAULT_INSET_MM,
-                   remesh_sac: bool = True) -> IltMesh:
+                   remesh_sac: bool = True,
+                   tet_engine: str = "gmsh") -> IltMesh:
     """The thrombus solid between ``lumen`` and ``sac``, which share the two cut
     ``planes`` (``geometry.crop.planes_from_report``). Refuses a lumen that
     pokes through the sac, and a fill whose volume misses sac - lumen by
     more than 2%. ``remesh_sac=False`` keeps the sac triangulation as given:
     right for a sac rebuilt from a structured wall's inner faces (no needles,
-    and the thrombus's outer nodes then sit exactly on the wall's)."""
+    and the thrombus's outer nodes then sit exactly on the wall's).
+    ``tet_engine`` (``gmsh`` | ``tetgen``) fills the thrombus; the two
+    surface remeshes stay gmsh. TetGen never falls back to gmsh: a failed
+    fill is a RuntimeError naming TetGen."""
+    from digitwin.meshing.engine import normalize_tet_engine
+
+    tet_engine = normalize_tet_engine(tet_engine)
     size, inset = float(size), float(inset)
     if not (np.isfinite(size) and size > 0 and np.isfinite(inset) and inset > 0):
         raise ValueError(f"thrombus mesh size and inset must be positive, got {size}, {inset}")
@@ -433,7 +484,7 @@ def build_ilt_mesh(lumen: pv.PolyData, sac: pv.PolyData, planes, *,
         tol = fraction * size
         label = f"edges < {tol:.2g} mm collapsed" if tol > 0 else "surfaces as given"
         try:
-            attempt = _attempt(lumen_cut, sac, size, tol, remesh_sac, expected)
+            attempt = _attempt(lumen_cut, sac, size, tol, remesh_sac, expected, tet_engine)
         except (RuntimeError, ValueError) as exc:
             tried.append(f"{label}: {exc}")
             continue
@@ -443,7 +494,11 @@ def build_ilt_mesh(lumen: pv.PolyData, sac: pv.PolyData, planes, *,
         if attempt["sj_min"] >= SJ_MIN_ACCEPT:
             break
     if best is None:
-        raise RuntimeError("the thrombus mesh failed on every attempt — " + "; ".join(tried))
+        raise RuntimeError(
+            "the thrombus mesh failed on every attempt"
+            + (" (TetGen fill; not retried with gmsh)" if tet_engine == "tetgen" else "")
+            + " — " + "; ".join(tried)
+        )
     points, tets, volume = best["points"], best["tets"], best["volume_ml"]
 
     def unit(pls):
@@ -468,6 +523,7 @@ def build_ilt_mesh(lumen: pv.PolyData, sac: pv.PolyData, planes, *,
             f"{best['n_collapsed']} edges shorter than {best['tol']:.2g} mm collapsed before the "
             f"remesh (each node moved <= {best['tol'] / 2:.2g} mm): gmsh can hang on near-zero edges"
         )
+    notes.append(f"thrombus fill engine: {tet_engine}")
     if len(tried) > 1:
         notes.append("thrombus mesh attempts (D93): " + "; ".join(tried))
     if best["sj_min"] < SJ_MIN_ACCEPT:
@@ -478,11 +534,12 @@ def build_ilt_mesh(lumen: pv.PolyData, sac: pv.PolyData, planes, *,
     return IltMesh(
         points=pts10, tets=tets10, inner_faces=inner_faces, outer_faces=outer_faces,
         volume_ml=volume, expected_volume_ml=expected, sj_min=best["sj_min"], notes=notes,
-        free_faces=free_faces,
+        free_faces=free_faces, tet_engine=tet_engine,
     )
 
 
-def _attempt(lumen_cut, sac, size: float, tol: float, remesh_sac: bool, expected: float):
+def _attempt(lumen_cut, sac, size: float, tol: float, remesh_sac: bool, expected: float,
+             tet_engine: str = "gmsh"):
     """One remesh + fill with short edges below ``tol`` (0 = none) collapsed;
     raises if gmsh fails or hangs, or the volume misses sac - lumen by > 2%."""
     lumen_r, n_collapsed = _remesh(lumen_cut, size, "lumen", tol)
@@ -491,7 +548,7 @@ def _attempt(lumen_cut, sac, size: float, tol: float, remesh_sac: bool, expected
         n_collapsed += n_sac
     else:
         sac_r = sac.triangulate().clean()
-    points, tets = _fill_between(sac_r, lumen_r, size)
+    points, tets = _fill_between(sac_r, lumen_r, size, tet_engine)
     tets = _orient(points, tets)
     a, b, c, d = (points[tets[:, i]] for i in range(4))
     volume = float((np.einsum("ij,ij->i", np.cross(b - a, c - a), d - a) / 6.0).sum()) / 1000.0

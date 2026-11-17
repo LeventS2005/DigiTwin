@@ -139,10 +139,14 @@ class TetBackend:
         n_axial: int = 60,
         mesh_size: float | None = None,
         optimize: bool = True,
+        tet_engine: str = "gmsh",
     ) -> WallMesh:
+        from digitwin.meshing.engine import fill_with_engine, normalize_tet_engine
         from digitwin.meshing.tetfill import fill_shells, require_gmsh
 
-        require_gmsh("wall")  # fail before the lattice build, as before
+        engine = normalize_tet_engine(tet_engine)
+        if engine == "gmsh":
+            require_gmsh("wall")  # fail before the lattice build, as before
 
         lattice = build_wall_lattice(
             surface,
@@ -160,11 +164,11 @@ class TetBackend:
         shell_pts = shell_pts[used]
         shell_tris = remap[shell_tris]
 
-        filled = fill_shells(
+        filled = fill_with_engine(engine, "wall fill", lambda: fill_shells(
             [(shell_pts, shell_tris)], mesh_size or 0.8 * lattice.thickness,
-            engine="gmsh", site="wall",
+            engine=engine, site="wall",
             optimize=optimize, labels=patch_labels, closed_s=lattice.closed_s,
-        )
+        ))
         points, tets, opt_note = filled.points, filled.tets, filled.opt_note
 
         cells = np.column_stack([np.full(len(tets), 4, dtype=np.int64), tets]).ravel()
@@ -186,12 +190,13 @@ class TetBackend:
 
         boundary = self._classify_boundary(grid, shell_pts, shell_tris, patch_labels)
         notes = [
-            f"gmsh tets on discrete shell ({len(shell_pts)} shell nodes, "
+            f"{engine} tets on discrete shell ({len(shell_pts)} shell nodes, "
             f"mesh_size={mesh_size or 0.8 * lattice.thickness:.4g})",
             opt_note,
         ]
         notes.extend(lattice.notes)
         notes.extend(quality.notes)
+        notes.append(f"tet engine: {engine}")
         return WallMesh(
             grid=grid, boundary=boundary, backend=self.name, quality=quality, notes=notes
         )

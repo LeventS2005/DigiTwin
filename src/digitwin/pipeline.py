@@ -37,6 +37,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
     },
     "volmesh": {
         "backend": (str, "swept", "swept | tet"),
+        "tet_engine": (str, "gmsh", "gmsh (default) | tetgen: the tet backend's engine (not for swept)"),
         "thickness": (float, 0.5, "wall thickness; 0.5 suits the synthetic tube — a mm-scale scan wants ~1.5"),
         "n_theta": (int, 32, "azimuthal divisions"),
         "n_axial": (int, 60, "axial stations"),
@@ -58,6 +59,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "core_fraction": (float, 0.5, "O-grid core size fraction of centroid-to-rim"),
         "smooth": (int, 4, "guarded smoothing iterations, sj_min can never regress (0 = off)"),
         "mesh_size": (float, None, "tet-fallback target size (default: 1.5x median ring edge)"),
+        "tet_engine": (str, "gmsh", "gmsh (default) | tetgen: the tet fill's engine (tetgen needs method tet; it never falls back to gmsh)"),
     },
     # V12 integration: the roadmap-v2 features, same declarative pattern.
     "import_cad": {
@@ -210,6 +212,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "E_ilt": (float, 5.0, "thrombus Young's modulus in MPa (the Zenodo AAA FE model's value; used with lumen)"),
         "ccx": (str, "", "CalculiX executable (empty: DIGITWIN_CCX / PATH / conda env)"),
         "timeout": (float, 600.0, "solver wall-clock limit per solve in seconds"),
+        "tet_engine": (str, "gmsh", "gmsh (default) | tetgen: the thrombus fill's engine (used with lumen; never falls back to gmsh)"),
     },
     # V30: carve a new boundary patch out of an existing group by a
     # face-centroid coordinate (e.g. the moving lid of a cavity).
@@ -1157,17 +1160,36 @@ class MeshingSession:
 
     def compute_volmesh(self, *, backend: str = "swept", thickness: float = 0.5, **knobs: Any) -> StepResult:
         surface = self._require_surface()
+        import inspect
+
         from digitwin.meshing import get_backend
 
+        mesher = get_backend(backend)
+        # The Workbench form sends every knob with its default, whatever the
+        # backend: drop the ones this backend's mesh_wall does not take when they
+        # are still at their default; a non-default one is a loud error. Done
+        # BEFORE ``recorded`` so the journal holds only knobs that applied.
+        if "tet_engine" in knobs:
+            from digitwin.meshing.engine import normalize_tet_engine
+
+            knobs["tet_engine"] = normalize_tet_engine(knobs["tet_engine"])
+        accepted = inspect.signature(mesher.mesh_wall).parameters
+        for key in [k for k in knobs if k not in accepted]:
+            declared = STEP_KNOBS["volmesh"].get(key)
+            if declared is None or knobs[key] != declared[1]:
+                raise ValueError(f"{key} is not a {backend} setting")
+            del knobs[key]
         recorded = {"backend": backend, "thickness": thickness}
         recorded.update({k: v for k, v in knobs.items() if k != "centerline"})
         if self.centerline is not None:
             knobs.setdefault("centerline", self.centerline)
-        self.volmesh = get_backend(backend).mesh_wall(surface, thickness, **knobs)
+        self.volmesh = mesher.mesh_wall(surface, thickness, **knobs)
         from digitwin.solve.aaa_metrics import annotate_wall_thickness
 
         annotate_wall_thickness(self.volmesh)  # D93: what the wall really is, along the normal
         s = self.volmesh.summary()
+        if backend == "tet":
+            s["tet_engine"] = knobs.get("tet_engine", "gmsh")
         q = s["quality"]
         text = (
             f"volmesh[{backend}]: {s['n_cells']} cells, inverted {q['n_inverted']}, "
@@ -1205,6 +1227,10 @@ class MeshingSession:
         surface = self._require_surface()
         from digitwin.meshing.lumen import fill_lumen
 
+        if "tet_engine" in knobs:
+            from digitwin.meshing.engine import normalize_tet_engine
+
+            knobs["tet_engine"] = normalize_tet_engine(knobs["tet_engine"])
         recorded = {"method": method}
         recorded.update({k: v for k, v in knobs.items() if k != "centerline"})
         if self.centerline is not None:
@@ -1214,6 +1240,8 @@ class MeshingSession:
         # solve, CFD and save work on it unchanged (V47).
         self.volmesh = fill_lumen(surface, method=method, **knobs)
         s = self.volmesh.summary()
+        if s["backend"] in ("lumen-tet", "lumen-surface-tet"):
+            s["tet_engine"] = knobs.get("tet_engine", "gmsh")
         q = s["quality"]
         text = (
             f"lumen[{s['backend']}]: {s['n_cells']} cells, "
@@ -2218,6 +2246,7 @@ class MeshingSession:
         E_ilt: float = 5.0,
         ccx: str = "",
         timeout: float = 600.0,
+        tet_engine: str = "gmsh",
     ) -> StepResult:
         """D88 (M3) + D91 (thrombus): AAA wall stress on the session's swept wall — an
         INVESTIGATIONAL metric. Stiff-linear CalculiX solves (pressure on
@@ -2231,8 +2260,10 @@ class MeshingSession:
         """
         import json
 
+        from digitwin.meshing.engine import normalize_tet_engine
         from digitwin.solve.aaa_metrics import crop_report_from_journal, run_aaa_stress
 
+        tet_engine = normalize_tet_engine(tet_engine)
         vol = self._require(self.volmesh, "volmesh", "compute_volmesh")
         crop_report, ccx = _clean_path(crop_report), _clean_path(ccx)
         if crop_report:
@@ -2261,7 +2292,7 @@ class MeshingSession:
             "systolic_mmhg": float(systolic_mmhg), "whatif_mmhg": float(whatif_mmhg),
             "E": float(E), "nu": float(nu), "end_zone": str(end_zone),
             "crop_report": crop_report, "lumen": lumen, "sac": sac, "E_ilt": float(E_ilt),
-            "ccx": ccx, "timeout": float(timeout),
+            "ccx": ccx, "timeout": float(timeout), "tet_engine": tet_engine,
         }
         out_dir = Path("outputs") / "aaa_stress" / "session"
         res = run_aaa_stress(
@@ -2270,6 +2301,7 @@ class MeshingSession:
             E=params["E"], nu=params["nu"], end_zone=params["end_zone"],
             ccx=ccx or None, timeout=params["timeout"], input_path=self.input_path,
             lumen=lumen_surface, sac=sac_surface, E_ilt=params["E_ilt"],
+            tet_engine=tet_engine,
         )
         self.aaa_stress = res
         out_dir.mkdir(parents=True, exist_ok=True)

@@ -803,7 +803,8 @@ def _ring_shell(stations, normals, binormals, radii, cos_t, sin_t):
     return pts, np.asarray(tris, dtype=np.int64), np.asarray(labels, dtype=np.int64)
 
 
-def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, remesh=False):
+def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, remesh=False,
+              engine="gmsh"):
     """gmsh-fill the labelled shell; classify boundary faces by nearest shell
     patch (the TetBackend pattern with wall/inlet/outlet labels).
 
@@ -811,12 +812,13 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, 
     remesh it at ``mesh_size`` before the fill. A marching-cubes surface
     carries needle triangles at its cap rims; filled as-is they become sliver
     tets (scaled Jacobian ~1e-4) on which simpleFoam diverged."""
+    from digitwin.meshing.engine import fill_with_engine
     from digitwin.meshing.tetfill import fill_shells
 
-    filled = fill_shells(
-        [(shell_pts, shell_tris)], mesh_size, engine="gmsh", site="lumen",
+    filled = fill_with_engine(engine, "lumen fill", lambda: fill_shells(
+        [(shell_pts, shell_tris)], mesh_size, engine=engine, site="lumen",
         optimize=optimize, remesh=remesh,
-    )
+    ))
     from scipy.spatial import cKDTree
 
     points, tets, opt_note = filled.points, filled.tets, filled.opt_note
@@ -891,6 +893,7 @@ def fill_lumen(
     core_fraction: float = 0.5,
     smooth: int = 4,
     mesh_size: float | None = None,
+    tet_engine: str = "gmsh",
     centerline=None,
 ) -> WallMesh:
     """Fill the blood volume of a tubular surface (V47).
@@ -907,10 +910,24 @@ def fill_lumen(
     (D81), so the ``inlet``/``outlet`` patch is the cap itself; the notes
     give each patch's area against its cap's, or say loudly why an end kept
     the centreline-normal section.
+
+    ``tet_engine`` (``gmsh`` default | ``tetgen``) picks the engine of the tet
+    fill. TetGen never silently falls back to gmsh: it needs ``method='tet'``
+    (``auto`` would fall back to a gmsh fill and ``surface-tet`` remeshes with
+    gmsh), and a failed TetGen fill is a RuntimeError naming TetGen.
     """
     if method not in ("auto", "ogrid", "tet", "surface-tet"):
         raise ValueError(
             f"lumen method must be auto | ogrid | tet | surface-tet, got {method!r}"
+        )
+    from digitwin.meshing.engine import normalize_tet_engine
+
+    tet_engine = normalize_tet_engine(tet_engine)
+    if tet_engine != "gmsh" and method != "tet":
+        raise ValueError(
+            f"tet_engine {tet_engine!r} requires method='tet', got method={method!r}: "
+            f"auto would fall back to a gmsh fill and surface-tet remeshes with gmsh, "
+            f"and a TetGen request never silently becomes a gmsh mesh"
         )
     if n_theta < 8 or n_axial < 2:
         raise ValueError(
@@ -999,7 +1016,7 @@ def fill_lumen(
             )
             size = float(np.median(ring_edges)) * 1.5
         grid, boundary, quality, opt_note = _tet_fill(
-            shell_pts, shell_tris, labels, mesh_size=size
+            shell_pts, shell_tris, labels, mesh_size=size, engine=tet_engine
         )
         mesh_notes = [
             f"tet lumen fill on the station-ring shell ({len(shell_pts)} "
@@ -1011,6 +1028,7 @@ def fill_lumen(
             mesh_notes.append(reason)
         mesh_notes.extend(notes)
         mesh_notes.extend(quality.notes)
+        mesh_notes.append(f"tet engine: {tet_engine}")
         return WallMesh(
             grid=grid,
             boundary=boundary,
@@ -1044,7 +1062,7 @@ def fill_lumen(
         size = mesh_size if mesh_size is not None else float(np.median(edges)) * 1.5
         grid, boundary, quality, opt_note = _tet_fill(
             np.asarray(tri.points, dtype=float), faces, labels, mesh_size=size,
-            remesh=True,
+            remesh=True, engine=tet_engine,
         )
         mesh_notes = [
             f"tet lumen fill of the input surface itself, remeshed by gmsh at "
@@ -1056,6 +1074,7 @@ def fill_lumen(
         if reason:
             mesh_notes.append(reason)
         mesh_notes.extend(quality.notes)
+        mesh_notes.append(f"tet engine: {tet_engine}")
         return WallMesh(
             grid=grid,
             boundary=boundary,

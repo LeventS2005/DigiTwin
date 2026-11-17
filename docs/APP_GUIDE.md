@@ -162,6 +162,10 @@ that lights up as it completes.
 ### 3.5 volmesh  (needs: wall — OR skip 3.2–3.4 and use blocks, §5)
 - `backend` — `swept` (structured hex: θ × axial × radial layers) or
   `tet` (gmsh tetrahedra; needs the gmsh extra).
+- `tet_engine` — `gmsh` (default) or `tetgen` (only with
+  `backend=tet`; see "Tet engines: gmsh and TetGen" below). Knobs of the
+  other backend left at their defaults are dropped; a non-default one is a
+  400 naming it.
 - `thickness` — wall thickness for the volume mesh (same precedence
   rules as §3.4).
 - `n_theta`, `n_axial`, `n_layers` — swept lattice resolution.
@@ -229,6 +233,9 @@ volume** — the domain cardiac CFD actually solves on.
 - `smooth` — guarded smoothing iterations; the do-no-harm guard means
   `sj_min` can never regress (0 = off).
 - `core_fraction`, `mesh_size` — O-grid core size; tet target size.
+- `tet_engine` — `gmsh` (default) or `tetgen`, for `method=tet` (the CFD
+  mesh); asking for `tetgen` with `surface-tet` is an error, and a TetGen
+  failure never falls back to gmsh (see "Tet engines: gmsh and TetGen").
 - End caps need no knob: each end the surface closes with a flat cap is
   anchored on it, so the `inlet`/`outlet` patch IS the cap. The log gives
   each patch's area against its cap's, flags an end where the surface
@@ -239,6 +246,40 @@ volume** — the domain cardiac CFD actually solves on.
   The log always reports the fold number F = r·κ (a planar-section
   sweep must fold where F ≥ 1 — that is what pushes the most eccentric
   sections to honest tets).
+
+### 3.5c Tet engines: gmsh and TetGen
+Tetrahedra come from one of two engines. **gmsh** is the default and does
+everything. **TetGen** (Hang Si, WIAS Berlin) is an optional second engine
+for three steps only. One knob, `tet_engine` = `gmsh` | `tetgen`, on `lumen`
+(with `method=tet`: the CFD mesh), `aaa_stress` (the thrombus fill) and
+`volmesh` (with `backend=tet`). In the Workbench it is a text field: type
+`tetgen`. CLI: `--tet-engine {gmsh,tetgen}` on `digitwin lumen`,
+`digitwin aaa-stress` and `digitwin volmesh`.
+- **What TetGen does here:** it runs in a child process with a timeout. The
+  switches: keep the input surface (`-Y`, so boundary faces are exactly the
+  input triangles and keep their wall / inlet / outlet labels), quality
+  bound 1.4 (radius-edge), volume bound size³/(6√2) (a regular tet of edge
+  `size`), one hole point per cavity. A crash, a self-intersecting surface or
+  a timeout is a readable error naming TetGen.
+- **What stays gmsh:** surface remeshing (`surface-tet`, the thrombus
+  remesh), STEP import, the branching-tree shell-pair wall, and
+  `--backend tet` in `deck` / `foam` / `fluent`. Asking for `tetgen` where it
+  does not apply (`surface-tet`, remesh) is an error.
+- **No silent switch:** with `tet_engine=tetgen` a TetGen failure never falls
+  back to gmsh (not in the lumen `auto` ladder, not in the copilot's flow
+  case). Every result records the engine that made it (step notes and
+  summary). `.mfwork` files from before TetGen replay with gmsh.
+- **Size is not comparable:** the same nominal `size` gives a different cell
+  count in the two engines, as they size differently. Compare at the same
+  `size` and read the cell counts.
+- **Install (optional):** `~/miniconda3/envs/digitwin/bin/pip install
+  tetgen` (PyPI `tetgen` 0.8.4, PyVista's MIT wrapper bundling TetGen). Without
+  it everything works on gmsh, and asking for `tetgen` is a loud error that
+  says how to install it.
+- **Licence rule:** TetGen is AGPL v3. Private use only; a commercial TetGen
+  licence, or its removal, is required before DigiTwin is ever distributed,
+  published or hosted for others. It is never added to the public Meshforge
+  edition (see NOTICE).
 
 ### 3.6 import_cad (2-D DWG/DXF profile), import_cad3d (STEP/IGES/BREP),
 ### import_image (.npy/NIfTI/DICOM), import_cso (MeVisLab contours)
@@ -533,6 +574,9 @@ missing or mismatched mesh summary; too little wall outside the end zones.
   wall's inner surface), filled with quadratic tets (C3D10, `--ilt-size`
   3 mm). The lumen is re-cut 0.5 mm inside the caps so the two surfaces
   never touch.
+- **Engine:** `tet_engine` (`gmsh` default | `tetgen`, CLI `--tet-engine`)
+  picks the mesher for this thrombus fill; see "Tet engines: gmsh and
+  TetGen". With `tetgen` there is no gmsh retry ladder or fallback.
 - **The mesher cannot hang:** gmsh can spin forever on a cut surface with
   near-zero edges. Each gmsh call runs in its own process and is stopped
   after 60 s with a readable error. The mesh is tried up to four ways (edges
@@ -973,11 +1017,11 @@ READ-ONLY and checksummed on every load.
 | `crop` | aorta → infrarenal AAA segment, flat caps (§3.6c) | `digitwin crop aorta.vtp --out outputs/m2/aaa_crop.vtp --lumen lumen.vtp` (+ `--neck-extension`, `--distal-margin`, `--distal-height`/`--proximal-height`, `--planes-from <earlier _crop.json>`) |
 | `tissue-index` | PWS ÷ lab-measured wall strength, P10/P50/P90 with n (§3.9b) | `digitwin tissue-index --pws 0.30` (or `--from-summary <wall-stress .json with pws_mpa>`; `--selection aaa\|control\|all`, `--method empirical\|lognormal`, `--out band.json`) |
 | `blocks` | profile → multi-block hexes | §5; add `--project`, `--ogrid`, `--smooth`, `--grade-ratio` |
-| `volmesh` | surface → wall volume mesh | `digitwin volmesh tube.vtp --thickness 0.5` (aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
-| `lumen` | surface → blood-volume mesh (V47) | `digitwin lumen surface.vtp` (O-grid hexes, then tet, then surface-tet fallback; add `--method`, `--n-theta`, `--n-axial`, `--smooth 0`) |
+| `volmesh` | surface → wall volume mesh | `digitwin volmesh tube.vtp --thickness 0.5` (`--tet-engine {gmsh,tetgen}` with the tet backend; aneurysm sac: `--thickness 1.5 --curvature-cap 0.9`; a cropped sac between parallel caps: add `--sweep auto`) |
+| `lumen` | surface → blood-volume mesh (V47) | `digitwin lumen surface.vtp` (O-grid hexes, then tet, then surface-tet fallback; add `--method`, `--tet-engine {gmsh,tetgen}`, `--n-theta`, `--n-axial`, `--smooth 0`) |
 | `blayers` | external boundary layers | `digitwin blayers body.vtp --first 0.1 --n-layers 5 --growth 1.3` |
 | `deck` | full solver input deck | `digitwin deck tube.vtp --thickness 1 --material elastic --E 1000 --nu 0.3 --fix inlet,3 --pressure inner,1 --target ccx` (targets: abaqus, ccx, nastran, lsdyna, ansys; add `--analysis frequency/heat/buckle`, `--transient --dt --period --t0`, `--film outer,20,0.5`, `--preloaded`, `--formulation reduced`; thermal stress V45: `--expansion 1e-5 --t-ref 20` + `--temperature 120` or `--temperature-from heat.frd` chaining a solved heat run; V46: `--temperature-time 5.0` picks one snapshot of a TRANSIENT heat history — must match one of the frd's own recorded times, no interpolation) |
-| `aaa-stress` | AAA wall stress, investigational (§3.9a) | `digitwin aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
+| `aaa-stress` | AAA wall stress, investigational (§3.9a) | `digitwin aaa-stress wall.vtu --crop-report crop.json` (+ `--systolic 140 --whatif 120`, `--tet-engine {gmsh,tetgen}` (thrombus fill), `--end-zone neck/bending/<mm>`, `--E`, `--nu`, `--out-dir`; a `.mfwork` session works too; exit 1 = refused) |
 | `solve` | run ccx (.inp) or MYSTRAN (.bdf) | `digitwin solve outputs/tube_ccx.inp` (`.k`/`.cdb` refuse loudly — no LS-DYNA/ANSYS solver) |
 | `foam` | mesh → OpenFOAM polyMesh case | `digitwin foam tube.vtp --thickness 1 --case outputs/tube_case` |
 | `cfd` | run OpenFOAM on a case | `digitwin cfd outputs/tube_case --nu 0.1 --inlet inlet=0,0,1 --outlet outlet=0` (+ `--series`, `--turbulence kOmegaSST --turb-length`, `--moving-wall --empty --closed-cavity`) |

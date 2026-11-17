@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **TetGen as a second tet engine** (gmsh stays the default). One knob,
+  `tet_engine` = `gmsh` | `tetgen`, on `lumen` (method `tet`: the CFD mesh),
+  `aaa_stress` (the thrombus fill) and `volmesh` (backend `tet`); CLI
+  `--tet-engine {gmsh,tetgen}` on `digitwin lumen`, `aaa-stress` and
+  `volmesh`. TetGen runs in a child process with a timeout, keeps the input
+  surface (`-Y`) so boundary faces keep their wall / inlet / outlet labels,
+  and a crash, self-intersection or timeout is a readable error naming
+  TetGen; it never falls back to gmsh silently, and each result records its
+  engine. Optional (`pip install tetgen`); AGPL v3, private use only (see
+  NOTICE).
+
 - **Lab mode** (D115). A **Lab** switch beside Demo in the Workbench's top
   bar (also `?lab=1`, remembered in the browser; Demo and Lab are never both
   on) gives Demo itself (its six tabs, Load scan through Blood flow · CFD,
@@ -350,6 +361,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `digitwin copilot` now opens the plain Workbench (`/app/`).
 
 ### Fixed
+
+- The Workbench's volmesh step with backend `tet` returned HTTP 500 (the
+  form sent the swept backend's knobs). Knobs of the other backend that sit
+  at their defaults are now dropped; a non-default one is a 400 naming it.
 
 - The lumen O-grid quadrant count is pinned from the integer `n_theta`
   (pyvista 0.49.2 on Linux flipped a knife-edge `ceil`, 180 vs 144 wall faces).
