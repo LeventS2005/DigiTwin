@@ -1,4 +1,4 @@
-"""meshforge desktop shell (V35b) — a native window over the local web UI.
+"""DigiTwin desktop shell (V35b) — a native window over the local web UI.
 
 This is the QtWebEngine desktop shell decided in the V35b design notes
 (D54). It wraps the *completed* 127.0.0.1 web Workbench in a native window:
@@ -135,7 +135,7 @@ def run(
             "It also serves the web UI, so the [web] extra is required too: "
             "pip install -e '.[web]'\n"
             "No Qt available? The same Workbench runs in a browser: "
-            "meshforge-web"
+            "digitwin-web"
         ) from exc
 
     # Native file-open bridge (Task 2). The desktop window loads sources by
@@ -182,7 +182,7 @@ def run(
     if not server.wait_until_ready():
         server.stop()
         raise RuntimeError(
-            f"meshforge desktop: the web server did not become ready at "
+            f"DigiTwin desktop: the web server did not become ready at "
             f"{server.base_url} — refusing to open a blank window"
         )
 
@@ -199,12 +199,12 @@ def run(
 
     view = QWebEngineView()
     view.setPage(_LoopbackPage(view))
-    view.setWindowTitle("meshforge")
+    view.setWindowTitle("DigiTwin")
     view.resize(1280, 800)
 
     # Expose the native file bridge to the page over QWebChannel, and inject
     # Qt's qwebchannel.js + a bootstrap at document creation so the frontend
-    # sees ``window.meshforgeBridge`` before app.js runs (no CSP on the local
+    # sees ``window.digitwinBridge`` before app.js runs (no CSP on the local
     # app, so main-world injection is fine).
     bridge = _FileBridge(view)
     channel = QWebChannel(view)
@@ -214,12 +214,12 @@ def run(
     if _qwc.open(QIODevice.ReadOnly):
         boot = bytes(_qwc.readAll().data()).decode("utf-8") + (
             "\nnew QWebChannel(qt.webChannelTransport, function (channel) {"
-            "\n  window.meshforgeBridge = channel.objects.filebridge;"
+            "\n  window.digitwinBridge = channel.objects.filebridge;"
             "\n});\n"
         )
         _qwc.close()
         script = QWebEngineScript()
-        script.setName("meshforge_filebridge")
+        script.setName("digitwin_filebridge")
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(False)
@@ -270,8 +270,8 @@ def run(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="meshforge-desktop",
-        description="Open the meshforge Workbench in a native window "
+        prog="digitwin-desktop",
+        description="Open the DigiTwin Workbench in a native window "
         "(QtWebEngine over the local 127.0.0.1 web server). Deps: the "
         "'desktop' extra (conda-forge qt6-webengine).",
     )

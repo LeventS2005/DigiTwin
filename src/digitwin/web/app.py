@@ -1,4 +1,4 @@
-"""FastAPI app factory for the local meshforge web layer (V35, increment 1).
+"""FastAPI app factory for the local DigiTwin web layer (V35, increment 1).
 
 Exposes ``MeshingSession`` 1:1 as JSON. **Rule 4: zero meshing/solve/export-
 writer logic here.** Every route only calls a ``MeshingSession`` step (or
@@ -218,7 +218,7 @@ def create_app() -> FastAPI:
             uploads.cleanup()
 
     app = FastAPI(
-        title="meshforge web",
+        title="DigiTwin web",
         version=__version__,
         description="Local JSON layer over MeshingSession (127.0.0.1 only).",
         lifespan=lifespan,
@@ -438,7 +438,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"ok": True, "name": "meshforge-web", "steps": sorted(STEP_KNOBS)}
+        return {"ok": True, "name": "digitwin-web", "steps": sorted(STEP_KNOBS)}
 
     # -- viewport geometry (V35 increment 3) -----------------------------
     # Serialises the CURRENT artifact's already-computed mesh to the vtk.js

@@ -1,4 +1,4 @@
-"""meshforge local web layer (roadmap v7, V35).
+"""DigiTwin local web layer (roadmap v7, V35).
 
 A thin, GUI-agnostic FastAPI layer that exposes ``MeshingSession`` 1:1 as
 JSON — one endpoint per compute step, request models generated from

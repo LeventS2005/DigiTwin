@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from digitwin.envvars import env_value
+
 
 def _get(url: str, timeout: float = 5.0) -> int:
     with urllib.request.urlopen(url, timeout=timeout) as r:
@@ -118,8 +120,8 @@ def test_shell_wires_native_file_bridge() -> None:
 # ---- opt-in live smoke: real QtWebEngine window (own process) --------------
 
 live_only = pytest.mark.skipif(
-    os.environ.get("MESHFORGE_LIVE_SHELL") != "1",
-    reason="live shell smoke: set MESHFORGE_LIVE_SHELL=1 and run this file alone",
+    env_value("LIVE_SHELL") != "1",
+    reason="live shell smoke: set DIGITWIN_LIVE_SHELL=1 and run this file alone",
 )
 
 
@@ -169,5 +171,5 @@ def test_run_without_qt_names_the_conda_forge_fix(monkeypatch) -> None:
     msg = str(exc.value)
     assert "conda-forge" in msg and "NOT pip" in msg
     assert "qt6-webengine" in msg
-    assert "meshforge-web" in msg  # the no-Qt fallback
+    assert "digitwin-web" in msg  # the no-Qt fallback
     assert isinstance(exc.value.__cause__, ImportError)

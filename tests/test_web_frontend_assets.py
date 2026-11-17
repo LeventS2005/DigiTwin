@@ -228,7 +228,7 @@ def test_top_level_file_fields_get_pickers_too(app_js: str) -> None:
 
 
 def test_save_kind_degrades_on_an_older_shell(app_js: str) -> None:
-    # save_file is a session-41 slot. An older meshforge-desktop has open_file
+    # save_file is a session-41 slot. An older digitwin-desktop has open_file
     # only, and must fall back rather than throw on an undefined callable.
     body = _function_body(app_js, "function browseInto")
     assert "bridge.save_file" in body
@@ -243,7 +243,7 @@ def test_browser_mode_explains_itself_once(app_js: str, styles_css: str) -> None
     body = _function_body(app_js, "function addBrowserModeNote")
     assert "if (bridgeAvailable()) return;" in body
     assert 'note.className = "browse-note"' in body
-    assert "meshforge-desktop" in body, "the note must name the way to get native dialogs"
+    assert "digitwin-desktop" in body, "the note must name the way to get native dialogs"
     assert body.count("createElement") == 1, "one note, not one per field"
     assert ".browse-note" in styles_css
 
@@ -539,7 +539,7 @@ def test_step_reveal_draws_a_new_artifact_in_from_the_top_in_demo_mode(
     assert "sweepStop(false);" in clear
     assert '<vtk-geometry-representation v-if="base" :property="baseProperty">' in vp_js
     # app.js passes the sweep only for a NEW artifact framed anew
-    assert "window.MeshforgeViewport.load(payload, resetCamera, resetCamera && changed);" in app_js
+    assert "window.DigiTwinViewport.load(payload, resetCamera, resetCamera && changed);" in app_js
     assert "function sameArtifact(a, b)" in app_js
     same = app_js[app_js.index("function sameArtifact(a, b)"):]
     assert "a.label === b.label && a.kind === b.kind" in same[:600]
@@ -555,14 +555,14 @@ def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_
     assert "function showLayer(layer)" in app_js and "function paintLayerButtons()" in app_js
     show = app_js[app_js.index("async function showLayer(layer)"):app_js.index("function paintLayerButtons()")]
     assert "`/geometry?artifact=${encodeURIComponent(layer)}`" in show
-    assert "window.MeshforgeViewport.load(payload, false, true);" in show  # camera kept, drawn in
+    assert "window.DigiTwinViewport.load(payload, false, true);" in show  # camera kept, drawn in
     paint = app_js[app_js.index("function paintLayerButtons()"):app_js.index("// ---- flow section") if "// ---- flow section" in app_js else None]
     assert "ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd);" in paint  # Demo or Lab (D115)
     assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
     assert "initLayerSwitch();" in app_js
     # the flow is seen inside the wall: the stress result stays as a translucent shell
     assert 'const wall = await fetch("/geometry?artifact=stress");' in show
-    assert "window.MeshforgeViewport.setShell(shell);" in show
+    assert "window.DigiTwinViewport.setShell(shell);" in show
     vp_js = (_static_dir() / "viewport.js").read_text()
     assert "function setShell(state)" in vp_js and "setShell: setShell," in vp_js
     assert '<vtk-geometry-representation v-if="shell" :property="shellProperty">' in vp_js
@@ -570,7 +570,7 @@ def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_
     load = vp_js[vp_js.index("function load(payload, resetCamera, sweep)"):vp_js.index("// The layer switch's shell")]
     assert "var base = S.shell && S.shell.value ? null : previous;" in load  # no second ghost of the wall
     refresh = app_js[app_js.index("async function refreshViewport(resetCamera)"):app_js.index("function showPayload")]
-    assert "window.MeshforgeViewport.setShell(null);" in refresh          # the current artifact again: no shell
+    assert "window.DigiTwinViewport.setShell(null);" in refresh          # the current artifact again: no shell
 
 
 def test_atlas_panel_is_a_template_with_fifteen_regions_six_chips_and_real_rows_only(
@@ -711,8 +711,8 @@ def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> N
     clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
     assert "spinStop();" in clear and "idleDisarm();" in clear
     assert "wake: wake," in vp_js
-    assert "if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();" in app_js
-    assert app_js.index("MeshforgeViewport.wake()") > app_js.index("function applyDemo(on)")
+    assert "if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();" in app_js
+    assert app_js.index("DigiTwinViewport.wake()") > app_js.index("function applyDemo(on)")
 
 
 # ---- D115: Lab mode — Demo's six tabs without the right-hand pane ----------

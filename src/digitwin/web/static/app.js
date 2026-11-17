@@ -1,4 +1,4 @@
-// meshforge Workbench frontend (V35 increment 2).
+// DigiTwin Workbench frontend (V35 increment 2).
 //
 // Rule 4: NO meshing/geometry/solve logic here. This module only calls the
 // increment-1 JSON API and renders its responses. Endpoints used:
@@ -95,9 +95,9 @@ let vpOverlay = null; // cached QC-overlay state so the toggle needs no refetch
 
 function initViewport() {
   viewportUp = !!(
-    window.MeshforgeViewport &&
-    window.MeshforgeViewport.available() &&
-    window.MeshforgeViewport.mount("vtk-canvas")
+    window.DigiTwinViewport &&
+    window.DigiTwinViewport.available() &&
+    window.DigiTwinViewport.mount("vtk-canvas")
   );
   if (!viewportUp) {
     $("#vp-fallback").hidden = false;
@@ -113,15 +113,15 @@ function initViewport() {
   });
   $("#vp-play").addEventListener("click", togglePlay);
   $("#vp-overlay").addEventListener("change", (e) => {
-    window.MeshforgeViewport.setOverlay(e.target.checked ? vpOverlay : null);
+    window.DigiTwinViewport.setOverlay(e.target.checked ? vpOverlay : null);
   });
   $("#vp-section").addEventListener("change", (e) => {
-    window.MeshforgeViewport.setSectionVisible(e.target.checked);
+    window.DigiTwinViewport.setSectionVisible(e.target.checked);
     $("#vp-wall-ctl").hidden = !e.target.checked;
     applyColourRange();
   });
   $("#vp-wall").addEventListener("change", (e) => {
-    window.MeshforgeViewport.setWallVisible(e.target.checked);
+    window.DigiTwinViewport.setWallVisible(e.target.checked);
   });
   $("#vp-fit").addEventListener("change", () => applyColourRange());
 }
@@ -133,14 +133,14 @@ function initViewport() {
 async function refreshViewport(resetCamera) {
   if (!viewportUp) return;
   vpLayer = null; // the session's current artifact again
-  window.MeshforgeViewport.setShell(null);
+  window.DigiTwinViewport.setShell(null);
   const url = "/geometry" + (viewportField ? `?field=${encodeURIComponent(viewportField)}` : "");
   const res = await fetch(url);
   if (res.status === 204) return clearViewport(); // nothing rendered yet
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
   const changed = !sameArtifact(vpPayload, payload);
-  window.MeshforgeViewport.load(payload, resetCamera, resetCamera && changed);
+  window.DigiTwinViewport.load(payload, resetCamera, resetCamera && changed);
   showPayload(payload);
 }
 // Paint the toolbar for a payload (fields, colour bar, frames, overlay, section).
@@ -170,12 +170,12 @@ function applyColourRange() {
   const fit = $("#vp-fit").checked && vpPayload.section_range && $("#vp-section").checked;
   const range = fit ? vpPayload.section_range : vpPayload.data_range;
   if (!range) return;
-  window.MeshforgeViewport.setRange(range);
+  window.DigiTwinViewport.setRange(range);
   updateColorbar({ field: vpPayload.field, data_range: range });
 }
 
 function clearViewport() {
-  if (viewportUp) window.MeshforgeViewport.clear();
+  if (viewportUp) window.DigiTwinViewport.clear();
   $("#vp-field-ctl").hidden = true;
   $("#vp-colorbar").hidden = true;
   $("#vp-anim").hidden = true;
@@ -221,8 +221,8 @@ async function showLayer(layer) {
   }
   vpLayer = layer;
   viewportField = null;
-  window.MeshforgeViewport.setShell(shell);
-  window.MeshforgeViewport.load(payload, false, true);
+  window.DigiTwinViewport.setShell(shell);
+  window.DigiTwinViewport.load(payload, false, true);
   showPayload(payload);
 }
 function paintLayerButtons() {
@@ -244,8 +244,8 @@ function setupSection(payload) {
   $("#vp-section-ctl").hidden = !payload.section;
   $("#vp-fit-ctl").hidden = !payload.section_range;
   $("#vp-wall-ctl").hidden = !(payload.section && $("#vp-section").checked);
-  window.MeshforgeViewport.setWallVisible($("#vp-wall").checked);
-  window.MeshforgeViewport.setSectionVisible($("#vp-section").checked);
+  window.DigiTwinViewport.setWallVisible($("#vp-wall").checked);
+  window.DigiTwinViewport.setSectionVisible($("#vp-section").checked);
 }
 
 // QC overlay (e.g. raw CSO contours over the reconstructed surface): cache the
@@ -255,12 +255,12 @@ function setupOverlay(payload) {
   vpOverlay = (payload.overlay && payload.overlay.state) || null;
   if (!vpOverlay) {
     ctl.hidden = true;
-    window.MeshforgeViewport.setOverlay(null);
+    window.DigiTwinViewport.setOverlay(null);
     return;
   }
   $("#vp-overlay-name").textContent = (payload.overlay && payload.overlay.label) || "contours";
   ctl.hidden = false;
-  window.MeshforgeViewport.setOverlay($("#vp-overlay").checked ? vpOverlay : null);
+  window.DigiTwinViewport.setOverlay($("#vp-overlay").checked ? vpOverlay : null);
 }
 
 function populateFields(fields, current) {
@@ -333,7 +333,7 @@ async function loadFrame(i) {
   const res = await fetch(url);
   if (!res.ok) return;
   const payload = await res.json();
-  window.MeshforgeViewport.load(payload, false);
+  window.DigiTwinViewport.load(payload, false);
   $("#vp-frame").value = String(i);
   updateTimeLabel(i);
 }
@@ -548,7 +548,7 @@ function clearErrorEl(el) {
 // browsers, so every read/write is guarded.
 function loadPanelOpenPref(step, defaultOpen) {
   try {
-    const v = localStorage.getItem(`meshforge.panel.${step}`);
+    const v = localStorage.getItem(`digitwin.panel.${step}`);
     if (v === "1") return true;
     if (v === "0") return false;
   } catch (err) {
@@ -558,7 +558,7 @@ function loadPanelOpenPref(step, defaultOpen) {
 }
 function savePanelOpenPref(step, open) {
   try {
-    localStorage.setItem(`meshforge.panel.${step}`, open ? "1" : "0");
+    localStorage.setItem(`digitwin.panel.${step}`, open ? "1" : "0");
   } catch (err) {
     // private mode / storage disabled — the open/closed state just won't persist
   }
@@ -745,14 +745,14 @@ function togglePick(wrap) {
   const btn = wrap.querySelector("#fp-pick");
   const status = wrap.querySelector("#fp-status");
   if (btn.dataset.armed === "1") { // second click cancels
-    window.MeshforgeViewport.disarmPick();
+    window.DigiTwinViewport.disarmPick();
     btn.dataset.armed = "";
     btn.textContent = "Pick inflow end";
     status.textContent = "pick cancelled";
     return;
   }
   if (!viewportUp) return log("pick: the 3-D viewport is unavailable", true);
-  const armed = window.MeshforgeViewport.armPick(
+  const armed = window.DigiTwinViewport.armPick(
     (point) => onFlowPicked(wrap, point).catch((err) => {
       status.textContent = String(err.message || err);
       status.classList.add("err");
@@ -815,7 +815,7 @@ async function previewInflow(knobInput) {
 
 function resetFlowPicker() {
   fpState = null;
-  if (viewportUp) window.MeshforgeViewport.disarmPick();
+  if (viewportUp) window.DigiTwinViewport.disarmPick();
   const btn = $("#fp-pick");
   if (!btn) return;
   btn.dataset.armed = "";
@@ -868,7 +868,7 @@ async function refreshPresets() {
 // The desktop window loads sources by SERVER-SIDE path, so a plain
 // <input type=file> is useless here (it exposes contents, not a path; the
 // Lab's Upload scan sends those contents to the server instead, D115). The shell
-// injects window.meshforgeBridge (a QFileDialog over QWebChannel); in a plain
+// injects window.digitwinBridge (a QFileDialog over QWebChannel); in a plain
 // browser / headless there is no bridge and these buttons hide themselves.
 function bridgeAvailable() {
   return !!(window.qt && window.qt.webChannelTransport);
@@ -883,7 +883,7 @@ function addBrowseButton(container, input, kind) {
   container.appendChild(btn);
 }
 function browseInto(input, kind) {
-  const bridge = window.meshforgeBridge;
+  const bridge = window.digitwinBridge;
   if (!bridge) return log("native file dialog unavailable (browser mode)", true);
   let slot = bridge.open_file;
   if (kind === "dir") {
@@ -913,7 +913,7 @@ function addBrowserModeNote() {
   note.textContent =
     "No native file picker here — this is a plain browser tab, and the " +
     "server reads files from this machine by path, so it can't offer one. " +
-    "Type paths by hand, or run meshforge-desktop for native Browse… dialogs.";
+    "Type paths by hand, or run digitwin-desktop for native Browse… dialogs.";
   const summary = $("#source-box").querySelector(":scope > summary");
   summary.after(note);
 }
@@ -968,7 +968,7 @@ async function resetSession() {
 
 // ---- Demo mode (D108): presentation layout ---------------------------------
 // Off = the Workbench exactly as before. On (the top-bar switch; URL ?demo=1;
-// localStorage meshforge.demo) = the AAA path's six steps as numbered tabs on
+// localStorage digitwin.demo) = the AAA path's six steps as numbered tabs on
 // the left, in the order the copilot runs them, each marked waiting / running
 // / done (or failed, when the wall gate refused the mesh); a result drawn in
 // from the top down in the viewport (D112, viewport.js); the running step
@@ -1009,7 +1009,7 @@ function readDemoPref() {
   try {
     const q = new URLSearchParams(window.location.search).get("demo");
     if (q !== null) return q === "1" || q === "true" || q === "on";
-    return localStorage.getItem("meshforge.demo") === "1";
+    return localStorage.getItem("digitwin.demo") === "1";
   } catch (err) {
     return false; // private mode / no storage: plain Workbench
   }
@@ -1019,7 +1019,7 @@ function applyDemo(on) {
   const t = $("#demo-toggle");
   if (t) t.checked = on;
   try {
-    localStorage.setItem("meshforge.demo", on ? "1" : "0");
+    localStorage.setItem("digitwin.demo", on ? "1" : "0");
   } catch (err) {
     // private mode — the URL still carries it
   }
@@ -1040,7 +1040,7 @@ function applyDemo(on) {
     hideBusyLine();
   }
   // D111: the viewport's idle turntable follows the switch (arms on, stops off).
-  if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();
+  if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();
   paintLayerButtons(); // D112: the layer switch shows in Demo mode only
 }
 // Tag the demo steps' panels and give each its tab: number, title, hint and a
@@ -1123,7 +1123,7 @@ function paintDemoTabs() {
 // way every surgeon would land on the same page. Cloned from the inert
 // <template> in index.html above the twin while Demo is on, removed when off,
 // so it is not in the DOM otherwise. Data: GET /atlas — the 15-region
-// catalogue and the studies the session REALLY holds (meshforge.atlas: today
+// catalogue and the studies the session REALLY holds (digitwin.atlas: today
 // at most the CT the segment step loaded, its coverage declared by checksum).
 // This paints that and nothing else: no earlier study, no other patient, no
 // date (withheld), and `loaded ✓` is the server's own word for the session's
@@ -1396,7 +1396,7 @@ function initDemoMode() {
 // above the tabs (the CT's bytes to POST /upload/scan; the server keeps a
 // read-only temp copy and its path fills Load scan's path knob, so Load
 // scan's Run is the next click). On: the Lab switch beside Demo, URL ?lab=1,
-// or localStorage meshforge.lab. Demo and Lab are never both on. Nothing here
+// or localStorage digitwin.lab. Demo and Lab are never both on. Nothing here
 // computes (rule 4); an upload error shows under the button, since the log
 // is in the hidden pane.
 const LAB_UPLOAD_HINT = "CT .nii / .nii.gz / .nrrd from this computer";
@@ -1409,7 +1409,7 @@ function readLabPref() {
   try {
     const q = new URLSearchParams(window.location.search).get("lab");
     if (q !== null) return q === "1" || q === "true" || q === "on";
-    return localStorage.getItem("meshforge.lab") === "1";
+    return localStorage.getItem("digitwin.lab") === "1";
   } catch (err) {
     return false; // private mode / no storage: plain Workbench
   }
@@ -1419,7 +1419,7 @@ function applyLab(on) {
   const t = $("#lab-toggle");
   if (t) t.checked = on;
   try {
-    localStorage.setItem("meshforge.lab", on ? "1" : "0");
+    localStorage.setItem("digitwin.lab", on ? "1" : "0");
   } catch (err) {
     // private mode — the URL still carries it
   }
@@ -1438,7 +1438,7 @@ function applyLab(on) {
     hideBusyLine();
   }
   // the turntable follows the switch, as in Demo (D111)
-  if (window.MeshforgeViewport && window.MeshforgeViewport.wake) window.MeshforgeViewport.wake();
+  if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();
   paintLayerButtons(); // the stress / flow switch shows in Lab as in Demo (D112)
 }
 // Upload scan's state, by the tabs' rules: running while the bytes go up;

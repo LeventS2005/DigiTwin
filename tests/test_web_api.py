@@ -605,7 +605,7 @@ def test_frontend_browse_button_wiring() -> None:
     js = (_static_dir() / "app.js").read_text()
     # gated on the QWebChannel transport the shell injects
     assert "window.qt" in js and "webChannelTransport" in js
-    assert "window.meshforgeBridge" in js
+    assert "window.digitwinBridge" in js
     # calls the two bridge slots the shell exposes
     assert "open_file" in js and "open_directory" in js
     # buttons hide without a bridge

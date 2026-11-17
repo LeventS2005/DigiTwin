@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>meshforge web — Workbench</title>
+    <title>DigiTwin Workbench</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header id="topbar">
-      <h1>meshforge <span class="sub">Workbench</span></h1>
+      <h1>DigiTwin <span class="sub">Workbench</span></h1>
       <!-- Demo mode (presentation layout): fewer panels, result reveal, the
-           patient atlas. URL ?demo=1 or localStorage meshforge.demo; off = the
+           patient atlas. URL ?demo=1 or localStorage digitwin.demo; off = the
            Workbench as it is. app.js owns the behaviour; styles.css the layout. -->
       <div class="mode-switches">
       <label id="demo-switch" class="demo-switch" title="presentation layout: load, contour &amp; mesh, simulate; results reveal as they land; the patient atlas above the twin">
@@ -21,7 +21,7 @@
       <!-- Lab mode (D115): Demo's six steps and viewport (the aorta outlined,
            the heart as a ghost beside it, through CFD) without the right-hand
            pane (no atlas, no twin, no whole-body view), plus an Upload scan
-           button above the steps. URL ?lab=1 or localStorage meshforge.lab;
+           button above the steps. URL ?lab=1 or localStorage digitwin.lab;
            Demo and Lab are never both on. -->
       <label id="lab-switch" class="demo-switch lab-switch" title="lab: Demo's six steps without the right-hand pane, plus Upload scan for a CT from this computer">
         <input type="checkbox" id="lab-toggle" />
@@ -206,7 +206,7 @@
          PATIENT's side (right = the viewer's left, as on a scan). Every study
          row comes from GET /atlas — the scans the session really loaded, no
          priors, no other patients, no dates. The region ids and names are
-         meshforge.atlas.REGIONS; the asset test pins the two. -->
+         digitwin.atlas.REGIONS; the asset test pins the two. -->
     <template id="atlas-svg">
       <section id="atlas-panel" class="dock-panel atlas" data-modality="All" aria-label="patient atlas">
         <h2 class="panel-title">patient atlas <span id="atlas-patient" class="muted">no patient loaded</span></h2>

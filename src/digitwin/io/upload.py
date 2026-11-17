@@ -141,7 +141,7 @@ class UploadStore:
     @property
     def root(self) -> Path:
         if self._root is None or not self._root.is_dir():
-            self._root = Path(tempfile.mkdtemp(prefix="meshforge_upload_"))
+            self._root = Path(tempfile.mkdtemp(prefix="digitwin_upload_"))
         return self._root
 
     def begin(self, name: str) -> ScanUpload:

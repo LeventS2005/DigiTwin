@@ -1,4 +1,4 @@
-/* meshforge Workbench — desktop-tool chrome.
+/* DigiTwin Workbench — desktop-tool chrome.
    Plain CSS, no framework/build step, no external font/asset (the page stays
    127.0.0.1-only and self-contained; test_help_affordance_is_static_and_local
    asserts no http/https anywhere in the served page).
@@ -500,7 +500,7 @@ label.inline input[type="checkbox"] { width: 13px; height: 13px; accent-color: v
 
 /* ===== Demo mode (D108): presentation layout ================================
    body.demo is set by the Demo switch in the top bar (app.js; URL ?demo=1 or
-   localStorage meshforge.demo). Off = every rule below is inert. */
+   localStorage digitwin.demo). Off = every rule below is inert. */
 .demo-switch {
   margin: 0 auto;                 /* centred between the title and Quick start */
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
@@ -646,7 +646,7 @@ body.demo .atlas .atlas-region.selected { stroke: #ff5d55; stroke-width: 2px; }
 
 /* ===== Lab mode (D115): Demo without the whole-body pane ===================
    body.lab is set by the Lab switch beside Demo (app.js; URL ?lab=1 or
-   localStorage meshforge.lab); Demo and Lab are never both on. The left pane
+   localStorage digitwin.lab); Demo and Lab are never both on. The left pane
    shows the Upload scan card above Demo's own six tabs (the same panels,
    tagged data-demo by app.js, drawn by the rules above); the right-hand pane
    (the atlas, the twin, the session, the log) is gone and the viewport takes

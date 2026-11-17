@@ -1,9 +1,9 @@
-// meshforge viewport (V35 increment 3) — PURE client-side vtk.js.
+// DigiTwin viewport (V35 increment 3) — PURE client-side vtk.js.
 //
 // Renders a `vtk_mesh` state fetched from GET /geometry with **no WebSocket and
 // no server-side GL**: Vue + trame-vtk's `vue_vtk` bundle, both served locally
 // from /vendor. Rule 4: no meshing logic — it only paints a mesh the backend
-// already serialized. Exposes `window.MeshforgeViewport`; app.js drives it.
+// already serialized. Exposes `window.DigiTwinViewport`; app.js drives it.
 
 (function () {
   "use strict";
@@ -592,7 +592,7 @@
     if (S.ready && S.ghosts) S.ghosts.value = ghostList(list);
   }
 
-  window.MeshforgeViewport = {
+  window.DigiTwinViewport = {
     mount: mount,
     load: load,
     clear: clear,

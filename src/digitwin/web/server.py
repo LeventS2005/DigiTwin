@@ -1,4 +1,4 @@
-"""uvicorn launcher for the local meshforge web layer.
+"""uvicorn launcher for the local DigiTwin web layer.
 
 Binds **127.0.0.1 only** (a non-loopback host is refused loudly) on a free
 port (OS-assigned unless ``--port`` is given) and prints the URL. Argv/staged
@@ -24,7 +24,7 @@ def serve(port: int | None = None, *, host: str = _LOOPBACK) -> None:
     """Start uvicorn serving the app on 127.0.0.1:<port>."""
     if host != _LOOPBACK:
         raise ValueError(
-            f"meshforge web binds {_LOOPBACK} only (local single-user tool); "
+            f"DigiTwin web binds {_LOOPBACK} only (local single-user tool); "
             f"refusing host {host!r}"
         )
     # The web extra is lazy (the CLI must never pay for FastAPI/uvicorn), and
@@ -37,7 +37,7 @@ def serve(port: int | None = None, *, host: str = _LOOPBACK) -> None:
         from digitwin.web.app import create_app
     except ImportError as exc:
         raise RuntimeError(
-            "the meshforge web app needs the [web] extra (FastAPI/uvicorn) — "
+            "the DigiTwin web app needs the [web] extra (FastAPI/uvicorn) — "
             "install with: pip install -e '.[web]'\n"
             "For the 3-D viewport add, from conda-forge only: "
             "conda install -c conda-forge trame-vtk trame-vuetify"
@@ -46,15 +46,15 @@ def serve(port: int | None = None, *, host: str = _LOOPBACK) -> None:
     port = int(port) if port else find_free_port()
     app = create_app()
     url = f"http://{host}:{port}"
-    print(f"meshforge web -> {url}  ({_LOOPBACK} only; Ctrl-C to stop)")
+    print(f"DigiTwin web -> {url}  ({_LOOPBACK} only; Ctrl-C to stop)")
     print(f"  Workbench: {url}/app/   OpenAPI docs: {url}/docs   schema: {url}/schema")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="meshforge-web",
-        description="Serve the local meshforge web app on 127.0.0.1.",
+        prog="digitwin-web",
+        description="Serve the local DigiTwin web app on 127.0.0.1.",
     )
     parser.add_argument(
         "--port",
