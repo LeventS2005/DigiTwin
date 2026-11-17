@@ -324,6 +324,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The lumen O-grid quadrant count is pinned from the integer `n_theta`
+  (pyvista 0.49.2 on Linux flipped a knife-edge `ceil`, 180 vs 144 wall faces).
+- The LS-DYNA tet roundtrip check takes its tolerance from the node field's
+  precision (9 significant digits) instead of a bare `rel=1e-9`.
+- `GET /geometry` sends `view_dir` again (dropped in the D112 addendum), so a
+  CFD result with a flow section opens face-on to it (D82), not three-quarters.
+
 - **Workbench viewport: a cell-data colour field killed the renderer.** Two
   display-layer defects, found on the demo path on 27 Oct 2026 (the canvas
   went black from the cropped lumen / wall mesh on and the stress field never

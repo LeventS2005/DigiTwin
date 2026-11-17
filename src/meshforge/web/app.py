@@ -478,6 +478,8 @@ def create_app() -> FastAPI:
                 hints["mesh"], hints.get("kind", "surface"), chosen,
                 section=hints.get("section"),
             )
+            if hints.get("view_dir") is not None:
+                payload["view_dir"] = list(hints["view_dir"])
             if hints.get("label") == "cfd results" and hints.get("section") is None and payload.get("field"):
                 # the flow seen from outside: the inlet's stagnation pins the
                 # full range and paints the lumen one colour; a robust range

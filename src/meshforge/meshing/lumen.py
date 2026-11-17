@@ -554,13 +554,16 @@ def _station_disks(radii, cos_t, sin_t, *, core_fraction: float):
     ])
     ref = int(np.argsort(perims)[S // 2])
     # target ~ ring segment length at the median station -> n_t ~ n_theta/4.
+    # The per-quadrant count must not depend on rounding: for n_theta % 4 == 0
+    # the ratio quarter/target is exactly n_theta/4, a knife edge for ceil, so
+    # it is computed from the integer n_theta instead and handed to ogrid_disk.
     target = perims[ref] / len(cos_t)
+    pin_t = max(2, -(-len(cos_t) // 4))
     bm_ref = ogrid_disk([rings2d[ref]], target_size=target,
-                        core_fraction=core_fraction)
-    # Pin the reference counts: parse them from the V26 note (the mesh's own
-    # declared layout — kept in one place there).
+                        core_fraction=core_fraction, n_t=pin_t)
+    # Pin the reference radial count: parse it from the V26 note (the mesh's
+    # own declared layout — kept in one place there).
     note = bm_ref.notes[0]
-    pin_t = int(note.split("n_t ")[1].split(" ")[0])
     pin_r = int(note.split("n_r ")[1].split(" ")[0])
     disks = []
     quads = None

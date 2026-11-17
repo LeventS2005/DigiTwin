@@ -186,7 +186,22 @@ def test_tet_reparse_roundtrip(tmp_path):
         assert conn[4:] == [conn[3]] * 4
     grid = _rebuild_grid(nodes, elems)
     assert grid.n_cells == wall.grid.n_cells
-    assert grid.volume == pytest.approx(wall.grid.volume, rel=1e-9)
+    # (a) the deck holds the points rounded through the writer's own format
+    orig = np.asarray(wall.grid.points)
+    rounded = np.array([[float(f"{v:16.9G}") for v in row] for row in orig])
+    parsed = np.asarray(grid.points)
+    assert parsed.shape == rounded.shape
+    assert np.array_equal(parsed, rounded)
+    # (b) so the rebuilt volume equals the rounded-points volume
+    ref = wall.grid.copy()
+    ref.points = rounded
+    assert grid.volume == pytest.approx(ref.volume, rel=1e-12)
+    # (c) vs the unrounded volume: each coordinate moves <= 5e-9*|x| (half a
+    # unit of the 9th significant digit), so dV <= sqrt(3)*that*surface area.
+    bound = (
+        np.sqrt(3) * 5e-9 * np.abs(orig).max() * wall.grid.extract_surface().area
+    )
+    assert abs(grid.volume - wall.grid.volume) <= bound
 
 
 def test_segments_cover_group_outward(tmp_path):
