@@ -945,12 +945,12 @@ def main(argv: list[str] | None = None) -> int:
     # D112: one command runs the whole demo from a terminal
     p_cop.add_argument("--launch", dest="launch", action="store_true", default=True,
                        help="when nothing answers at --server, start a Workbench there and open "
-                       "its window in Demo mode (the default)")
+                       "its Workbench window (the default)")
     p_cop.add_argument("--no-launch", dest="launch", action="store_false",
                        help="never start a Workbench or open a window")
     p_cop.add_argument("--reset", action="store_true",
                        help="empty a Workbench that is already running at --server before the "
-                       "run (a fresh take from grey tabs)")
+                       "run (a fresh take from empty step panels)")
     p_cop.add_argument("--flow-live", action="store_true",
                        help="after the strength index, build an OpenFOAM case from THIS crop's "
                        "blood lumen (the crop step's lumen, tet-filled; 1 L/min at the neck, "

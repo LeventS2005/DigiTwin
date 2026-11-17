@@ -1,5 +1,5 @@
 """The copilot's own Workbench (D112): start one when none answers at
-``--server``, open its window in Demo mode, empty a running one on request,
+``--server``, open its Workbench window, empty a running one on request,
 stage the blood-lumen OpenFOAM case it re-solves, and open the finished
 report. Process plumbing only: no meshing, no numbers.
 
@@ -21,7 +21,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit
 
-#: the browser the demo windows use on macOS (an app-mode window: no tabs,
+#: the browser the Workbench windows use on macOS (an app-mode window: no tabs,
 #: no address bar); anywhere else, or without it, the default browser
 CHROME_APP = "/Applications/Google Chrome.app"
 CHROME_NAME = "Google Chrome"
@@ -83,7 +83,7 @@ def start_workbench(url: str, log_path: str | Path, *, wait_s: float = START_WAI
 
 def reset_workbench(url: str, timeout: float = 30.0) -> None:
     """``POST /session/reset``: empty a running Workbench's session (a fresh
-    take starts from grey tabs). Loud when it fails."""
+    take starts from empty step panels). Loud when it fails."""
     req = urllib.request.Request(f"{url.rstrip('/')}/session/reset", data=b"{}",
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
@@ -109,9 +109,9 @@ def open_url(url: str, *, run=subprocess.run, browser=webbrowser) -> str:
     return "default browser"
 
 
-def open_window(url: str, *, demo: bool = True, **kw) -> str:
-    """Open the Workbench window (Demo mode on by default)."""
-    return open_url(f"{url.rstrip('/')}/app/" + ("?demo=1" if demo else ""), **kw)
+def open_window(url: str, **kw) -> str:
+    """Open the Workbench window."""
+    return open_url(f"{url.rstrip('/')}/app/", **kw)
 
 
 def open_file(path: str | Path, **kw) -> str:
