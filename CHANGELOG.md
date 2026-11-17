@@ -86,6 +86,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The patient atlas, the wall stress / blood flow switch, Upload scan and
+  the running-step line are always on** in the plain Workbench (no mode to
+  switch on): the atlas is a panel at the top of the right pane, above the
+  twin card; the switch sits on the viewport once the session holds both a
+  wall-stress and a CFD result; Upload scan is a button in the source box
+  and fills the segment step's path knob; the running-step line names the
+  step that is running, bottom-left of the viewport.
+
 - **Renamed meshforge → DigiTwin.** The package is `digitwin` (`import
   digitwin`); the commands are `digitwin`, `digitwin-web`, `digitwin-desktop`
   and `digitwin-gui`; the Workbench is now "DigiTwin Workbench"; the settings
@@ -330,6 +338,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   releases yet, so the packaging section describes building one.
 - Both Workbench screenshots in the tutorial regenerated on the new chrome,
   against a live session driven through the tutorial's own happy path.
+
+### Removed
+
+- **The Demo and Lab modes.** The Demo and Lab switches in the top bar, the
+  Demo layout (six numbered tabs, Load scan through Blood flow · CFD) and
+  the Lab layout (those tabs without the right pane), the turntable (D111,
+  the idle rotation), the top-down reveal (D112, new results swept in from
+  the top), the `?demo=1` / `?lab=1` URL options and the remembered
+  `digitwin.demo` / `digitwin.lab` browser settings are gone.
+  `digitwin copilot` now opens the plain Workbench (`/app/`).
 
 ### Fixed
 

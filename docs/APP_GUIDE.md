@@ -749,57 +749,16 @@ The right-pane **history** table lists journaled steps (step | params | summary)
 
 ---
 
-### 3.13 Demo mode  (presentation layout; the Demo switch in the top bar)
+### 3.13 Patient atlas, layer switch and running line  (always on)
 
-For a demo or a recording. Flip **Demo** in the top bar, or open the page
-with `?demo=1` (it is also remembered in the browser). On:
+Three things the Workbench always has, whichever steps you run:
 
-- the left pane shows the AAA path's six steps as numbered tabs, in the
-  order the copilot runs them, and nothing else — **1 Load scan**
-  (`segment`: the CT goes in, the AI outlines the aorta; the `sac` recovery
-  runs in its turn), **2 Crop aneurysm** (`crop`), **3 Mesh wall**
-  (`volmesh`), **4 Wall stress · FEA** (`aaa_stress`), **5 Strength index**
-  (`tissue_index`), **6 Blood flow · CFD** (`cfd`; the copilot's pre-computed
-  flow metrics fill it). Each tab is the step's own panel, closed: a click
-  opens its knobs and Run button. Its mark shows waiting, running (the step
-  holding the session, red, pulsing) or done (green ✓: a record for it is in
-  the journal, so a re-run upstream puts the tabs after it back to waiting);
-  the Mesh wall tab shows failed (red ✕) while the copilot's last `mesh_wall`
-  call failed its quality gate — the twin's wall slot says the same, in the
-  same words — until a re-mesh lands.
-  Quick start, the synth source box and the history table are hidden (the
-  session panel stays: Save work file);
-- a **new result is drawn in from the top down** over about 2.4 s instead
-  of appearing at once (D112): the viewport sorts the result's polygons by
-  their highest z (the patient's superior end) and grows the surface cell by
-  cell in that order; the points, the colour field and the colour range are
-  untouched, so what stands at the end is exactly what the server sent. The
-  artifact shown before stays as a faint grey shell meanwhile. The AI
-  outline's ghosts are drawn in with the first artifact, a flow section with
-  its result. The same artifact served again after a journal-only step (the
-  strength index) is not replayed; a field or frame swap, a new load or a
-  clear cancels it; under `prefers-reduced-motion` nothing animates;
-- once the session holds **both a wall-stress and a CFD result**, two
-  buttons over the canvas — **wall stress** · **blood flow** — switch the view
-  between them (D112), the camera kept and the chosen layer drawn in from
-  the top down. `GET /geometry?artifact=stress|cfd` serialises the result
-  the session already holds (display only, nothing computed); the flow
-  layer opens coloured by pressure on the lumen wall (the no-slip wall's
-  velocity is zero), over the 2nd–98th percentile of the field so the
-  gradient along the lumen reads, and keeps the wall-stress result as a
-  translucent shell around the lumen (the whole-aorta and heart ghosts
-  stay). The next session change returns the view to the current artifact.
-  Off-demo the buttons do not exist;
-- the **step running on the server** shows bottom-left of the viewport with
-  its elapsed seconds ("contouring the aorta (AI outline)… 12 s"), also when
-  the copilot drives the server over `--server` (from `GET /state`
-  `running` / `running_for`);
-- a **patient atlas** panel above the twin: one patient record, every
-  study filed by body region and modality — the page every surgeon would
-  land on, whichever region they treat. On the left, a front-view body
-  silhouette of 15 regions (head and neck, chest, torso, and the
-  shoulders, arms, hands, upper legs, lower legs and feet by the
-  **patient's** side: the patient's right is on your left, as on a scan;
+- a **patient atlas** panel at the top of the right pane, above the twin:
+  one patient record, every study filed by body region and modality — the
+  page every surgeon would land on, whichever region they treat. On the
+  left, a front-view body silhouette of 15 regions (head and neck, chest,
+  torso, and the shoulders, arms, hands, upper legs, lower legs and feet by
+  the **patient's** side: the patient's right is on your left, as on a scan;
   the caption says so). Beside it, the modality chips (All · CT · MRI ·
   X-ray · US · Angio), which filter the map and the study list alike, the
   hover line and the study list. A region with studies is lit (accent
@@ -823,53 +782,40 @@ with `?demo=1` (it is also remembered in the browser). On:
   the header reads "no patient loaded" until a scan is in, and the empty
   state says what *would* list there ("no studies on file for Right foot —
   X-ray, CT, MRI, US would list here"). Loading a study from the atlas is
-  not wired (no button); the list is a record, not a launcher.
-- the **viewport turns by itself when left alone** (D111): three seconds
-  after the last press, scroll, touch or key on the canvas, the view starts
-  a slow turntable spin about its up axis (one turn in 45 s) and stops the
-  moment the canvas is touched again; moving the pointer over it does not
-  stop it, so a hand can rest on the atlas or the twin card while the 3-D
-  view keeps moving. Camera only: the mesh, its colours and the server are
-  untouched. It never runs with a pick armed, with nothing loaded, with the
-  tab hidden, or when the system asks for reduced motion.
+  not wired (no button); the list is a record, not a launcher;
+- the **wall stress / blood flow switch**: once the session holds **both a
+  wall-stress and a CFD result**, two buttons over the canvas — **wall
+  stress** · **blood flow** — switch the view between them (D112), the
+  camera kept. `GET /geometry?artifact=stress|cfd` serialises the result
+  the session already holds (display only, nothing computed); the flow
+  layer opens coloured by pressure on the lumen wall (the no-slip wall's
+  velocity is zero), over the 2nd–98th percentile of the field so the
+  gradient along the lumen reads, and keeps the wall-stress result as a
+  translucent shell around the lumen (the whole-aorta and heart ghosts
+  stay). The next session change returns the view to the current artifact.
+  With only one of the two results the buttons do not show;
+- the **running-step line**: the step running on the server shows
+  bottom-left of the viewport with its elapsed seconds ("contouring the
+  aorta (AI outline)… 12 s"), also when the copilot drives the server over
+  `--server` (from `GET /state` `running` / `running_for`).
 
-Off, the Workbench is exactly the one described above. Demo mode changes
-nothing about what any step computes.
+None of these changes what any step computes.
 
-### 3.14 Lab mode  (Demo without the right-hand pane; the Lab switch beside Demo)
+### 3.14 Upload scan  (a CT from this computer)
 
-Demo, with the scan coming from this computer. Flip **Lab** in the top bar,
-or open the page with `?lab=1` (also remembered in the browser). Demo and
-Lab are never both on: turning one on turns the other off, and `?demo=1`
-(the copilot's window) always wins. On:
-
-- the **right-hand pane is gone** — no patient atlas, no twin card, no
-  session or log panel, nothing whole-body — and the viewport takes its
-  width. Quick start and the synth source box are hidden as in Demo;
-- the left pane shows **Demo's own six tabs**, the same panels with the
-  same numbers, hints and waiting / running / done marks: **1 Load scan**
-  (the AI outline of the aorta, with the patient's heart beside it as a
-  faint ghost), **2 Crop aneurysm**, **3 Mesh wall**, **4 Wall stress ·
-  FEA**, **5 Strength index**, **6 Blood flow · CFD**. Everything about
-  them is §3.13's;
-- above them, one extra button, **↑ Upload scan**: pick a CT on this
-  computer (`.nii`, `.nii.gz` or `.nrrd`; a DICOM series is a folder, so
-  convert it to one NIfTI first, e.g. with dcm2niix). The file's bytes go
-  to `POST /upload/scan`, which keeps a **read-only copy in a temp folder**
-  (never the repo; removed when the server stops), named by its content
-  hash so the same scan sent twice is one file; the name is made safe, the
-  first bytes must match the format, and the ceiling is 2 GiB. The button
-  then shows the file name and size, and the copy's path fills **Load
-  scan**'s `path` knob, which opens: its Run is the next click. An upload
-  is not a step: nothing is journaled until Load scan runs, and its journal
-  record carries the copy's path and sha256, which is the original file's.
-  A wrong file is refused at once, under the button;
-- the **top-down reveal**, the **turntable**, the **running line** and the
-  **stress / flow switch** work as in Demo.
-
-A copilot run (`digitwin copilot … --server URL`) drives a Lab page the
-same way it drives Demo's: every result sweeps in. Its own window opens in
-Demo (`?demo=1`); flip Lab there, or watch from a page already in Lab.
+The source box has an **↑ Upload scan** button: pick a CT on this computer
+(`.nii`, `.nii.gz` or `.nrrd`; a DICOM series is a folder, so convert it to
+one NIfTI first, e.g. with dcm2niix). The file's bytes go to
+`POST /upload/scan` (a raw `application/octet-stream` body, nothing else),
+which keeps a **read-only copy in a temp folder** (never the repo; removed
+when the server stops), named by its content hash so the same scan sent
+twice is one file; the name is made safe, the first bytes must match the
+format, and the ceiling is 2 GiB. The button then shows the file name and
+size, and the copy's path fills the **segment** step's `path` knob: its Run
+is the next click. An upload is not a step: nothing is journaled until
+`segment` runs, and its journal record carries the copy's path and sha256,
+which is the original file's. A wrong file is refused at once, under the
+button.
 
 ### 3.9c copilot  (Claude runs the AAA pipeline from a plain request — investigational)
 `digitwin copilot "Assess this aneurysm at 140 and 120 mmHg" --ct scan.nii.gz` hands
@@ -941,11 +887,11 @@ How it behaves:
   artifact as it lands. When nothing answers there the copilot **starts the
   Workbench itself** (`python -m digitwin.web.server --port <port>`, its
   own process group, `workbench.log` in the run folder, `/health` polled up
-  to 60 s) and **opens its window in Demo mode** — a Chrome app window on a
+  to 60 s) and **opens its window on the plain Workbench** (`/app/`) — a Chrome app window on a
   Mac with Chrome, else the default browser — then prints `workbench :
   started … (pid N …); window opened …`. The server outlives the run (the
   window stays live; the kill line is printed at the end). `--reset` empties
-  a Workbench that is already running first (a fresh take from grey tabs);
+  a Workbench that is already running first (a fresh take from an empty session);
   `--no-launch` keeps the old loud "not reachable" error.
 - **The blood flow, solved live (D112):** `--flow-live` builds the CFD case
   from THIS crop's own blood lumen (`copilot/flow.py`): a helper in-process

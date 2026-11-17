@@ -1041,7 +1041,14 @@ def test_launch_helpers_start_reset_open_and_stage(tmp_path, monkeypatch):
     note = launch.open_window("http://127.0.0.1:8777", run=lambda argv, **kw: ran.append(argv))
     assert note == "Chrome app window"
     assert ran[0][:4] == ["open", "-na", "Google Chrome", "--args"]
-    assert ran[0][4] == "--app=http://127.0.0.1:8777/app/?demo=1"
+    assert ran[0][4] == "--app=http://127.0.0.1:8777/app/" and "?demo" not in ran[0][4]
+    with pytest.raises(TypeError):
+        launch.open_window("http://127.0.0.1:8777", demo=True)
+    urls = []
+    with monkeypatch.context() as mp:
+        mp.setattr(launch, "open_url", lambda u, **kw: urls.append(u) or "x")
+        launch.open_window("http://127.0.0.1:8161/")
+    assert urls == ["http://127.0.0.1:8161/app/"]
     monkeypatch.setattr(launch, "chrome_available", lambda: False)
     note = launch.open_file(tmp_path / "report.html", browser=NS(open=lambda u: opened.append(u)))
     assert note == "default browser" and opened[0].startswith("file://") and opened[0].endswith("/report.html")
@@ -1121,7 +1128,7 @@ def test_copilot_cli_runs_the_flow_case_then_attaches_the_metrics(tmp_path, monk
 
 def test_copilot_cli_starts_the_workbench_when_none_answers(tmp_path, monkeypatch, capsys):
     """--server with nothing listening: the CLI starts a Workbench on that
-    port, opens its window in Demo mode, and says so; --reset empties one
+    port, opens its window on the plain Workbench, and says so; --reset empties one
     that already answers; --no-launch leaves the old loud error."""
     import digitwin.copilot as cp
     from digitwin.cli import main

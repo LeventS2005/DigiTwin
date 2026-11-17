@@ -36,7 +36,7 @@ function detailOf(data, res) {
 }
 
 // ---- on-screen paths (M6) ---------------------------------------------
-// The Workbench is recorded for the demo: a local folder (and the user name
+// The Workbench is recorded on screen: a local folder (and the user name
 // in it) must not reach the screen. Display only — the journal, work files
 // and requests keep the real paths. An absolute path value is shown by its
 // file name; any other text has its /Users/<name> (or /home/<name>) prefix
@@ -127,9 +127,7 @@ function initViewport() {
 }
 
 // Fetch the current artifact's geometry and (re)paint the canvas. resetCamera
-// frames a NEW artifact; a field swap keeps the camera put. In Demo mode a
-// NEW artifact (not the same one served again after a journal-only step) is
-// drawn in from the top down (D112, viewport.js).
+// frames a NEW artifact; a field swap keeps the camera put.
 async function refreshViewport(resetCamera) {
   if (!viewportUp) return;
   vpLayer = null; // the session's current artifact again
@@ -139,8 +137,7 @@ async function refreshViewport(resetCamera) {
   if (res.status === 204) return clearViewport(); // nothing rendered yet
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
-  const changed = !sameArtifact(vpPayload, payload);
-  window.DigiTwinViewport.load(payload, resetCamera, resetCamera && changed);
+  window.DigiTwinViewport.load(payload, resetCamera);
   showPayload(payload);
 }
 // Paint the toolbar for a payload (fields, colour bar, frames, overlay, section).
@@ -153,13 +150,6 @@ function showPayload(payload) {
   vpPayload = payload;
   applyColourRange();
   paintLayerButtons();
-}
-// The same artifact served again (a journal-only step bumped the revision):
-// same label, kind and point count. Its reveal is not replayed.
-function sameArtifact(a, b) {
-  if (!a || !b) return false;
-  const pts = (p) => (p.state && p.state.mesh && p.state.mesh.points && p.state.mesh.points.shape) || null;
-  return a.label === b.label && a.kind === b.kind && JSON.stringify(pts(a)) === JSON.stringify(pts(b));
 }
 
 // Colour range: the full field range, or (fit colours) the flow inside the
@@ -190,12 +180,12 @@ function clearViewport() {
   stopPlay();
 }
 
-// ---- demo-mode layer switch (D112) ----------------------------------------
-// Demo mode only: once the session holds a wall-stress result and a CFD
-// result, two buttons over the canvas switch the view between them (GET
+// ---- layer switch (D112) --------------------------------------------------
+// Once the session holds a wall-stress result and a CFD result, two buttons
+// over the canvas switch the view between them (GET
 // /geometry?artifact=stress|cfd — the server serialises a result it already
 // holds; nothing is computed). The camera stays put and the chosen layer is
-// drawn in from the top down. null = the session's current artifact.
+// drawn at once. null = the session's current artifact.
 let vpLayer = null;
 let vpHeld = {}; // GET /state artifacts: which results the session holds
 const LAYER_LABEL = { stress: "wall stress (investigational)", cfd: "cfd results" };
@@ -222,14 +212,14 @@ async function showLayer(layer) {
   vpLayer = layer;
   viewportField = null;
   window.DigiTwinViewport.setShell(shell);
-  window.DigiTwinViewport.load(payload, false, true);
+  window.DigiTwinViewport.load(payload, false);
   showPayload(payload);
 }
 function paintLayerButtons() {
   const ctl = $("#vp-layer-ctl");
   if (!ctl) return;
   const held = { stress: Boolean(vpHeld.aaa_stress), cfd: Boolean(vpHeld.cfd) };
-  ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd); // Demo or Lab (D115)
+  ctl.hidden = !(held.stress && held.cfd);
   const shown = vpLayer || (vpPayload && Object.keys(LAYER_LABEL).find((k) => LAYER_LABEL[k] === vpPayload.label)) || null;
   for (const btn of ctl.querySelectorAll(".vp-layer-btn")) {
     btn.disabled = !held[btn.dataset.layer];
@@ -370,7 +360,6 @@ async function refreshTwin() {
 }
 
 function renderTwin(twin) {
-  noteDemoTwin(twin); // demo mode only (no-op otherwise)
   $("#twin").dataset.lit = twin.lit ? "1" : "0";
   $("#twin-scan").textContent = twin.scan || "no scan yet";
   const mods = $("#twin-modules");
@@ -421,7 +410,6 @@ function renderTwin(twin) {
 // ---- history + state ---------------------------------------------------
 async function refreshHistory() {
   const { journal } = await apiGet("/journal");
-  noteDemoJournal(journal); // demo mode only (no-op otherwise)
   const tbody = $("#history tbody");
   tbody.innerHTML = "";
   for (const rec of journal) {
@@ -478,7 +466,7 @@ function startAutoRefresh() {
     pollBusy = true;
     try {
       const st = await apiGet("/state");
-      updateBusyLine(st); // demo mode only (no-op otherwise)
+      updateBusyLine(st);
       if (lastRev !== null && st.rev !== lastRev) {
         log("session changed — resyncing view");
         await refreshHistory();
@@ -867,7 +855,7 @@ async function refreshPresets() {
 // ---- native "Browse…" (desktop shell file bridge) ----------------------
 // The desktop window loads sources by SERVER-SIDE path, so a plain
 // <input type=file> is useless here (it exposes contents, not a path; the
-// Lab's Upload scan sends those contents to the server instead, D115). The shell
+// Upload scan sends those contents to the server instead, D115). The shell
 // injects window.digitwinBridge (a QFileDialog over QWebChannel); in a plain
 // browser / headless there is no bridge and these buttons hide themselves.
 function bridgeAvailable() {
@@ -966,31 +954,9 @@ async function resetSession() {
 
 // ---- init --------------------------------------------------------------
 
-// ---- Demo mode (D108): presentation layout ---------------------------------
-// Off = the Workbench exactly as before. On (the top-bar switch; URL ?demo=1;
-// localStorage digitwin.demo) = the AAA path's six steps as numbered tabs on
-// the left, in the order the copilot runs them, each marked waiting / running
-// / done (or failed, when the wall gate refused the mesh); a result drawn in
-// from the top down in the viewport (D112, viewport.js); the running step
-// with its elapsed seconds; the stress / flow layer switch over the canvas
-// once both results exist (D112); and the patient atlas above the twin. Nothing here calls
-// a compute route or changes what any step does (rule 4): it only shows the
-// same results.
-// [step, tab title, one-line hint] — the step's own panel (its knobs, its Run
-// button) is the tab; the hint is for a viewer who does not know the step.
-const DEMO_STEPS = [
-  ["segment", "Load scan", "CT in · AI outline of the aorta"],
-  ["crop", "Crop aneurysm", "neck → sac → above the bifurcation"],
-  ["volmesh", "Mesh wall", "1.5 mm hex wall · quality gate"],
-  ["aaa_stress", "Wall stress · FEA", "finite elements at 140 / 120 mmHg"],
-  ["tissue_index", "Strength index", "stress against lab strength · investigational"],
-  ["cfd", "Blood flow · CFD", "steady resting flow in the lumen"],
-];
-// Steps that run inside a tab's turn and have no tab of their own (the sac
-// recovery runs right after the AI outline), and journal records that fill a
-// tab without being its step (the copilot's pre-computed flow metrics).
-const DEMO_STEP_OF = { sac: "segment", flow_metrics: "cfd" };
-const DEMO_VERBS = {
+// ---- the running step's phrase ---------------------------------------------
+// The step -> the words the running-step line over the viewport shows.
+const STEP_VERBS = {
   import_image: "loading the scan",
   import_cso: "loading the contours",
   segment: "contouring the aorta (AI outline)",
@@ -1002,127 +968,11 @@ const DEMO_VERBS = {
   tissue_index: "computing the investigational index",
   cfd: "solving the flow (CFD)",
 };
-function isDemo() {
-  return document.body.classList.contains("demo");
-}
-function readDemoPref() {
-  try {
-    const q = new URLSearchParams(window.location.search).get("demo");
-    if (q !== null) return q === "1" || q === "true" || q === "on";
-    return localStorage.getItem("digitwin.demo") === "1";
-  } catch (err) {
-    return false; // private mode / no storage: plain Workbench
-  }
-}
-function applyDemo(on) {
-  document.body.classList.toggle("demo", on);
-  const t = $("#demo-toggle");
-  if (t) t.checked = on;
-  try {
-    localStorage.setItem("digitwin.demo", on ? "1" : "0");
-  } catch (err) {
-    // private mode — the URL still carries it
-  }
-  try {
-    const url = new URL(window.location.href);
-    if (on) url.searchParams.set("demo", "1");
-    else url.searchParams.delete("demo");
-    history.replaceState(null, "", url.toString());
-  } catch (err) {
-    // no history API — nothing to keep
-  }
-  if (on) {
-    buildAtlasPanel();
-    closeDemoPanels();
-    paintDemoTabs();
-  } else {
-    removeAtlasPanel();
-    hideBusyLine();
-  }
-  // D111: the viewport's idle turntable follows the switch (arms on, stops off).
-  if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();
-  paintLayerButtons(); // D112: the layer switch shows in Demo mode only
-}
-// Tag the demo steps' panels and give each its tab: number, title, hint and a
-// state mark. The panels keep their STEP_ORDER places (the run order); the
-// CSS hides the untagged ones and, under body.demo, shows the tab in place of
-// the step's name. The knobs and the Run button are untouched underneath.
-function decorateDemoPanels() {
-  const host = $("#step-panels");
-  DEMO_STEPS.forEach(([step, title, hint], i) => {
-    const box = host.querySelector(`details.step-box[data-step="${step}"]`);
-    if (!box) return;
-    box.dataset.demo = "1";
-    box.dataset.demoState = "waiting";
-    const summary = box.querySelector("summary");
-    const raw = document.createElement("span");
-    raw.className = "step-name";
-    raw.textContent = summary.textContent; // the step's own name, shown off-demo
-    const tab = document.createElement("span");
-    tab.className = "demo-tab";
-    const num = document.createElement("span");
-    num.className = "demo-num";
-    num.textContent = String(i + 1);
-    const lab = document.createElement("span");
-    lab.className = "demo-title";
-    lab.textContent = title;
-    const sub = document.createElement("span");
-    sub.className = "demo-hint";
-    sub.textContent = hint;
-    const mark = document.createElement("span");
-    mark.className = "demo-mark";
-    mark.setAttribute("aria-hidden", "true");
-    tab.append(num, lab, sub, mark);
-    summary.textContent = "";
-    summary.append(raw, tab);
-  });
-}
-// Demo shows the tabs closed (six lines, the whole path at a glance); a click
-// still opens a tab's knobs.
-function closeDemoPanels() {
-  for (const box of document.querySelectorAll('#step-panels details.step-box[data-demo="1"]')) box.open = false;
-}
-// Each tab's state: "running" = the step holding the session lock right now
-// (GET /state `running`, also when the copilot drives the server); "done" = a
-// record for it is in the journal (so a re-run upstream, which truncates the
-// journal, puts the tabs after it back to waiting — the journal is the truth);
-// else "waiting". Painted on every journal refresh and every /state poll.
-// "failed" (the Mesh wall tab only): the twin's wall slot carries the note
-// "last wall gate FAIL: … mm along the normal" while the copilot's last
-// mesh_wall call failed its quality gate (GET /twin, computed by the report
-// code from the same journal). The volmesh record IS in the journal then — the
-// step ran, the gate refused the wall — so "done" alone would read as a pass.
-// The wording is the report's own (copilot/report.py); the asset test pins
-// the two together.
-const WALL_GATE_FAIL_NOTE = "last wall gate FAIL";
-let demoDoneSteps = new Set();
-let demoWallFailed = false;
-function noteDemoJournal(journal) {
-  demoDoneSteps = new Set((journal || []).map((rec) => DEMO_STEP_OF[rec.step] || rec.step));
-  paintDemoTabs();
-}
-function noteDemoTwin(twin) {
-  const wall = (twin.slots || []).find((s) => s.key === "wall");
-  demoWallFailed = Boolean(wall && String(wall.note || "").startsWith(WALL_GATE_FAIL_NOTE));
-  paintDemoTabs();
-}
-function paintDemoTabs() {
-  const running = busyStep ? DEMO_STEP_OF[busyStep] || busyStep : null;
-  for (const box of document.querySelectorAll('#step-panels details.step-box[data-demo="1"]')) {
-    const step = box.dataset.step;
-    box.dataset.demoState =
-      step === running ? "running"
-      : step === "volmesh" && demoWallFailed ? "failed"
-      : demoDoneSteps.has(step) ? "done"
-      : "waiting";
-  }
-  paintLabUpload(); // the Lab's Upload scan card repaints on the same changes (D115)
-}
 // ---- patient atlas (D108 addendum 6) --------------------------------------
 // One patient record, every study filed by body region and modality, the
 // way every surgeon would land on the same page. Cloned from the inert
-// <template> in index.html above the twin while Demo is on, removed when off,
-// so it is not in the DOM otherwise. Data: GET /atlas — the 15-region
+// <template> in index.html above the twin card, once, when the page starts
+// (init). Data: GET /atlas — the 15-region
 // catalogue and the studies the session REALLY holds (digitwin.atlas: today
 // at most the CT the segment step loaded, its coverage declared by checksum).
 // This paints that and nothing else: no earlier study, no other patient, no
@@ -1179,19 +1029,12 @@ function buildAtlasPanel() {
 function atlasEscape(e) {
   if (e.key === "Escape" && atlasSelected !== null) selectAtlasRegion(null);
 }
-function removeAtlasPanel() {
-  const p = $("#atlas-panel");
-  if (p) p.remove();
-  document.removeEventListener("keydown", atlasEscape);
-  atlasSelected = null;
-  atlasHovered = null;
-}
 function selectAtlasRegion(id) {
   atlasSelected = id;
   paintAtlas();
 }
-// Fetched with the twin on every session change; a no-op while the panel is
-// not in the DOM (Demo off), so the plain Workbench never calls /atlas.
+// Fetched with the twin on every session change; a no-op if the panel could
+// not be built (no twin card to sit above).
 async function refreshAtlas() {
   if (!$("#atlas-panel")) return;
   try {
@@ -1341,9 +1184,6 @@ function paintAtlasFigureLabel(id) {
   text.setAttribute("x", String(cx));
   text.setAttribute("y", String(cy));
 }
-// The result reveal lives in viewport.js (D112): a NEW artifact is drawn in
-// from the top down, cell by cell, in Demo mode (refreshViewport passes the
-// sweep flag). The D108 curtain over the canvas is gone.
 // The step running on the server right now (GET /state `running`, set while
 // the step holds the session lock — also when the copilot drives it over HTTP)
 // with its elapsed seconds, ticking locally between polls.
@@ -1351,14 +1191,13 @@ let busyTicker = null;
 let busyStart = null;
 let busyStep = null;
 function updateBusyLine(st) {
-  if (!(isDemo() || isLab()) || !st || !st.running) {
+  if (!st || !st.running) {
     hideBusyLine();
     return;
   }
   if (busyStep !== st.running) {
     busyStep = st.running;
     busyStart = Date.now() - 1000 * (Number(st.running_for) || 0);
-    paintDemoTabs();
   }
   if (!busyTicker) busyTicker = setInterval(tickBusyLine, 250);
   tickBusyLine();
@@ -1367,7 +1206,7 @@ function tickBusyLine() {
   const el = $("#vp-busy");
   if (!el || !busyStep) return;
   const secs = Math.max(0, Math.round((Date.now() - busyStart) / 1000));
-  el.textContent = `${DEMO_VERBS[busyStep] || busyStep + " running"}… ${secs} s`;
+  el.textContent = `${STEP_VERBS[busyStep] || busyStep + " running"}… ${secs} s`;
   el.hidden = false;
 }
 function hideBusyLine() {
@@ -1375,86 +1214,24 @@ function hideBusyLine() {
   if (el) el.hidden = true;
   if (busyTicker) clearInterval(busyTicker);
   busyTicker = null;
-  const wasRunning = busyStep !== null;
   busyStep = null;
   busyStart = null;
-  if (wasRunning) paintDemoTabs();
-}
-function initDemoMode() {
-  const t = $("#demo-toggle");
-  if (t) t.addEventListener("change", () => applyDemo(t.checked));
-  applyDemo(readDemoPref());
 }
 
-// ---- Lab mode (D115): Demo without the whole-body pane --------------------
-// Demo's six tabs exactly as Demo has them (the same panels, numbers, hints
-// and states: Load scan's AI outline of the aorta with the heart beside it as
-// a ghost, through Blood flow · CFD), the top-down reveal, the turntable, the
-// running line and the stress / flow layer switch. The right-hand pane — the
-// patient atlas, the twin, the session and the log, the whole-body view — is
-// gone and the viewport takes its width. One addition: an Upload scan button
-// above the tabs (the CT's bytes to POST /upload/scan; the server keeps a
-// read-only temp copy and its path fills Load scan's path knob, so Load
-// scan's Run is the next click). On: the Lab switch beside Demo, URL ?lab=1,
-// or localStorage digitwin.lab. Demo and Lab are never both on. Nothing here
-// computes (rule 4); an upload error shows under the button, since the log
-// is in the hidden pane.
-const LAB_UPLOAD_HINT = "CT .nii / .nii.gz / .nrrd from this computer";
-let labUpload = null; // {name, bytes} of the scan this page uploaded
-let labUploading = false;
-function isLab() {
-  return document.body.classList.contains("lab");
-}
-function readLabPref() {
-  try {
-    const q = new URLSearchParams(window.location.search).get("lab");
-    if (q !== null) return q === "1" || q === "true" || q === "on";
-    return localStorage.getItem("digitwin.lab") === "1";
-  } catch (err) {
-    return false; // private mode / no storage: plain Workbench
-  }
-}
-function applyLab(on) {
-  document.body.classList.toggle("lab", on);
-  const t = $("#lab-toggle");
-  if (t) t.checked = on;
-  try {
-    localStorage.setItem("digitwin.lab", on ? "1" : "0");
-  } catch (err) {
-    // private mode — the URL still carries it
-  }
-  try {
-    const url = new URL(window.location.href);
-    if (on) url.searchParams.set("lab", "1");
-    else url.searchParams.delete("lab");
-    history.replaceState(null, "", url.toString());
-  } catch (err) {
-    // no history API — nothing to keep
-  }
-  if (on) {
-    closeDemoPanels(); // Demo's tabs, shown closed as in Demo
-    paintDemoTabs();
-  } else if (!isDemo()) {
-    hideBusyLine();
-  }
-  // the turntable follows the switch, as in Demo (D111)
-  if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();
-  paintLayerButtons(); // the stress / flow switch shows in Lab as in Demo (D112)
-}
-// Upload scan's state, by the tabs' rules: running while the bytes go up;
-// done once this page uploaded a scan, or once Load scan is in the journal
-// (the scan is in either way, and a reload keeps the column consistent); the
-// hint then names the file this page uploaded.
-function paintLabUpload() {
-  const up = $("#lab-upload");
-  if (!up) return;
-  up.dataset.demoState = labUploading ? "running"
-    : labUpload || demoDoneSteps.has("segment") ? "done"
-    : "waiting";
-  const hint = $("#lab-upload-hint");
-  if (hint && !labUploading) {
-    hint.textContent = labUpload ? `${labUpload.name} · ${fmtBytes(labUpload.bytes)}` : LAB_UPLOAD_HINT;
-  }
+// ---- Upload scan (D115) ------------------------------------------------------
+// A button in the source box: the CT's bytes go to POST /upload/scan (the
+// server keeps a read-only temp copy) and the copy's path fills Load scan's
+// path knob (the segment step), so that step's Run is the next click. Nothing
+// here computes (rule 4); an upload error shows under the button.
+const UPLOAD_HINT = "CT .nii / .nii.gz / .nrrd from this computer";
+let uploadedScan = null; // {name, bytes} of the scan this page uploaded
+let uploading = false;
+// The status line under the button: the file going up, the file this page
+// uploaded, or the accepted formats.
+function paintUploadStatus() {
+  const el = $("#upload-status");
+  if (!el || uploading) return;
+  el.textContent = uploadedScan ? `${uploadedScan.name} · ${fmtBytes(uploadedScan.bytes)}` : UPLOAD_HINT;
 }
 function fmtBytes(n) {
   const mb = Number(n) / 1048576;
@@ -1463,7 +1240,7 @@ function fmtBytes(n) {
 // The bytes go up as the request body (application/octet-stream: never a
 // form, so no other site can post here without a CORS preflight); the
 // answer's path goes into Load scan's path knob (the segment step) and that
-// tab opens, so its Run button is the next click.
+// panel opens, so its Run button is the next click.
 async function uploadScan(file) {
   const box = $('#step-panels details.step-box[data-step="segment"]');
   const target = box && box.querySelector('input[data-knob="path"]');
@@ -1476,7 +1253,7 @@ async function uploadScan(file) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(detailOf(data, res));
   target.value = data.path;
-  labUpload = { name: data.name, bytes: data.bytes };
+  uploadedScan = { name: data.name, bytes: data.bytes };
   log(
     `scan uploaded: ${data.name} (${fmtBytes(data.bytes)}, sha256 ${String(data.sha256).slice(0, 12)}…)` +
       `${data.reused ? ", the same file as before" : ""}; next: Load scan`
@@ -1484,9 +1261,8 @@ async function uploadScan(file) {
   box.open = true;
 }
 // The click only opens the file picker; the request runs on the file
-// input's change with its own busy state — the button disabled, the tab's
-// running mark — undone in `finally` (withBusy would flatten the tab inside
-// the button into one line of text).
+// input's change with its own busy state — the button disabled, the status
+// line "uploading" — undone in `finally`.
 function initUploadScan() {
   const btn = $("#btn-upload-scan");
   const input = $("#upload-scan-input");
@@ -1496,11 +1272,10 @@ function initUploadScan() {
   input.addEventListener("change", async () => {
     const file = input.files && input.files[0];
     input.value = ""; // the same file can be chosen again
-    if (!file || labUploading) return;
-    labUploading = true;
+    if (!file || uploading) return;
+    uploading = true;
     btn.disabled = true;
-    $("#lab-upload-hint").textContent = `uploading ${file.name}…`;
-    paintLabUpload();
+    $("#upload-status").textContent = `uploading ${file.name}…`;
     try {
       await uploadScan(file);
       clearErrorEl(errEl);
@@ -1508,31 +1283,11 @@ function initUploadScan() {
       onError(err);
       setError(errEl, err);
     } finally {
-      labUploading = false;
+      uploading = false;
       btn.disabled = false;
-      paintLabUpload();
+      paintUploadStatus();
     }
   });
-}
-function initLabMode() {
-  const lab = $("#lab-toggle");
-  if (lab) {
-    lab.addEventListener("change", () => {
-      if (lab.checked && isDemo()) applyDemo(false); // never both on
-      applyLab(lab.checked);
-    });
-  }
-  const demo = $("#demo-toggle");
-  if (demo) demo.addEventListener("change", () => { if (demo.checked && isLab()) applyLab(false); });
-  let on = readLabPref();
-  if (on && isDemo()) {
-    // both asked for: ?demo=1 wins; an explicit ?lab=1 beats a stored Demo
-    const q = new URLSearchParams(window.location.search);
-    on = q.get("lab") !== null && q.get("demo") === null;
-    if (on) applyDemo(false);
-  }
-  applyLab(on);
-  initUploadScan();
 }
 
 async function init() {
@@ -1581,9 +1336,8 @@ async function init() {
     onError(err);
   }
 
-  decorateDemoPanels(); // tags the demo steps + their tabs (inert until body.demo or body.lab)
-  initDemoMode();
-  initLabMode(); // D115: Demo's tabs without the right-hand pane, plus Upload scan
+  buildAtlasPanel(); // the patient atlas, above the twin card, always on
+  initUploadScan(); // the source box's Upload scan button (D115)
 
   // Native "Browse…" for the source/session path fields (desktop shell);
   // and the one-line explanation when there's no bridge to drive them.
@@ -1650,11 +1404,12 @@ async function init() {
 
   initViewport();
   initLayerSwitch();
+  paintUploadStatus();
   await refreshPresets();
   await refreshHistory();
   await refreshState();
   await refreshTwin(); // pending slots before a run; filled if a session is in progress
-  await refreshAtlas(); // the patient atlas, while Demo is on
+  await refreshAtlas(); // the patient atlas
   await refreshViewport(true); // paints if a session was already in progress
   startAutoRefresh(); // keep the view current on external session changes
   log("Workbench ready." + (viewportUp ? "" : " (3-D viewport unavailable)"));

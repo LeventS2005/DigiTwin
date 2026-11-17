@@ -20,7 +20,7 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_TOKENS = 16000
 
 SYSTEM = """You run an investigational biomechanics pipeline on a public CT scan of an \
-abdominal aortic aneurysm, for clinicians and investors watching a demo.
+abdominal aortic aneurysm, for clinicians and investors watching the Workbench.
 
 Use the tools in this order: segment_aorta, crop_aneurysm, mesh_wall, wall_stress, \
 strength_index. Start with the standard settings (parallel_caps false, sweep "auto") and \
