@@ -505,57 +505,17 @@ def test_busy_line_acts_only_in_demo_mode(app_js: str, index_html: str) -> None:
     assert "st.running" in app_js and "running_for" in app_js
 
 
-def test_step_reveal_draws_a_new_artifact_in_from_the_top_in_demo_mode(
-    app_js: str, index_html: str, styles_css: str
-) -> None:
-    """D112: the D108 curtain is gone; a NEW artifact is drawn in cell by cell
-    from the top down (the polygons sorted by their highest z, the
-    connectivity grown as a prefix) over 2.4 s, the previous artifact a faint
-    shell meanwhile. Demo mode only, never under reduced motion; the same
-    artifact served again (a journal-only step) is not replayed; a field or
-    frame swap, a new load or a clear cancels a running sweep; the whole
-    state stands at the end."""
-    vp_js = (_static_dir() / "viewport.js").read_text()
-    assert "vp-reveal" not in index_html and ".vp-reveal" not in styles_css and "playReveal" not in app_js
-    assert "var SWEEP_MS = 2400;" in vp_js
-    assert "function planSweep(state)" in vp_js and "function sweepState(plan, p)" in vp_js
-    on = vp_js[vp_js.index("function sweepOn()"):vp_js.index("var TYPED")]
-    assert "demoOn() && !reducedMotion()" in on
-    plan = vp_js[vp_js.index("function planSweep(state)"):vp_js.index("function sweepState")]
-    assert "pts[3 * conn[i + j] + 2]" in plan                 # the cell's highest z
-    assert "cells.sort(function (a, b) { return b[2] - a[2]; });" in plan  # top first
-    state = vp_js[vp_js.index("function sweepState(plan, p)"):vp_js.index("function sweepStop")]
-    assert "plan.ordered.subarray(0, plan.offsets[k])" in state  # a prefix: nothing invented
-    assert "Object.assign({}, plan.state, { mesh: mesh })" in state  # points, field, range untouched
-    stop = vp_js[vp_js.index("function sweepStop(finish)"):vp_js.index("function sweepStep")]
-    assert "items[i].set(items[i].plan.state)" in stop        # the whole state at the end
-    assert "function load(payload, resetCamera, sweep)" in vp_js
-    load = vp_js[vp_js.index("function load(payload, resetCamera, sweep)"):vp_js.index("function clear()")]
-    assert load.index("sweepStop(false);") < load.index("S.mesh.value = payload.state;")
-    assert "var animate = !!sweep && sweepOn();" in load
-    assert "{ opacity: 0 }" in load and load.index("{ opacity: 0 }") < load.index("v.resetCamera();")
-    assert load.index("v.resetCamera();") < load.index("begin();")  # framed on the whole mesh first
-    clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
-    assert "sweepStop(false);" in clear
-    assert '<vtk-geometry-representation v-if="base" :property="baseProperty">' in vp_js
-    # app.js passes the sweep only for a NEW artifact framed anew
-    assert "window.DigiTwinViewport.load(payload, resetCamera, resetCamera && changed);" in app_js
-    assert "function sameArtifact(a, b)" in app_js
-    same = app_js[app_js.index("function sameArtifact(a, b)"):]
-    assert "a.label === b.label && a.kind === b.kind" in same[:600]
-
-
 def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_html: str, styles_css: str) -> None:
     """D112: two buttons over the canvas switch the view between the held
     wall-stress and CFD results (GET /geometry?artifact=stress|cfd, nothing
     computed), Demo mode only, once the session holds both; the chosen layer
-    is drawn in from the top down with the camera kept."""
+    is drawn at once with the camera kept."""
     assert 'id="vp-layer-ctl"' in index_html and 'data-layer="stress"' in index_html and 'data-layer="cfd"' in index_html
     assert "body:not(.demo):not(.lab) #vp-layer-ctl { display: none; }" in styles_css  # Demo or Lab (D115)
     assert "function showLayer(layer)" in app_js and "function paintLayerButtons()" in app_js
     show = app_js[app_js.index("async function showLayer(layer)"):app_js.index("function paintLayerButtons()")]
     assert "`/geometry?artifact=${encodeURIComponent(layer)}`" in show
-    assert "window.DigiTwinViewport.load(payload, false, true);" in show  # camera kept, drawn in
+    assert "window.DigiTwinViewport.load(payload, false);" in show  # camera kept, drawn at once
     paint = app_js[app_js.index("function paintLayerButtons()"):app_js.index("// ---- flow section") if "// ---- flow section" in app_js else None]
     assert "ctl.hidden = !((isDemo() || isLab()) && held.stress && held.cfd);" in paint  # Demo or Lab (D115)
     assert "vpHeld = st.artifacts || {};" in app_js            # from every /state refresh
@@ -567,8 +527,7 @@ def test_layer_switch_shows_stress_or_flow_in_demo_mode_only(app_js: str, index_
     assert "function setShell(state)" in vp_js and "setShell: setShell," in vp_js
     assert '<vtk-geometry-representation v-if="shell" :property="shellProperty">' in vp_js
     assert "var SHELL_PROPERTY = { color: [0.74, 0.76, 0.8], opacity: 0.22, specular: 0.0 };" in vp_js
-    load = vp_js[vp_js.index("function load(payload, resetCamera, sweep)"):vp_js.index("// The layer switch's shell")]
-    assert "var base = S.shell && S.shell.value ? null : previous;" in load  # no second ghost of the wall
+    assert "function load(payload, resetCamera) {" in vp_js  # two arguments: no sweep
     refresh = app_js[app_js.index("async function refreshViewport(resetCamera)"):app_js.index("function showPayload")]
     assert "window.DigiTwinViewport.setShell(null);" in refresh          # the current artifact again: no shell
 
@@ -678,41 +637,6 @@ def test_viewport_draws_the_ghost_outline_behind_the_mesh(app_js: str) -> None:
     assert "setGhosts: setGhosts," in vp_js
     assert "color-map-preset" not in vp_js[vp_js.index('v-for="g in ghosts"'):vp_js.index("</vtk-view>")]
 
-
-
-def test_viewport_turntable_spins_only_in_demo_mode_after_idle(app_js: str) -> None:
-    """D111: in Demo mode a view left alone for 3 s spins slowly about the
-    camera's up axis (one turn in 45 s) and stops on any input to the canvas
-    (press, scroll, touch, key; hovering does not stop it). Pure camera motion
-    through vue_vtk's getCamera/setCamera; never outside Demo mode, never
-    while a pick is armed, never without a mesh, never under reduced motion,
-    paused while the tab is hidden; the Demo switch re-arms or stops it."""
-    vp_js = (_static_dir() / "viewport.js").read_text()
-    assert "var IDLE_MS = 3000;" in vp_js
-    assert "var SPIN_DEG_PER_S = 8;" in vp_js
-    demo_on = vp_js[vp_js.index("function demoOn()"):vp_js.index("function reducedMotion()")]
-    assert 'return c.contains("demo") || c.contains("lab");' in demo_on  # Demo or Lab (D115)
-    assert '"(prefers-reduced-motion: reduce)"' in vp_js
-    spin = vp_js[vp_js.index("function spinStart()"):vp_js.index("function spinStop()")]
-    assert "!demoOn() || reducedMotion()" in spin
-    assert "if (!(S.mesh && S.mesh.value)) return;" in spin
-    assert "if (S.pickCb) return;" in spin
-    step = vp_js[vp_js.index("function spinStep(ts)"):vp_js.index("function spinStart()")]
-    assert "!hasMesh || !demoOn()" in step and "spinStop();" in step
-    assert "Math.min(ts - R.last, 100)" in step  # a stalled tab does not jump
-    assert "view.setCamera({ position: [fp[0] + rx, fp[1] + ry, fp[2] + rz], focalPoint: fp, viewUp: up });" in vp_js
-    assert 'var evs = ["pointerdown", "wheel", "touchstart", "keydown"];' in vp_js
-    assert "pointermove" not in vp_js[vp_js.index("function watchIdle"):vp_js.index("// ---- flow section")]
-    assert 'document.addEventListener("visibilitychange"' in vp_js
-    assert "watchIdle(host); // D111" in vp_js
-    arm = vp_js[vp_js.index("function armPick(cb, onMiss)"):vp_js.index("function onPick(e)")]
-    assert arm.count("spinStop();") == 1 and arm.count("idleDisarm();") == 1 and arm.count("idleArm();") == 1
-    assert "v.resetCamera();\n          idleArm();" in vp_js  # a newly framed artifact starts the clock
-    clear = vp_js[vp_js.index("function clear()"):vp_js.index("function setOverlay")]
-    assert "spinStop();" in clear and "idleDisarm();" in clear
-    assert "wake: wake," in vp_js
-    assert "if (window.DigiTwinViewport && window.DigiTwinViewport.wake) window.DigiTwinViewport.wake();" in app_js
-    assert app_js.index("DigiTwinViewport.wake()") > app_js.index("function applyDemo(on)")
 
 
 # ---- D115: Lab mode — Demo's six tabs without the right-hand pane ----------

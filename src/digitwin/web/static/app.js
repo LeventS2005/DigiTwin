@@ -127,9 +127,7 @@ function initViewport() {
 }
 
 // Fetch the current artifact's geometry and (re)paint the canvas. resetCamera
-// frames a NEW artifact; a field swap keeps the camera put. In Demo mode a
-// NEW artifact (not the same one served again after a journal-only step) is
-// drawn in from the top down (D112, viewport.js).
+// frames a NEW artifact; a field swap keeps the camera put.
 async function refreshViewport(resetCamera) {
   if (!viewportUp) return;
   vpLayer = null; // the session's current artifact again
@@ -139,8 +137,7 @@ async function refreshViewport(resetCamera) {
   if (res.status === 204) return clearViewport(); // nothing rendered yet
   if (!res.ok) return; // viewport hiccup — don't spam the log
   const payload = await res.json();
-  const changed = !sameArtifact(vpPayload, payload);
-  window.DigiTwinViewport.load(payload, resetCamera, resetCamera && changed);
+  window.DigiTwinViewport.load(payload, resetCamera);
   showPayload(payload);
 }
 // Paint the toolbar for a payload (fields, colour bar, frames, overlay, section).
@@ -153,13 +150,6 @@ function showPayload(payload) {
   vpPayload = payload;
   applyColourRange();
   paintLayerButtons();
-}
-// The same artifact served again (a journal-only step bumped the revision):
-// same label, kind and point count. Its reveal is not replayed.
-function sameArtifact(a, b) {
-  if (!a || !b) return false;
-  const pts = (p) => (p.state && p.state.mesh && p.state.mesh.points && p.state.mesh.points.shape) || null;
-  return a.label === b.label && a.kind === b.kind && JSON.stringify(pts(a)) === JSON.stringify(pts(b));
 }
 
 // Colour range: the full field range, or (fit colours) the flow inside the
@@ -195,7 +185,7 @@ function clearViewport() {
 // result, two buttons over the canvas switch the view between them (GET
 // /geometry?artifact=stress|cfd — the server serialises a result it already
 // holds; nothing is computed). The camera stays put and the chosen layer is
-// drawn in from the top down. null = the session's current artifact.
+// drawn at once. null = the session's current artifact.
 let vpLayer = null;
 let vpHeld = {}; // GET /state artifacts: which results the session holds
 const LAYER_LABEL = { stress: "wall stress (investigational)", cfd: "cfd results" };
@@ -222,7 +212,7 @@ async function showLayer(layer) {
   vpLayer = layer;
   viewportField = null;
   window.DigiTwinViewport.setShell(shell);
-  window.DigiTwinViewport.load(payload, false, true);
+  window.DigiTwinViewport.load(payload, false);
   showPayload(payload);
 }
 function paintLayerButtons() {
