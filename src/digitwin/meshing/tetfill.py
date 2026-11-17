@@ -24,7 +24,12 @@ tets as 0-based indices into them.
 from __future__ import annotations
 
 import math
+import os
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -42,11 +47,18 @@ _NEEDS_GMSH = {
 class TetFill:
     """The raw result of a fill: ``points`` (n, 3) float, ``tets`` (m, 4)
     0-based int indices into ``points``, ``opt_note`` the optimizer note
-    ('' for the thrombus, which has none)."""
+    ('' for the thrombus, which has none).
+
+    ``boundary_faces`` (k, 3) 0-based indices into ``points`` and
+    ``boundary_markers`` (k,) int are set by the TetGen engine only (with -Y
+    the boundary faces are exactly the input triangles, each carrying the
+    marker it was given); the gmsh engine leaves them None."""
 
     points: np.ndarray
     tets: np.ndarray
     opt_note: str = ""
+    boundary_faces: np.ndarray | None = None
+    boundary_markers: np.ndarray | None = None
 
 
 def _gmsh_module(site: str):
@@ -74,7 +86,11 @@ def fill_shells(shells, size, holes=(), engine="gmsh", *, site, **site_options):
     ignores it (each site's entity layout defines the cavity). ``site`` is
     'lumen', 'thrombus' or 'wall' and selects the per-site parametrisation.
     ``site_options`` (gmsh): lumen ``optimize``, ``remesh``; wall
-    ``optimize``, ``labels``, ``closed_s``; thrombus none.
+    ``optimize``, ``labels``, ``closed_s``; thrombus none. TetGen: ``timeout``
+    (s, default 120) and ``markers`` (one per-triangle int array, or None, per
+    shell); the gmsh-only options are accepted and ignored. The TetGen engine
+    needs ``holes`` for a cavity, except the thrombus (and the closed-S wall,
+    given ``labels``), where one interior point of the cavity is computed.
 
     Returns a ``TetFill``. Failures keep the type and text of the original
     site (a failed lumen or thrombus fill is a RuntimeError)."""
@@ -86,7 +102,7 @@ def fill_shells(shells, size, holes=(), engine="gmsh", *, site, **site_options):
     if site not in SITES:
         raise ValueError(f"unknown tet-fill site {site!r}; choose one of: {', '.join(SITES)}")
     if key == "tetgen":
-        raise NotImplementedError("tet engine 'tetgen' is not wired yet")
+        return _fill_tetgen(site, shells, size, holes, **site_options)
     return _fill_gmsh(site, shells, size, **site_options)
 
 
@@ -225,3 +241,273 @@ def _fill_gmsh(site, shells, size, *, optimize=True, remesh=False, labels=None, 
         if site == "wall":
             raise ValueError("gmsh produced no tetrahedra; the wall shell may be invalid")
     return TetFill(points=points, tets=tets, opt_note=opt_note)
+
+
+# ---------------------------------------------------------------------------
+# TetGen engine (private use only: TetGen is AGPL v3)
+# ---------------------------------------------------------------------------
+TETGEN_TIMEOUT_S = 120.0
+_TETGEN_OPTS = {"timeout", "markers", "optimize", "remesh", "labels", "closed_s"}
+_TETGEN_MISSING = (
+    "TetGen is not installed in this environment: "
+    "~/miniconda3/envs/digitwin/bin/pip install tetgen (AGPL v3: private use only)"
+)
+
+
+def _solid_angle_winding(point, points, tris) -> float:
+    """Generalised winding number of ``point`` w.r.t. a closed triangle
+    surface (sum of signed solid angles / 4 pi): +-1 inside, 0 outside,
+    whichever way the triangles are wound."""
+    v = points[tris] - np.asarray(point, dtype=float)
+    a, b, c = v[:, 0], v[:, 1], v[:, 2]
+    la, lb, lc = (np.linalg.norm(x, axis=1) for x in (a, b, c))
+    num = np.einsum("ij,ij->i", a, np.cross(b, c))
+    den = (la * lb * lc + np.einsum("ij,ij->i", a, b) * lc
+           + np.einsum("ij,ij->i", a, c) * lb + np.einsum("ij,ij->i", b, c) * la)
+    return float(2.0 * np.arctan2(num, den).sum() / (4.0 * math.pi))
+
+
+def _first_hit(origin, direction, points, tris, skip: int) -> float | None:
+    """Distance along the ray to the nearest triangle other than ``skip``
+    (Moller-Trumbore), or None."""
+    p0, p1, p2 = (points[tris[:, i]] for i in range(3))
+    e1, e2 = p1 - p0, p2 - p0
+    h = np.cross(direction, e2)
+    det = np.einsum("ij,ij->i", e1, h)
+    ok = np.abs(det) > 1e-14 * max(1.0, float(np.abs(det).max()))
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    s = origin - p0
+    u = np.einsum("ij,ij->i", s, h) * inv
+    q = np.cross(s, e1)
+    w = np.einsum("ij,j->i", q, direction) * inv
+    t = np.einsum("ij,ij->i", e2, q) * inv
+    hit = ok & (u >= 0) & (w >= 0) & (u + w <= 1) & (t > 1e-9)
+    hit[skip] = False
+    return float(t[hit].min()) if hit.any() else None
+
+
+def interior_point(points, tris, *, tries: int = 64) -> np.ndarray:
+    """One point strictly inside the closed triangle shell, safe for a
+    concave shell (the centroid is not). From a triangle centroid, shoot a
+    ray along the triangle's normal, either way; the midpoint of the chord to
+    the first other triangle hit lies inside the solid and as far from the
+    surface as that chord allows. Each candidate is verified with the
+    winding number; of the verified candidates the one with the longest chord
+    wins. Raises RuntimeError if none of ``tries`` triangles verifies."""
+    points = np.asarray(points, dtype=float)
+    tris = np.asarray(tris, dtype=np.int64)
+    corner = points[tris]
+    cen = corner.mean(axis=1)
+    nrm = np.cross(corner[:, 1] - corner[:, 0], corner[:, 2] - corner[:, 0])
+    area2 = np.linalg.norm(nrm, axis=1)
+    best, best_half, found = None, 0.0, 0
+    for i in np.unique(np.linspace(0, len(tris) - 1, min(len(tris), int(tries))).astype(int)):
+        if area2[i] <= 0:
+            continue
+        direction = nrm[i] / area2[i]
+        for sign in (1.0, -1.0):
+            t = _first_hit(cen[i], sign * direction, points, tris, int(i))
+            if t is None:
+                continue
+            cand = cen[i] + sign * direction * (0.5 * t)
+            if abs(_solid_angle_winding(cand, points, tris)) > 0.5:
+                found += 1
+                if 0.5 * t > best_half:
+                    best, best_half = cand, 0.5 * t
+        if found >= 6:
+            break
+    if best is None:
+        raise RuntimeError(
+            "TetGen: could not find an interior point of the cavity shell to use as its "
+            f"hole (tried {min(len(tris), int(tries))} triangles); the shell is probably "
+            "not a closed, consistent surface"
+        )
+    return best
+
+
+def _tetgen_child_run(in_path: str, out_path: str) -> None:
+    """Run TetGen on the arrays in ``in_path`` and write the result (or the
+    error) to ``out_path``. Separate from ``_tetgen_child_main`` so a test can
+    call it in-process."""
+    with np.load(in_path) as data:
+        args = {k: data[k] for k in data.files}
+    try:
+        try:
+            import tetgen
+        except ImportError:
+            raise RuntimeError(_TETGEN_MISSING) from None
+        import importlib.metadata
+
+        version = importlib.metadata.version("tetgen")
+        tg = tetgen.TetGen(args["points"], args["tris"], args["markers"])
+        for h in args["holes"]:
+            tg.add_hole([float(x) for x in h])
+        tg.tetrahedralize(switches=str(args["switches"]))
+        out = {
+            "points": np.asarray(tg.node, dtype=float),
+            "tets": np.asarray(tg.elem, dtype=np.int64),
+            "faces": np.asarray(tg.trifaces, dtype=np.int64),
+            "fmarkers": np.asarray(tg.triface_markers, dtype=np.int64),
+            "version": np.array(version),
+        }
+    except Exception as exc:
+        np.savez(out_path, error=np.array(f"{type(exc).__name__}: {exc}"))
+        return
+    np.savez(out_path, **out)
+
+
+def _tetgen_child_main(in_path: str, out_path: str) -> None:
+    """Entry point of the guarded TetGen child. TetGen's wrapper can segfault
+    at interpreter teardown after a failed run (seen on a self-intersecting
+    surface), so exit hard once the result file is written."""
+    try:
+        _tetgen_child_run(in_path, out_path)
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
+
+
+def _fill_tetgen(site, shells, size, holes=(), **opts):
+    import importlib.util
+
+    unknown = set(opts) - _TETGEN_OPTS
+    if unknown:
+        raise TypeError(f"unexpected options for the tetgen engine: {sorted(unknown)}")
+    timeout = float(opts.get("timeout", TETGEN_TIMEOUT_S))
+    size = float(size)
+    if not (size > 0 and math.isfinite(size)):
+        raise ValueError(f"tet size must be a positive number, got {size!r}")
+    if not shells:
+        raise ValueError("fill_shells needs at least one shell")
+    try:
+        found = importlib.util.find_spec("tetgen")
+    except (ImportError, ValueError):
+        found = None
+    if found is None:
+        raise RuntimeError(_TETGEN_MISSING)
+
+    # one combined surface: shell k's points are offset, its triangles carry
+    # the marker (k + 1) * 10 + per-shell marker, else k + 1
+    per_shell = list(opts.get("markers") or [])
+    per_shell += [None] * (len(shells) - len(per_shell))
+    if site == "wall" and per_shell[0] is None and opts.get("labels") is not None:
+        per_shell[0] = opts["labels"]
+    all_pts, all_tris, all_marks, offset = [], [], [], 0
+    for k, (pts, tris) in enumerate(shells):
+        pts = np.asarray(pts, dtype=float).reshape(-1, 3)
+        tris = np.asarray(tris, dtype=np.int64).reshape(-1, 3)
+        if len(tris) == 0 or tris.min() < 0 or tris.max() >= len(pts):
+            raise ValueError(f"shell {k}: empty or out-of-range triangle indices")
+        if per_shell[k] is None:
+            marks = np.full(len(tris), k + 1, dtype=np.int64)
+        else:
+            m = np.asarray(per_shell[k], dtype=np.int64).ravel()
+            if len(m) != len(tris) or (m < 0).any():
+                raise ValueError(f"shell {k}: markers must be {len(tris)} non-negative ints")
+            marks = (k + 1) * 10 + m
+        all_pts.append(pts)
+        all_tris.append(tris + offset)
+        all_marks.append(marks)
+        offset += len(pts)
+    points, tris = np.vstack(all_pts), np.vstack(all_tris)
+    markers = np.concatenate(all_marks).astype(np.int32)
+
+    hole_pts = np.asarray(holes, dtype=float).reshape(-1, 3)
+    if len(hole_pts) == 0:
+        cavity = None
+        if site == "thrombus" and len(shells) >= 2:
+            cavity = shells[1]  # (outer, inner): the inner shell is the cavity
+        elif site == "wall" and opts.get("closed_s") and opts.get("labels") is not None:
+            lab = np.asarray(opts["labels"])
+            cavity = (shells[0][0], np.asarray(shells[0][1])[lab == 0])  # 0 = inner torus
+        if cavity is not None:
+            hole_pts = interior_point(*cavity).reshape(1, 3)
+
+    vmax = size**3 / (6.0 * math.sqrt(2.0))
+    vtxt = f"{vmax:.6g}"
+    if "e" in vtxt:
+        vtxt = f"{vmax:.12f}"
+    switches = f"pYq1.4a{vtxt}Q"
+
+    out = _run_tetgen_child(points, tris, markers, hole_pts, switches, timeout)
+
+    pts_out, tets = out["points"], out["tets"]
+    faces, fmark = out["faces"], out["fmarkers"]
+    if len(tets) == 0:
+        raise RuntimeError("TetGen produced no tetrahedra; the shell(s) may be invalid")
+    if len(faces) != len(tris):
+        raise RuntimeError(
+            f"TetGen returned {len(faces)} boundary faces for {len(tris)} input triangles; "
+            "the surface was modified or is not a clean closed shell"
+        )
+    if (fmark == 0).any():
+        raise RuntimeError(
+            f"TetGen returned {int((fmark == 0).sum())} boundary faces without a marker"
+        )
+    a, b, c, d = (pts_out[tets[:, i]] for i in range(4))
+    vol = np.einsum("ij,ij->i", np.cross(b - a, c - a), d - a) / 6.0
+    if not (vol.min() > 0):
+        raise RuntimeError(
+            f"TetGen returned {int((vol <= 0).sum())} tets with zero or negative volume "
+            f"(min {vol.min():.3g})"
+        )
+    note = f"tetgen {out['version']} -{switches} ({len(tets)} tets)"
+    return TetFill(points=pts_out, tets=tets, opt_note=note,
+                   boundary_faces=faces, boundary_markers=fmark)
+
+
+def _run_tetgen_child(points, tris, markers, holes, switches, timeout) -> dict:
+    """Run TetGen in a child process killed after ``timeout`` s (TetGen can
+    spin on a degenerate surface, and its wrapper can crash the interpreter)."""
+    from digitwin.io.segment import _kill
+
+    src = str(Path(__file__).resolve().parents[2])  # the dir holding digitwin/
+    code = ("import sys; sys.path.insert(0, sys.argv[3]); "
+            "from digitwin.meshing.tetfill import _tetgen_child_main; "
+            "_tetgen_child_main(*sys.argv[1:3])")
+    with tempfile.TemporaryDirectory(prefix="digitwin_tetgen_") as tmp:
+        in_path, out_path = os.path.join(tmp, "in.npz"), os.path.join(tmp, "out.npz")
+        log_path = os.path.join(tmp, "child.log")
+        np.savez(in_path, points=points, tris=tris.astype(np.int64), markers=markers,
+                 holes=np.asarray(holes, dtype=float).reshape(-1, 3), switches=np.array(switches))
+        with open(log_path, "wb") as log:
+            proc = subprocess.Popen(
+                [sys.executable, "-I", "-c", code, in_path, out_path, src],
+                stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=tmp,
+                start_new_session=(os.name == "posix"),
+            )
+            try:
+                rc = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    f"TetGen did not finish within {timeout:g} s (timeout) and was stopped; "
+                    "the surface may be degenerate or the element size too small for it"
+                ) from None
+            finally:
+                _kill(proc)  # no-op once it exited
+        if not os.path.exists(out_path):
+            lines = [ln for ln in Path(log_path).read_text(errors="replace").splitlines()
+                     if ln.strip() and ln.strip() not in ("parsing switches", "success")]
+            hint = ""
+            if rc < 0 or rc in (134, 139):  # killed by a signal (SEGV / abort)
+                # TetGen's usual reaction to an invalid surface: on a
+                # self-intersecting input it either raises or segfaults
+                hint = (" (TetGen died on a signal, typical for an invalid surface: "
+                        "self-intersecting or overlapping shells)")
+            raise RuntimeError(f"TetGen crashed: the process exited with code {rc} and no "
+                               f"result{hint}" + (": " + " | ".join(lines[-5:]) if lines else ""))
+        with np.load(out_path) as data:
+            out = {k: data[k] for k in data.files}
+    if "error" in out:
+        msg = str(out["error"])
+        if "not installed" in msg:
+            raise RuntimeError(msg.split(": ", 1)[-1] if msg.startswith("RuntimeError: ") else msg)
+        if "self-intersect" in msg:
+            raise RuntimeError(
+                "TetGen rejected the surface: it self-intersects (overlapping or crossing "
+                f"shells, or coplanar caps of nested shells) — {msg}"
+            )
+        raise RuntimeError(f"TetGen failed: {msg}")
+    out["version"] = str(out["version"])
+    return out
