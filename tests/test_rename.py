@@ -13,7 +13,11 @@ Why each test exists:
   variable that supplied a bad value.
 * The viewport global in viewport.js and app.js agree and carry the new name.
 * Installed console scripts are the digitwin ones; no ``meshforge*`` script.
-* A built wheel ships the static Workbench and CSV data under ``digitwin/``.
+* A built wheel ships the static Workbench and CSV data under ``digitwin/``; a
+  broken build FAILS (no skip), and the wheel's own entry points are checked.
+* The saved-file centerline field-data keys keep their old ``meshforge_*``
+  names (existing .vtp files must keep loading): constants, what
+  ``embed_centerline`` writes, and a literal-key surface that still reads back.
 
 The report-marker dual read (old ``<!-- meshforge report.html v2 -->`` still
 recognised) is tested in tests/test_copilot.py (~lines 645-665); not repeated.
@@ -21,6 +25,7 @@ recognised) is tested in tests/test_copilot.py (~lines 645-665); not repeated.
 
 from __future__ import annotations
 
+import configparser
 import importlib.metadata as md
 import re
 import shutil
@@ -286,13 +291,72 @@ def test_wheel_ships_package_data(tmp_path):
     except subprocess.TimeoutExpired:
         pytest.skip("wheel build timed out")
     wheels = list(out.glob("*.whl"))
-    if proc.returncode != 0 or not wheels:
-        pytest.skip(f"wheel build unavailable: {proc.stderr[-300:]}")
-    names = zipfile.ZipFile(wheels[0]).namelist()
+    assert proc.returncode == 0 and wheels, proc.stderr[-2000:]
+    zf = zipfile.ZipFile(wheels[0])
+    names = zf.namelist()
     for need in ("index.html", "app.js", "viewport.js", "styles.css"):
         assert f"digitwin/web/static/{need}" in names, need
     assert any(
         n.startswith("digitwin/data/") and n.endswith(".csv") for n in names
     )
     assert not [n for n in names if n.lower().startswith("meshforge")]
+
+    # the wheel's own entry points (not the installed, possibly stale, dist-info)
+    ep_files = [n for n in names if n.endswith(".dist-info/entry_points.txt")]
+    assert len(ep_files) == 1, ep_files
+    cp = configparser.ConfigParser(delimiters=("=",))
+    cp.optionxform = str  # keep names case-exact
+    cp.read_string(zf.read(ep_files[0]).decode())
+    console = dict(cp["console_scripts"]) if cp.has_section("console_scripts") else {}
+    gui = dict(cp["gui_scripts"]) if cp.has_section("gui_scripts") else {}
+    for name in ("digitwin", "digitwin-web", "digitwin-desktop"):
+        assert name in console, (name, console)
+    assert "digitwin-gui" in gui, gui
+    wanted = {*console, *gui}
+    assert not [n for n in wanted if n.lower().startswith("meshforge")]
+    for name, target in {**console, **gui}.items():
+        target = target.strip()
+        assert target.startswith("digitwin."), (name, target)
+        module = target.split(":")[0].split("[")[0].strip()
+        base = module.replace(".", "/")
+        assert f"{base}.py" in names or f"{base}/__init__.py" in names, (
+            name, target)
     assert _git("status", "--porcelain") == before
+
+
+# --- i: kept compatibility keys ---------------------------------------------
+
+
+def test_centerline_keys_keep_old_names():
+    """Saved .vtp surfaces carry these field-data names: never rename them."""
+    import numpy as np
+    import pyvista as pv
+
+    from digitwin.geometry import centerline as cmod
+    from digitwin.geometry.centerline import (
+        Centerline, centerline_from_surface, embed_centerline)
+
+    old = ("meshforge_centerline_points", "meshforge_centerline_radii",
+           "meshforge_centerline_closed")
+    assert (cmod._CL_POINTS, cmod._CL_RADII, cmod._CL_CLOSED) == old
+
+    pts = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0],
+                    [0.0, 0.0, 3.0]])
+    cl = Centerline(
+        points=pts, tangents=np.tile([0.0, 0.0, 1.0], (4, 1)),
+        arc_lengths=np.arange(4.0), radii=np.array([1.0, 1.1, 1.2, 1.3]),
+        length=3.0, closed=False, voxel_size=0.0)
+    emb = embed_centerline(pv.Sphere(), cl)
+    assert set(emb.field_data.keys()) == set(old)
+
+    fresh = pv.Sphere()  # positive control: literal old names, copied values
+    fresh.field_data["meshforge_centerline_points"] = np.array(
+        emb.field_data["meshforge_centerline_points"])
+    fresh.field_data["meshforge_centerline_radii"] = np.array(
+        emb.field_data["meshforge_centerline_radii"])
+    fresh.field_data["meshforge_centerline_closed"] = np.array(
+        emb.field_data["meshforge_centerline_closed"])
+    got = centerline_from_surface(fresh)
+    assert got is not None
+    assert np.allclose(got.points, centerline_from_surface(emb).points)
+    assert np.allclose(got.points, pts)
