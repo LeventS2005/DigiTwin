@@ -14,7 +14,7 @@ rebuilt here with the gate's own calls and checked point-identical to
 ``outputs/m2/gate/<case>/wall.vtu``. Then the D88 solve at 0.016 MPa, both
 caps encastre: by default on the wall's inner surface with NO thrombus (so
 ours should read higher where their thrombus carries load); with
-``MESHFORGE_TENSION_ILT=1`` the thrombus is a tied solid (D91, E 5 MPa) and
+``DIGITWIN_TENSION_ILT=1`` the thrombus is a tied solid (D91, E 5 MPa) and
 the pressure acts on its lumen faces, as in theirs. The tension follows the
 product's rule (``aaa_metrics.tension_thickness``): integrated along each
 column's measured normal thickness unless every column is 1.5 mm thick along
@@ -39,20 +39,21 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
+from digitwin.envvars import env_value
+
 ROOT = Path.cwd()
 ZEN = ROOT / "outputs/data/zenodo_19182977/extracted/Dataset_root"
 GATE = ROOT / "outputs/m2/gate"
 OUT = ROOT / "outputs/m3"
-#: MESHFORGE_TENSION_ILT=1: our model includes the thrombus as a tied solid
+#: DIGITWIN_TENSION_ILT=1: our model includes the thrombus as a tied solid
 #: (D91), like theirs; results go to the *_ilt files beside the wall-only ones
-WITH_ILT = os.environ.get("MESHFORGE_TENSION_ILT") == "1"
+WITH_ILT = env_value("TENSION_ILT") == "1"
 TAG = "_ilt" if WITH_ILT else ""
 WORK = OUT / f"tension_validation{TAG}"
 P_THEIRS_MPA = 0.016  # their *Dsload 16e-03 (MPa) = 120.0 mmHg

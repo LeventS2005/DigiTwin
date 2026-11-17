@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
 import pyvista as pv
 import pytest
+
+from digitwin.envvars import env_value
 
 SPHERE_RADIUS = 7.5
 
@@ -20,14 +21,14 @@ SPHERE_RADIUS = 7.5
 # to this conftest, then nothing -> None, and the tests that need real data skip
 # exactly as they do on a machine that has none.
 # ---------------------------------------------------------------------------
-def local_data_dir(env_var: str, pointer_name: str) -> Path | None:
+def local_data_dir(key: str, pointer_name: str) -> Path | None:
     """Resolve a local data directory, or None when it is not configured.
 
-    ``env_var`` wins; otherwise the first non-empty line of
+    The variable ``DIGITWIN_<key>`` (else ``MESHFORGE_<key>``) wins; otherwise the first non-empty line of
     ``tests/<pointer_name>`` (git-ignored) is used.  Returns None unless the
     resolved path is an existing directory.
     """
-    raw = os.environ.get(env_var, "").strip()
+    raw = (env_value(key) or "").strip()
     if not raw:
         pointer = Path(__file__).parent / pointer_name
         if pointer.is_file():
@@ -42,23 +43,23 @@ def local_data_dir(env_var: str, pointer_name: str) -> Path | None:
 
 
 def cso_family_dir() -> Path | None:
-    """Directory holding the real .cso family (env MESHFORGE_CSO_FAMILY_DIR)."""
-    return local_data_dir("MESHFORGE_CSO_FAMILY_DIR", ".local_family_dir")
+    """Directory holding the real .cso family (env DIGITWIN_CSO_FAMILY_DIR)."""
+    return local_data_dir("CSO_FAMILY_DIR", ".local_family_dir")
 
 
 def dicom_dir() -> Path | None:
-    """Directory holding the matching real .dcm volumes (env MESHFORGE_DICOM_DIR)."""
-    return local_data_dir("MESHFORGE_DICOM_DIR", ".local_dicom_dir")
+    """Directory holding the matching real .dcm volumes (env DIGITWIN_DICOM_DIR)."""
+    return local_data_dir("DICOM_DIR", ".local_dicom_dir")
 
 
 def example_cso_dir() -> Path | None:
     """The second real .cso family, ``Example CSO Files/`` at the repo root.
 
     That folder is git-ignored (patient-derived), so it exists only on the
-    machine it was supplied to; env MESHFORGE_EXAMPLE_CSO_DIR points
+    machine it was supplied to; env DIGITWIN_EXAMPLE_CSO_DIR points
     elsewhere (e.g. from a worktree). None when neither is a directory.
     """
-    raw = os.environ.get("MESHFORGE_EXAMPLE_CSO_DIR", "").strip()
+    raw = (env_value("EXAMPLE_CSO_DIR") or "").strip()
     if raw:
         d = Path(raw).expanduser()
     else:

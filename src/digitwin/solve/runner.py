@@ -7,7 +7,6 @@ exit, ``*ERROR`` in the solver output, missing .frd, timeout.
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from digitwin.envvars import env_value
 from digitwin.textguard import scrub
 
 from digitwin.export.neutral import guard_output_path
@@ -26,9 +26,9 @@ _CCX_FALLBACK = Path.home() / "miniconda3/envs/ccxsolve/bin/ccx"
 
 
 def find_ccx() -> str | None:
-    """MESHFORGE_CCX env var, then PATH, then the known conda env."""
+    """DIGITWIN_CCX env var, then PATH, then the known conda env."""
     for candidate in (
-        os.environ.get("MESHFORGE_CCX"),
+        env_value("CCX"),
         shutil.which("ccx"),
         str(_CCX_FALLBACK),
     ):
@@ -145,7 +145,7 @@ def solve_deck(
     exe = ccx or find_ccx()
     if exe is None:
         raise RuntimeError(
-            "CalculiX (ccx) not found: set MESHFORGE_CCX, add ccx to PATH, or "
+            "CalculiX (ccx) not found: set DIGITWIN_CCX, add ccx to PATH, or "
             "create the conda env (conda create -n ccxsolve -c conda-forge calculix)"
         )
     if not Path(exe).is_file():
@@ -155,7 +155,7 @@ def solve_deck(
     guard_output_path(out_dir / f"{deck.stem}.frd", input_paths=[deck])
 
     t0 = time.perf_counter()
-    with tempfile.TemporaryDirectory(prefix="meshforge_ccx_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="digitwin_ccx_") as tmp:
         work = Path(tmp)
         staged = work / deck.name
         shutil.copyfile(deck, staged)

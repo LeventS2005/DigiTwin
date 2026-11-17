@@ -2,10 +2,10 @@
 
 TotalSegmentator (Wasserthal et al., Apache-2.0; ``total`` task only, never
 a licensed task) runs as a SUBPROCESS from its own conda env, so torch never
-enters meshforge's environment. It is found like ccx
-(``solve/runner.find_ccx``): ``MESHFORGE_TOTALSEG`` -> ``TotalSegmentator``
+enters DigiTwin's environment. It is found like ccx
+(``solve/runner.find_ccx``): ``DIGITWIN_TOTALSEG`` -> ``TotalSegmentator``
 on PATH -> ``~/miniconda3/envs/totalseg/bin/TotalSegmentator``. An explicit
-``MESHFORGE_TOTALSEG`` that does not point at an executable is an error, not
+``DIGITWIN_TOTALSEG`` that does not point at an executable is an error, not
 a silent fall-through to another copy.
 
 The CT may be NIfTI or NRRD (``io/nrrd.py``; converted to a RAS NIfTI). The
@@ -39,9 +39,10 @@ from typing import Any
 
 import numpy as np
 
+from digitwin.envvars import env_lookup
 from digitwin.textguard import scrub
 
-TOTALSEG_ENV_VAR = "MESHFORGE_TOTALSEG"
+TOTALSEG_ENV_VAR = "DIGITWIN_TOTALSEG"
 _TOTALSEG_FALLBACK = Path.home() / "miniconda3/envs/totalseg/bin/TotalSegmentator"
 INSTALL_HINT = (
     "conda create -n totalseg --solver=libmamba python=3.11, then "
@@ -88,13 +89,14 @@ LUMEN_METHOD_NOTE = (
 
 def find_totalseg() -> str:
     """Path of the TotalSegmentator executable, or a loud RuntimeError."""
-    explicit = os.environ.get(TOTALSEG_ENV_VAR, "").strip()
+    name, raw = env_lookup("TOTALSEG")
+    explicit = (raw or "").strip()
     if explicit:
         p = Path(explicit).expanduser()
         if p.is_file() and os.access(p, os.X_OK):
             return str(p)
         raise RuntimeError(
-            f"{TOTALSEG_ENV_VAR}={explicit!r} is not an executable file — point "
+            f"{name}={explicit!r} is not an executable file — point "
             f"it at the TotalSegmentator executable or unset it. Install: "
             f"{INSTALL_HINT}"
         )
@@ -156,7 +158,7 @@ def _staging_dir():
     path = None
     for base in (None, "/tmp"):
         try:
-            candidate = tempfile.mkdtemp(prefix="meshforge_ts_", dir=base)
+            candidate = tempfile.mkdtemp(prefix="digitwin_ts_", dir=base)
         except OSError:
             continue
         if " " not in candidate:

@@ -13,7 +13,6 @@ Probe-verified traps this module handles:
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tempfile
@@ -23,15 +22,16 @@ from pathlib import Path
 
 import numpy as np
 
+from digitwin.envvars import env_value
 from digitwin.textguard import scrub
 
 _MYSTRAN_FALLBACK = Path.home() / "miniconda3/envs/mystran/bin/mystran"
 
 
 def find_mystran() -> str | None:
-    """MESHFORGE_MYSTRAN env var, then PATH, then the known conda env."""
+    """DIGITWIN_MYSTRAN env var, then PATH, then the known conda env."""
     for candidate in (
-        os.environ.get("MESHFORGE_MYSTRAN"),
+        env_value("MYSTRAN"),
         shutil.which("mystran"),
         str(_MYSTRAN_FALLBACK),
     ):
@@ -116,7 +116,7 @@ def solve_bdf(
     exe = mystran or find_mystran()
     if exe is None:
         raise RuntimeError(
-            "MYSTRAN not found: set MESHFORGE_MYSTRAN, add mystran to PATH, "
+            "MYSTRAN not found: set DIGITWIN_MYSTRAN, add mystran to PATH, "
             "or create the conda env "
             "(conda create -n mystran -c conda-forge mystran)"
         )
@@ -127,7 +127,7 @@ def solve_bdf(
     guard_output_path(out_dir / f"{bdf.stem}.F06", input_paths=[bdf])
 
     t0 = time.perf_counter()
-    with tempfile.TemporaryDirectory(prefix="meshforge_mystran_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="digitwin_mystran_") as tmp:
         work = Path(tmp)
         staged = work / bdf.name
         shutil.copyfile(bdf, staged)

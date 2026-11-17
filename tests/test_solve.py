@@ -71,7 +71,7 @@ def _unit_cube_frd(tmp_path: Path, *, shuffle_ids: bool = False) -> Path:
     disp = {nid: [0.1 * x, 0.1 * y, 0.1 * z] for nid, (x, y, z) in nodes}
     stress = {nid: [2.0, 0.0, 0.0, 0.0, 0.0, 0.0] for nid in ids}
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(nodes)
         + _frd_elements([(1, 1, ids)])
         + _frd_field("DISP", ["D1", "D2", "D3", "ALL"], disp)
@@ -201,9 +201,9 @@ def test_dat_parsers_roundtrip_and_absent():
 def test_find_ccx_env_override(tmp_path, monkeypatch):
     fake = tmp_path / "ccx"
     fake.write_text("#!/bin/sh\n")
-    monkeypatch.setenv("MESHFORGE_CCX", str(fake))
+    monkeypatch.setenv("DIGITWIN_CCX", str(fake))
     assert find_ccx() == str(fake)
-    monkeypatch.setenv("MESHFORGE_CCX", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIGITWIN_CCX", str(tmp_path / "missing"))
     assert find_ccx() != str(tmp_path / "missing")  # non-file falls through
 
 
@@ -224,12 +224,13 @@ def test_solve_deck_missing_deck_and_missing_ccx(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError, match="deck not found"):
         solve_deck(tmp_path / "nope.inp", tmp_path / "out", ccx="/bin/sh")
     deck = _dummy_deck(tmp_path)
+    monkeypatch.setenv("DIGITWIN_CCX", "")
     monkeypatch.setenv("MESHFORGE_CCX", "")
     monkeypatch.setenv("PATH", str(tmp_path))  # hide any real ccx
     monkeypatch.setattr(
         "digitwin.solve.runner._CCX_FALLBACK", tmp_path / "absent"
     )
-    with pytest.raises(RuntimeError, match="not found: set MESHFORGE_CCX"):
+    with pytest.raises(RuntimeError, match="not found: set DIGITWIN_CCX"):
         solve_deck(deck, tmp_path / "out")
     with pytest.raises(RuntimeError, match="executable not found"):
         solve_deck(deck, tmp_path / "out", ccx=str(tmp_path / "ghost"))

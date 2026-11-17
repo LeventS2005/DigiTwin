@@ -17,7 +17,6 @@ missing/failed checkMesh.
 """
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
@@ -26,6 +25,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from digitwin.envvars import env_lookup
 from digitwin.textguard import scrub
 
 _LAUNCHERS = ("openfoam", "openfoam2506", "openfoam2512", "openfoam2606")
@@ -39,14 +39,14 @@ _ALLOWED_APPS = ("checkMesh", "simpleFoam", "icoFoam")
 def find_foam() -> list[str] | None:
     """Argv prefix that runs an OpenFOAM application, or None.
 
-    Order: MESHFORGE_OPENFOAM (launcher path) → a sourced environment
+    Order: DIGITWIN_OPENFOAM (launcher path) → a sourced environment
     (solvers directly on PATH → empty prefix) → known brew launchers.
     """
-    env = os.environ.get("MESHFORGE_OPENFOAM")
+    name, env = env_lookup("OPENFOAM")
     if env:
         if not Path(env).is_file():
             raise RuntimeError(
-                f"MESHFORGE_OPENFOAM points to a missing file: {env}"
+                f"{name} points to a missing file: {env}"
             )
         return [env, "--"]
     if shutil.which("simpleFoam"):
@@ -80,11 +80,11 @@ def run_foam_app(
     prefix = foam if foam is not None else find_foam()
     if prefix is None:
         raise RuntimeError(
-            "OpenFOAM not found: set MESHFORGE_OPENFOAM to the launcher, "
+            "OpenFOAM not found: set DIGITWIN_OPENFOAM to the launcher, "
             "put the solvers on PATH, or install it "
             "(brew install gerlero/openfoam/openfoam@2506)"
         )
-    with tempfile.TemporaryDirectory(prefix="meshforge_foam_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="digitwin_foam_") as tmp:
         if " " in tmp:
             raise RuntimeError(
                 f"temp dir {tmp!r} contains a space — OpenFOAM cannot run "

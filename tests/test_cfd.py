@@ -177,20 +177,22 @@ def test_rebuilt_case_carries_no_stale_results(tmp_path):
 def test_find_foam_env_override(monkeypatch, tmp_path):
     exe = tmp_path / "openfoam"
     exe.write_text("#!/bin/sh\n")
-    monkeypatch.setenv("MESHFORGE_OPENFOAM", str(exe))
+    monkeypatch.setenv("DIGITWIN_OPENFOAM", str(exe))
     assert find_foam() == [str(exe), "--"]
-    monkeypatch.setenv("MESHFORGE_OPENFOAM", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIGITWIN_OPENFOAM", str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="missing file"):
         find_foam()
 
 
 def test_find_foam_absent(monkeypatch):
+    monkeypatch.delenv("DIGITWIN_OPENFOAM", raising=False)
     monkeypatch.delenv("MESHFORGE_OPENFOAM", raising=False)
     monkeypatch.setenv("PATH", "")
     assert find_foam() is None
 
 
 def test_run_foam_app_without_openfoam(monkeypatch, tmp_path):
+    monkeypatch.delenv("DIGITWIN_OPENFOAM", raising=False)
     monkeypatch.delenv("MESHFORGE_OPENFOAM", raising=False)
     monkeypatch.setenv("PATH", "")
     with pytest.raises(RuntimeError, match="OpenFOAM not found"):

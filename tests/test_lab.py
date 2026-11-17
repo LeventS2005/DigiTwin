@@ -5,7 +5,7 @@ Upload scan sends a CT's bytes to the server, which keeps a read-only temp
 copy; the page writes the copy's path into Load scan's path knob (the
 ``segment`` step, exactly as in Demo). Load scan here runs a FAKE
 TotalSegmentator (as in test_segment.py): a tiny Python script pointed to via
-MESHFORGE_TOTALSEG that thresholds the staged CT (a bright synthetic tube)
+DIGITWIN_TOTALSEG that thresholds the staged CT (a bright synthetic tube)
 into ``aorta.nii.gz`` and writes a small blob for the ``heart`` context call.
 The real TotalSegmentator runs in the Lab walkthrough, not here.
 """
@@ -62,7 +62,7 @@ def fake_ts(tmp_path, monkeypatch):
     exe.write_text(FAKE_TS.format(python=sys.executable))
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     record = tmp_path / "argv.jsonl"
-    monkeypatch.setenv("MESHFORGE_TOTALSEG", str(exe))
+    monkeypatch.setenv("DIGITWIN_TOTALSEG", str(exe))
     monkeypatch.setenv("FAKE_TS_RECORD", str(record))
 
     def calls():

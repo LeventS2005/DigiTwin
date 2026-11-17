@@ -3,7 +3,7 @@
 # Exercises every CLI surface once; everything lands in outputs/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PY="${MESHFORGE_PY:-$HOME/miniconda3/envs/digitwin/bin/python}"
+PY="${DIGITWIN_PY:-${MESHFORGE_PY:-$HOME/miniconda3/envs/digitwin/bin/python}}"
 MF="$(dirname "$PY")/digitwin"
 
 echo "== V1: CAD import (planar face extraction on the real DWG) =="

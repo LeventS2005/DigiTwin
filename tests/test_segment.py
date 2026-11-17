@@ -1,13 +1,13 @@
 """D83 (M1): the ``segment`` step with a FAKE TotalSegmentator.
 
 The fake is a tiny Python script written into tmp_path, made executable and
-pointed to via MESHFORGE_TOTALSEG. It records its argv, thresholds the staged
+pointed to via DIGITWIN_TOTALSEG. It records its argv, thresholds the staged
 CT (a bright synthetic tube) into ``aorta.nii.gz`` with the input's affine,
 and can be told (env FAKE_TS_MODE) to fail, return an empty mask, write
 nothing, leave the heart out of the field (``noheart``), or hang. It writes
 one mask per requested roi: ``aorta.nii.gz`` is the thresholded tube, any
 other roi (the ``heart`` context) a small blob beside it. The real TotalSegmentator runs only in the opt-in test at
-the bottom (MESHFORGE_ZENODO_AAA_DIR + a real executable).
+the bottom (DIGITWIN_ZENODO_AAA_DIR + a real executable).
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def fake_ts(tmp_path, monkeypatch):
     exe.write_text(FAKE_TS.format(python=sys.executable))
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     record = tmp_path / "argv.jsonl"
-    monkeypatch.setenv("MESHFORGE_TOTALSEG", str(exe))
+    monkeypatch.setenv("DIGITWIN_TOTALSEG", str(exe))
     monkeypatch.setenv("FAKE_TS_RECORD", str(record))
     monkeypatch.delenv("FAKE_TS_MODE", raising=False)
 
@@ -268,21 +268,22 @@ def test_segment_nifti_input_with_negative_ras_axes(tmp_path, fake_ts):
 
 
 def test_missing_executable_is_loud_and_names_the_env_var(tmp_path, monkeypatch):
-    monkeypatch.setenv("MESHFORGE_TOTALSEG", str(tmp_path / "nope" / "TotalSegmentator"))
-    with pytest.raises(RuntimeError, match="MESHFORGE_TOTALSEG"):
+    monkeypatch.setenv("DIGITWIN_TOTALSEG", str(tmp_path / "nope" / "TotalSegmentator"))
+    with pytest.raises(RuntimeError, match="DIGITWIN_TOTALSEG"):
         find_totalseg()
     # nothing configured anywhere: env unset, PATH empty, no known env
-    monkeypatch.delenv("MESHFORGE_TOTALSEG")
+    monkeypatch.delenv("DIGITWIN_TOTALSEG", raising=False)
+    monkeypatch.delenv("MESHFORGE_TOTALSEG", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.setattr(segmod, "_TOTALSEG_FALLBACK", tmp_path / "no" / "TotalSegmentator")
     with pytest.raises(RuntimeError) as exc:
         find_totalseg()
     message = str(exc.value)
-    assert "MESHFORGE_TOTALSEG" in message
+    assert "DIGITWIN_TOTALSEG" in message
     assert "conda create -n totalseg --solver=libmamba python=3.11" in message
     assert "pip install TotalSegmentator" in message
     ct = _write_lps_nrrd(tmp_path / "ct.nrrd", _tube_ct())
-    with pytest.raises(RuntimeError, match="MESHFORGE_TOTALSEG"):
+    with pytest.raises(RuntimeError, match="DIGITWIN_TOTALSEG"):
         segment_ct(ct)  # fails fast, before staging the CT
 
 
@@ -456,12 +457,12 @@ def _real_totalseg() -> str | None:
     return exe
 
 
-ZENODO_DIR = local_data_dir("MESHFORGE_ZENODO_AAA_DIR", ".local_zenodo_aaa_dir")
+ZENODO_DIR = local_data_dir("ZENODO_AAA_DIR", ".local_zenodo_aaa_dir")
 
 
 @pytest.mark.skipif(
     ZENODO_DIR is None or _real_totalseg() is None,
-    reason="opt-in: needs MESHFORGE_ZENODO_AAA_DIR (Zenodo Dataset_root) and a real TotalSegmentator",
+    reason="opt-in: needs DIGITWIN_ZENODO_AAA_DIR (Zenodo Dataset_root) and a real TotalSegmentator",
 )
 @pytest.mark.parametrize("case, frame", [("P01", "70%.nrrd"), ("P17", "CT0.nrrd")])
 def test_real_totalseg_on_zenodo_never_fails_open(case, frame):

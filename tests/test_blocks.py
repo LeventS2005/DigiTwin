@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -10,6 +9,7 @@ import numpy as np
 import pytest
 
 from digitwin.cli import main
+from digitwin.envvars import env_value
 from digitwin.meshing import build_block_mesh, extrude_blocks
 
 RECT = np.array([[0, 0], [10, 0], [10, 8], [0, 8]], dtype=float)
@@ -17,7 +17,7 @@ HOLE = np.array([[3, 3], [3, 6], [7, 6], [7, 3]], dtype=float)  # CW
 
 
 def _cottage_dwg() -> Path | None:
-    env = os.environ.get("MESHFORGE_COTTAGE_DWG")
+    env = env_value("COTTAGE_DWG")
     if env and Path(env).is_file():
         return Path(env)
     cand = Path(__file__).resolve().parents[1] / "Cottage_Pane_Window.dwg"

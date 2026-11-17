@@ -193,7 +193,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "riks_dl_init": (float, 0.0, "RIKS initial arc-length increment (0 = default 0.05)"),
         "riks_dl_min": (float, 0.0, "RIKS minimum arc-length increment (0 = default 1e-5)"),
         "riks_dl_max": (float, 0.0, "RIKS maximum arc-length increment (0 = default 0.5)"),
-        "ccx": (str, "", "CalculiX executable (empty: MESHFORGE_CCX / PATH / conda env)"),
+        "ccx": (str, "", "CalculiX executable (empty: DIGITWIN_CCX / PATH / conda env)"),
         "timeout": (float, 600.0, "solver wall-clock limit in seconds"),
     },
     # D88 (M3): AAA wall stress under blood pressure — stiff-linear solve on
@@ -208,7 +208,7 @@ STEP_KNOBS: dict[str, dict[str, tuple[type, Any, str]]] = {
         "lumen": (str, "", "blood-lumen surface file cut by the same two planes (crop's lumen_out): models the intraluminal thrombus between it and the wall as a tied solid (empty: wall only)"),
         "sac": (str, "", "the sac surface file the wall was built from (required with lumen): the thrombus fills the space between it and the lumen"),
         "E_ilt": (float, 5.0, "thrombus Young's modulus in MPa (the Zenodo AAA FE model's value; used with lumen)"),
-        "ccx": (str, "", "CalculiX executable (empty: MESHFORGE_CCX / PATH / conda env)"),
+        "ccx": (str, "", "CalculiX executable (empty: DIGITWIN_CCX / PATH / conda env)"),
         "timeout": (float, 600.0, "solver wall-clock limit per solve in seconds"),
     },
     # V30: carve a new boundary patch out of an existing group by a

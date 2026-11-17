@@ -95,9 +95,9 @@ def test_pressure_forces_loud_errors(tube_wall):
 def test_find_mystran_env_override(tmp_path, monkeypatch):
     fake = tmp_path / "mystran"
     fake.write_text("#!/bin/sh\n")
-    monkeypatch.setenv("MESHFORGE_MYSTRAN", str(fake))
+    monkeypatch.setenv("DIGITWIN_MYSTRAN", str(fake))
     assert find_mystran() == str(fake)
-    monkeypatch.setenv("MESHFORGE_MYSTRAN", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIGITWIN_MYSTRAN", str(tmp_path / "missing"))
     assert find_mystran() != str(tmp_path / "missing")  # falls through
 
 
