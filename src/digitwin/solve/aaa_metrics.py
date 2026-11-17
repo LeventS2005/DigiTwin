@@ -906,6 +906,23 @@ class AaaStressResult:
         return aaa_stress_text(self.summary)
 
 
+_TETGEN_NEEDS_LUMEN = (
+    "tet_engine 'tetgen' applies to the thrombus fill, which needs a lumen surface "
+    "(--lumen); none was given, so no TetGen fill would run. Use the default gmsh, "
+    "or give the lumen"
+)
+
+
+def _tetgen_unused_is_an_error(tet_engine: str, reasons: list[str]) -> None:
+    """TetGen was asked for the thrombus fill but the run is refused before
+    it: say so, with the refusal reasons, instead of returning a quiet sentinel."""
+    if tet_engine == "tetgen":
+        raise ValueError(
+            "tet_engine 'tetgen' applies to the thrombus fill, which was not run: "
+            "the wall-stress run is refused first (" + "; ".join(reasons) + ")"
+        )
+
+
 def run_aaa_stress(
     wall,
     summary: dict | None,
@@ -936,10 +953,14 @@ def run_aaa_stress(
 
     ``tet_engine`` (``gmsh`` default | ``tetgen``) fills the thrombus; it is
     checked here even with no thrombus (a bad value is never ignored) and is
-    used only with ``lumen``. TetGen never falls back to gmsh."""
+    used only with ``lumen``. TetGen never falls back to gmsh, and asking for
+    it when no thrombus fill will run (no ``lumen``, or the wall/crop is
+    refused first) is a loud ValueError, never a silent gmsh-or-nothing run."""
     from digitwin.meshing.engine import normalize_tet_engine
 
     tet_engine = normalize_tet_engine(tet_engine)
+    if tet_engine == "tetgen" and lumen is None:
+        raise ValueError(_TETGEN_NEEDS_LUMEN)
     t_start = time.perf_counter()
     p_sys, p_wif = mmhg_to_mpa(systolic_mmhg), mmhg_to_mpa(whatif_mmhg)
     lat = (summary or {}).get("lattice") or {}
@@ -978,6 +999,7 @@ def run_aaa_stress(
     }
     reasons = wall_refusals(wall, summary)
     if reasons:
+        _tetgen_unused_is_an_error(tet_engine, reasons)
         out["refused"] = reasons
         out["elapsed_s"] = round(time.perf_counter() - t_start, 2)
         return AaaStressResult(out, None, reasons)
@@ -1020,6 +1042,8 @@ def run_aaa_stress(
             f"('bending' or a length in mm; it is reported)"
         )
 
+    if reasons:
+        _tetgen_unused_is_an_error(tet_engine, reasons)
     ilt = None
     if lumen is not None and not reasons:
         from digitwin.geometry.crop import planes_from_report

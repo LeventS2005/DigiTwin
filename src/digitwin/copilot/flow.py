@@ -108,11 +108,10 @@ def build_lumen_case(crop_lumen: str | Path, case_dir: str | Path, *,
         shutil.rmtree(case_dir)
     case_dir.mkdir(parents=True)
     write_case(vol, case_dir, spec, input_path=crop_lumen)
-    return {
+    built = {
         "case": str(case_dir),
         "n_cells": summary.get("n_cells"),
         "fill": summary.get("backend"),
-        "tet_engine": tet_engine,
         "inflow_patch": neck,
         "inflow_area_mm2": round(area, 1),
         "inflow_speed_mm_s": round(speed, 2),
@@ -121,3 +120,8 @@ def build_lumen_case(crop_lumen: str | Path, case_dir: str | Path, *,
         "nu_mm2_s": float(nu),
         "notes": list(summary.get("notes") or []),
     }
+    # the engine is recorded only when a tet fill produced the mesh (as
+    # compute_lumen's summary does); an O-grid fill has no tet engine
+    if summary.get("tet_engine"):
+        built["tet_engine"] = summary["tet_engine"]
+    return built

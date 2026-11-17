@@ -9,20 +9,24 @@ TetGen. The gmsh calls the spy forwards are real.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 from pathlib import Path
 
 import numpy as np
 import pytest
+import pyvista as pv
 
-pytest.importorskip("gmsh")
-import pyvista as pv  # noqa: E402
+from digitwin.cli import main
+from digitwin.meshing import tetfill
+from digitwin.meshing.lumen import fill_lumen
+from digitwin.pipeline import STEP_KNOBS, MeshingSession, replay
 
-from digitwin.cli import main  # noqa: E402
-from digitwin.meshing import tetfill  # noqa: E402
-from digitwin.meshing.lumen import fill_lumen  # noqa: E402
-from digitwin.pipeline import STEP_KNOBS, MeshingSession, replay  # noqa: E402
+# Only the tests that run a real gmsh fill need gmsh; the guards (TetGen needs
+# method tet, failure is loud, bad engine names, CLI refusals, fakes) do not.
+needs_gmsh = pytest.mark.skipif(importlib.util.find_spec("gmsh") is None,
+                                reason="needs gmsh (a real gmsh fill runs)")
 
 _REAL_FILL = tetfill.fill_shells
 
@@ -87,6 +91,7 @@ def test_knob_is_in_the_workbench_schema_for_the_three_steps():
 
 
 # --- replay: a journal written before the knob existed runs on gmsh ---------
+@needs_gmsh
 def test_old_volmesh_journal_replays_on_gmsh(spy):
     s = _journal_session(
         ("generate_synth", {"shape": "straight_tube"}),
@@ -96,6 +101,7 @@ def test_old_volmesh_journal_replays_on_gmsh(spy):
     assert spy.engines == ["gmsh"] and spy.calls[0]["site"] == "wall"
 
 
+@needs_gmsh
 def test_old_lumen_journal_replays_on_gmsh(spy):
     s = _journal_session(
         ("generate_synth", {"shape": "straight_tube"}),
@@ -146,6 +152,7 @@ def test_swept_volmesh_journal_has_no_tet_engine_even_with_the_form_defaults():
     assert "tet_engine" not in params and params["backend"] == "swept"
 
 
+@needs_gmsh
 def test_tet_volmesh_journal_and_summary_record_the_engine(spy):
     s = _tube_session()
     knobs = {k: d for k, (_t, d, _h) in STEP_KNOBS["volmesh"].items() if d is not None}
@@ -243,6 +250,7 @@ def test_build_lumen_case_with_tetgen_never_calls_a_gmsh_fill(spy, tmp_path):
     assert not (tmp_path / "case").exists()
 
 
+@needs_gmsh
 def test_build_lumen_case_default_engine_is_gmsh_with_its_ladder_unchanged(spy, tmp_path):
     from digitwin.copilot import flow
 
@@ -254,6 +262,46 @@ def test_build_lumen_case_default_engine_is_gmsh_with_its_ladder_unchanged(spy, 
     # a mesh_size reaches the fill
     flow.build_lumen_case(src, tmp_path / "case2", mesh_size=4.0)
     assert spy.calls[-1]["size"] == 4.0
+
+
+def _fake_lumen_result(monkeypatch, backend, extra):
+    """Make compute_lumen return a real straight-tube lumen mesh summarised as
+    ``backend`` (+ ``extra``): no gmsh, the fill is a fake."""
+    from digitwin.meshing.lumen import fill_lumen as real
+
+    s0 = MeshingSession()
+    s0.generate_synth("straight_tube")
+    vol = real(s0.surface, method="ogrid", n_axial=10, n_theta=16)
+    real_summary = vol.summary
+
+    def summary():
+        out = dict(real_summary())
+        out["backend"] = backend
+        out.update(extra)
+        return out
+
+    monkeypatch.setattr(vol, "summary", summary)
+    monkeypatch.setattr("digitwin.meshing.lumen.fill_lumen", lambda *a, **k: vol)
+
+
+def test_build_lumen_case_records_no_tet_engine_when_the_fill_is_not_a_tet_fill(monkeypatch, tmp_path):
+    from digitwin.copilot import flow
+
+    src = tmp_path / "crop_lumen.vtp"
+    _tube_session().surface.save(src)
+    _fake_lumen_result(monkeypatch, "lumen-ogrid", {})
+    built = flow.build_lumen_case(src, tmp_path / "case")
+    assert built["fill"] == "lumen-ogrid" and "tet_engine" not in built
+
+
+def test_build_lumen_case_records_the_engine_for_a_tet_fill(monkeypatch, tmp_path):
+    from digitwin.copilot import flow
+
+    src = tmp_path / "crop_lumen.vtp"
+    _tube_session().surface.save(src)
+    _fake_lumen_result(monkeypatch, "lumen-tet", {"tet_engine": "gmsh"})
+    built = flow.build_lumen_case(src, tmp_path / "case")
+    assert built["fill"] == "lumen-tet" and built["tet_engine"] == "gmsh"
 
 
 # --- the thrombus site --------------------------------------------------------
@@ -326,6 +374,75 @@ def test_run_aaa_stress_validates_the_engine_first_even_without_a_thrombus():
         run_aaa_stress(None, None, out_dir="x", tet_engine="nope")
 
 
+_NEEDS_LUMEN = "tet_engine 'tetgen' applies to the thrombus fill, which needs a lumen surface"
+
+
+def test_run_aaa_stress_tetgen_without_a_lumen_is_a_loud_error_before_any_work():
+    from digitwin.solve.aaa_metrics import run_aaa_stress
+
+    for engine in ("tetgen", "TetGen"):
+        with pytest.raises(ValueError, match=re.escape(_NEEDS_LUMEN)):
+            run_aaa_stress(None, None, out_dir="x", tet_engine=engine)  # no wall touched, no ccx
+
+
+def test_run_aaa_stress_tetgen_with_a_refused_wall_is_an_error_with_the_reason_gmsh_is_not(monkeypatch):
+    from digitwin.solve import aaa_metrics
+
+    s = _tube_session()
+    s.compute_volmesh(backend="swept", n_axial=16)
+    monkeypatch.setattr(aaa_metrics, "wall_refusals", lambda wall, summary: ["the wall is inverted (fake)"])
+    common = dict(out_dir="x", lumen=object(), sac=object(), crop_report={"planes": [1]})
+    with pytest.raises(ValueError, match=r"thrombus fill, which was not run.*the wall is inverted \(fake\)"):
+        aaa_metrics.run_aaa_stress(s.volmesh, s.volmesh.summary(), tet_engine="tetgen", **common)
+    res = aaa_metrics.run_aaa_stress(s.volmesh, s.volmesh.summary(), **common)  # gmsh default: the sentinel
+    assert res.refused == ["the wall is inverted (fake)"] and res.summary["pws_mpa"] is None
+
+
+def test_aaa_stress_step_tetgen_without_a_lumen_is_an_error_and_is_not_journalled(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    s = _tube_session()
+    s.compute_volmesh(backend="swept", n_axial=16)
+    n = len(s.journal)
+    with pytest.raises(ValueError, match=re.escape(_NEEDS_LUMEN)):
+        s.compute_aaa_stress(tet_engine="tetgen")
+    assert len(s.journal) == n and s.aaa_stress is None
+    assert not (tmp_path / "outputs").exists()
+
+
+def test_aaa_stress_step_gmsh_default_without_a_lumen_is_unchanged(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    class Fake:
+        summary = {"thrombus": {"modelled": False}}
+        grid = None
+        refused: list = []
+
+        def to_text(self):
+            return "fake"
+
+    monkeypatch.setattr("digitwin.solve.aaa_metrics.run_aaa_stress",
+                        lambda *a, **kw: seen.update(kw) or Fake())
+    s = _tube_session()
+    s.compute_volmesh(backend="swept", n_axial=16)
+    s.compute_aaa_stress()  # no lumen, default engine: no error
+    assert seen["tet_engine"] == "gmsh" and seen["lumen"] is None
+    assert s.journal[-1]["params"]["tet_engine"] == "gmsh" and s.journal[-1]["params"]["lumen"] == ""
+
+
+def test_aaa_stress_tetgen_without_a_lumen_is_http_400():
+    from fastapi.testclient import TestClient
+
+    from digitwin.web.app import create_app
+
+    c = TestClient(create_app())
+    assert c.post("/source/synth", json={"shape": "straight_tube"}).status_code == 200
+    assert c.post("/step/volmesh", json={"backend": "swept", "n_axial": 16}).status_code == 200
+    r = c.post("/step/aaa_stress", json={"tet_engine": "tetgen"})
+    assert r.status_code == 400, r.text
+    assert _NEEDS_LUMEN in r.text
+
+
 def test_aaa_stress_step_passes_the_normalised_engine_down_and_records_it(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     seen = {}
@@ -348,6 +465,7 @@ def test_aaa_stress_step_passes_the_normalised_engine_down_and_records_it(monkey
 
 
 # --- the lumen result records its engine ---------------------------------------
+@needs_gmsh
 def test_gmsh_lumen_notes_and_summary_name_the_engine():
     s = _tube_session()
     res = s.compute_lumen(method="tet", mesh_size=3.0)
@@ -379,6 +497,7 @@ def test_cli_lumen_tetgen_with_auto_is_refused_before_any_fill(spy, tube, tmp_pa
     assert "requires method='tet'" in capsys.readouterr().err
 
 
+@needs_gmsh
 def test_cli_lumen_default_engine_is_gmsh_and_is_in_the_summary(spy, tube, tmp_path):
     out = tmp_path / "o" / "lumen.vtu"
     rc = main(["lumen", str(tube), "--method", "tet", "--mesh-size", "3", "--out", str(out)])
@@ -393,6 +512,7 @@ def test_cli_volmesh_tet_engine_flag_reaches_the_wall_fill(spy, tube, tmp_path, 
     assert "TetGen" in capsys.readouterr().err
 
 
+@needs_gmsh
 def test_cli_volmesh_tet_default_engine_is_gmsh_and_is_in_the_summary(spy, tube, tmp_path):
     out = tmp_path / "o" / "wall.vtu"
     rc = main(["volmesh", str(tube), "--backend", "tet", "--thickness", "0.5", "--n-axial", "16",
@@ -437,3 +557,16 @@ def test_cli_aaa_stress_tet_engine_flag_reaches_run_aaa_stress(monkeypatch, tmp_
     seen.clear()
     assert main(["aaa-stress", str(wall), "--outputs", str(tmp_path / "o")]) == 1
     assert seen["tet_engine"] == "gmsh"
+
+
+def test_cli_aaa_stress_tetgen_without_a_lumen_exits_1_with_the_message(tmp_path, capsys):
+    s = _tube_session()
+    s.compute_volmesh(backend="swept", thickness=0.5, n_axial=16)
+    wall = tmp_path / "wall.vtu"
+    s.volmesh.grid.save(wall)
+    wall.with_suffix(".summary.json").write_text(json.dumps(s.volmesh.summary()))
+    capsys.readouterr()
+    assert main(["aaa-stress", str(wall), "--tet-engine", "tetgen", "--outputs", str(tmp_path / "o")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and _NEEDS_LUMEN in err
+    assert not (tmp_path / "o").exists()  # nothing was solved or written
