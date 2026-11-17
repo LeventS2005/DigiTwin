@@ -140,12 +140,9 @@ class TetBackend:
         mesh_size: float | None = None,
         optimize: bool = True,
     ) -> WallMesh:
-        try:
-            import gmsh
-        except ImportError as exc:
-            raise RuntimeError(
-                "the 'tet' backend needs gmsh — install with: pip install 'digitwin[meshing]'"
-            ) from exc
+        from digitwin.meshing.tetfill import fill_shells, require_gmsh
+
+        require_gmsh("wall")  # fail before the lattice build, as before
 
         lattice = build_wall_lattice(
             surface,
@@ -163,69 +160,12 @@ class TetBackend:
         shell_pts = shell_pts[used]
         shell_tris = remap[shell_tris]
 
-        gmsh.initialize()
-        try:
-            gmsh.option.setNumber("General.Terminal", 0)
-            gmsh.model.add("digitwin_wall")
-            node_tags = np.arange(1, len(shell_pts) + 1)
-            if lattice.closed_s:
-                # Closed-loop wall (V9): the boundary is TWO disjoint closed
-                # surfaces (outer torus + inner torus). One surface loop would
-                # make gmsh fill the lumen too — the volume needs the outer
-                # loop plus the inner loop as a cavity.
-                remapped_labels = patch_labels  # 0=inner, 1=outer only
-                gmsh.model.addDiscreteEntity(2, 1)
-                gmsh.model.addDiscreteEntity(2, 2)
-                gmsh.model.mesh.addNodes(2, 1, node_tags, shell_pts.ravel())
-                outer_tris = shell_tris[remapped_labels == 1]
-                inner_tris = shell_tris[remapped_labels == 0]
-                gmsh.model.mesh.addElementsByType(1, 2, [], (outer_tris + 1).ravel())
-                gmsh.model.mesh.addElementsByType(2, 2, [], (inner_tris + 1).ravel())
-                loop_outer = gmsh.model.geo.addSurfaceLoop([1])
-                loop_inner = gmsh.model.geo.addSurfaceLoop([2])
-                gmsh.model.geo.addVolume([loop_outer, loop_inner])
-            else:
-                gmsh.model.addDiscreteEntity(2, 1)
-                gmsh.model.mesh.addNodes(2, 1, node_tags, shell_pts.ravel())
-                gmsh.model.mesh.addElementsByType(1, 2, [], (shell_tris + 1).ravel())
-                loop = gmsh.model.geo.addSurfaceLoop([1])
-                gmsh.model.geo.addVolume([loop])
-            gmsh.model.geo.synchronize()
-            gmsh.option.setNumber("Mesh.MeshSizeMax", mesh_size or 0.8 * lattice.thickness)
-            gmsh.model.mesh.generate(3)
-
-            # BACKLOG #2: near-degenerate positive slivers. Netgen is the
-            # stronger optimizer but may fail on discrete shells — fall back
-            # to gmsh's default tet optimizer, loudly.
-            opt_note = "optimization disabled (optimize=False)"
-            if optimize:
-                try:
-                    gmsh.model.mesh.optimize("Netgen")
-                    opt_note = "Netgen mesh optimization applied"
-                except Exception as netgen_exc:
-                    try:
-                        gmsh.model.mesh.optimize("")
-                        opt_note = (
-                            f"Netgen optimization failed ({netgen_exc}); "
-                            "default gmsh optimizer applied"
-                        )
-                    except Exception as default_exc:
-                        opt_note = (
-                            f"mesh optimization skipped (Netgen: {netgen_exc}; "
-                            f"default: {default_exc})"
-                        )
-
-            tags, coords, _ = gmsh.model.mesh.getNodes()
-            points = np.asarray(coords, dtype=float).reshape(-1, 3)
-            tag_to_idx = np.zeros(int(tags.max()) + 1, dtype=np.int64)
-            tag_to_idx[np.asarray(tags, dtype=np.int64)] = np.arange(len(tags))
-            _, tet_nodes = gmsh.model.mesh.getElementsByType(4)
-            tets = tag_to_idx[np.asarray(tet_nodes, dtype=np.int64)].reshape(-1, 4)
-        finally:
-            gmsh.finalize()
-
-        if len(tets) == 0:
-            raise ValueError("gmsh produced no tetrahedra; the wall shell may be invalid")
+        filled = fill_shells(
+            [(shell_pts, shell_tris)], mesh_size or 0.8 * lattice.thickness,
+            engine="gmsh", site="wall",
+            optimize=optimize, labels=patch_labels, closed_s=lattice.closed_s,
+        )
+        points, tets, opt_note = filled.points, filled.tets, filled.opt_note
 
         cells = np.column_stack([np.full(len(tets), 4, dtype=np.int64), tets]).ravel()
         celltypes = np.full(len(tets), pv.CellType.TETRA, dtype=np.uint8)

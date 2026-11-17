@@ -199,41 +199,13 @@ def _gmsh_remesh_job(points: np.ndarray, tris: np.ndarray, size: float):
 def _gmsh_fill_job(outer_points, outer_tris, inner_points, inner_tris, size: float):
     """Linear tets of inside(outer) minus inside(inner). Runs in the guarded
     child process (``_run_gmsh``)."""
-    gmsh = _gmsh()
-    gmsh.initialize()
-    try:
-        gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("digitwin_ilt")
-        offset = 0
-        for tag, pts, tris in ((1, outer_points, outer_tris), (2, inner_points, inner_tris)):
-            gmsh.model.addDiscreteEntity(2, tag)
-            gmsh.model.mesh.addNodes(2, tag, np.arange(offset + 1, offset + len(pts) + 1), pts.ravel())
-            gmsh.model.mesh.addElementsByType(tag, 2, [], (tris + offset + 1).ravel())
-            offset += len(pts)
-        loops = [gmsh.model.geo.addSurfaceLoop([1]), gmsh.model.geo.addSurfaceLoop([2])]
-        gmsh.model.geo.addVolume(loops)
-        gmsh.model.geo.synchronize()
-        gmsh.option.setNumber("Mesh.MeshSizeMax", size)
-        gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * size)
-        try:
-            gmsh.model.mesh.generate(3)
-        except Exception as exc:  # gmsh raises a bare Exception
-            raise RuntimeError(
-                f"thrombus tet fill failed — gmsh: {exc}. The lumen probably touches or "
-                f"crosses the sac surface"
-            ) from None
-        try:
-            gmsh.model.mesh.optimize("Netgen")
-        except Exception:  # pragma: no cover - optimization is best effort
-            pass
-        tags, xyz, _ = gmsh.model.mesh.getNodes()
-        index = np.zeros(int(tags.max()) + 1, dtype=np.int64)
-        index[np.asarray(tags, dtype=np.int64)] = np.arange(len(tags))
-        _, tet_nodes = gmsh.model.mesh.getElementsByType(4)
-        return {"points": np.asarray(xyz, dtype=float).reshape(-1, 3),
-                "tets": index[np.asarray(tet_nodes, dtype=np.int64)].reshape(-1, 4)}
-    finally:
-        gmsh.finalize()
+    from digitwin.meshing.tetfill import fill_shells
+
+    filled = fill_shells(
+        [(outer_points, outer_tris), (inner_points, inner_tris)], size,
+        engine="gmsh", site="thrombus",
+    )
+    return {"points": filled.points, "tets": filled.tets}
 
 
 _JOBS = {"remesh": _gmsh_remesh_job, "fill": _gmsh_fill_job}

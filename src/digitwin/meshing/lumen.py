@@ -811,72 +811,15 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, 
     remesh it at ``mesh_size`` before the fill. A marching-cubes surface
     carries needle triangles at its cap rims; filled as-is they become sliver
     tets (scaled Jacobian ~1e-4) on which simpleFoam diverged."""
-    try:
-        import gmsh
-    except ImportError as exc:
-        raise RuntimeError(
-            "the lumen tet fallback needs gmsh — install with: "
-            "pip install 'digitwin[meshing]'"
-        ) from exc
+    from digitwin.meshing.tetfill import fill_shells
+
+    filled = fill_shells(
+        [(shell_pts, shell_tris)], mesh_size, engine="gmsh", site="lumen",
+        optimize=optimize, remesh=remesh,
+    )
     from scipy.spatial import cKDTree
 
-    gmsh.initialize()
-    try:
-        gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("digitwin_lumen")
-        node_tags = np.arange(1, len(shell_pts) + 1)
-        gmsh.model.addDiscreteEntity(2, 1)
-        gmsh.model.mesh.addNodes(2, 1, node_tags, shell_pts.ravel())
-        gmsh.model.mesh.addElementsByType(1, 2, [], (shell_tris + 1).ravel())
-        if remesh:
-            gmsh.model.mesh.classifySurfaces(math.radians(40.0), True, True, math.pi)
-            gmsh.model.mesh.createGeometry()
-            surfaces = [tag for _, tag in gmsh.model.getEntities(2)]
-            loop = gmsh.model.geo.addSurfaceLoop(surfaces)
-            gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * mesh_size)
-        else:
-            loop = gmsh.model.geo.addSurfaceLoop([1])
-        gmsh.model.geo.addVolume([loop])
-        gmsh.model.geo.synchronize()
-        gmsh.option.setNumber("Mesh.MeshSizeMax", mesh_size)
-        try:
-            gmsh.model.mesh.generate(3)
-        except Exception as gmsh_exc:  # gmsh raises a bare Exception
-            # D85: fail loudly with a readable cause instead of a raw gmsh
-            # traceback (seen on a real eccentric sac: the station rings of a
-            # folding sweep overlap, so the ring shell self-intersects)
-            raise RuntimeError(
-                f"lumen tet fill failed — gmsh: {gmsh_exc}. The station-ring shell "
-                f"is invalid, typically because the rings overlap where the "
-                f"centreline bends tighter than the section radius"
-            ) from None
-        opt_note = "optimization disabled (optimize=False)"
-        if optimize:
-            try:
-                gmsh.model.mesh.optimize("Netgen")
-                opt_note = "Netgen mesh optimization applied"
-            except Exception as netgen_exc:
-                try:
-                    gmsh.model.mesh.optimize("")
-                    opt_note = (
-                        f"Netgen optimization failed ({netgen_exc}); "
-                        "default gmsh optimizer applied"
-                    )
-                except Exception as default_exc:
-                    opt_note = (
-                        f"mesh optimization skipped (Netgen: {netgen_exc}; "
-                        f"default: {default_exc})"
-                    )
-        tags, coords, _ = gmsh.model.mesh.getNodes()
-        points = np.asarray(coords, dtype=float).reshape(-1, 3)
-        tag_to_idx = np.zeros(int(tags.max()) + 1, dtype=np.int64)
-        tag_to_idx[np.asarray(tags, dtype=np.int64)] = np.arange(len(tags))
-        _, tet_nodes = gmsh.model.mesh.getElementsByType(4)
-        tets = tag_to_idx[np.asarray(tet_nodes, dtype=np.int64)].reshape(-1, 4)
-    finally:
-        gmsh.finalize()
-    if len(tets) == 0:
-        raise ValueError("gmsh produced no tetrahedra for the lumen shell")
+    points, tets, opt_note = filled.points, filled.tets, filled.opt_note
 
     def build(tets):
         cells = np.column_stack(
