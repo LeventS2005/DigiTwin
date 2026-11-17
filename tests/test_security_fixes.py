@@ -2,7 +2,7 @@
 ``docs/security/security-analysis-findings.md``). One block per finding; all ungated.
 
 Threat model: the trust boundary is crafted INPUT FILES (``.mfwork``,
-DWG, image volumes, solver outputs) + the ``MESHFORGE_*``/PATH
+DWG, image volumes, solver outputs) + the ``DIGITWIN_*``/PATH
 environment — not the user's own CLI args.
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _cavity_wall(n: int = 4):
 
 
 def test_valid_group_name_accepts_the_internal_names():
-    # Every name meshforge mints internally must pass, or the backstop in the
+    # Every name DigiTwin mints internally must pass, or the backstop in the
     # BoundaryGroup constructor would break real meshes.
     for good in ("inner", "outer", "inlet", "outlet", "front", "back",
                  "outer_rim", "hole_rims", "body", "lid", "_tmp", "wall.1",
@@ -211,7 +211,7 @@ def test_dat_parser_error_message_is_terminal_safe():
 
 def test_dwg2dxf_timeout_is_loud(monkeypatch):
     # A malformed/adversarial .dwg that drives LibreDWG into a hang must not
-    # hang meshforge forever: the call is now capped at 120s and a timeout
+    # hang DigiTwin forever: the call is now capped at 120s and a timeout
     # raises a clear RuntimeError naming the file.
     import subprocess
     from pathlib import Path

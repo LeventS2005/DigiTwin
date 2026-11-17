@@ -143,7 +143,7 @@ def test_golden_cards(tmp_path):
     assert deck.suffix == ".cdb"
     text = deck.read_text()
     assert text.startswith(
-        "/COM,meshforge ANSYS MAPDL archive (CDWRITE,DB style)\n/PREP7\n/TITLE,"
+        "/COM,digitwin ANSYS MAPDL archive (CDWRITE,DB style)\n/PREP7\n/TITLE,"
     )
     assert "! format-level export only: no ANSYS solver validated this deck (D29)" in text
     # the empty extrusion group is noted, never a zero-item component
@@ -362,7 +362,7 @@ def test_ansys_refusals(tmp_path):
 
 
 def test_component_name_refusals(tmp_path):
-    # a meshforge-legal group name ANSYS components cannot carry
+    # a digitwin-legal group name ANSYS components cannot carry
     wall = _bar_wall()
     wall.boundary["bad-name"] = wall.boundary.pop("outer_rim")
     with pytest.raises(ValueError, match="cannot become an ANSYS component"):

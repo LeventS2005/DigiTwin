@@ -22,7 +22,7 @@ def _path_arg(raw: str) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="meshforge",
+        prog="digitwin",
         description="Surfaces in, solver-ready wall volume meshes out.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -905,13 +905,13 @@ def main(argv: list[str] | None = None) -> int:
     p_solve.add_argument(
         "--ccx",
         default=None,
-        help="CalculiX executable (default: MESHFORGE_CCX, then PATH, then "
+        help="CalculiX executable (default: DIGITWIN_CCX, then PATH, then "
         "the ccxsolve conda env)",
     )
     p_solve.add_argument(
         "--mystran",
         default=None,
-        help="MYSTRAN executable for .bdf decks (default: MESHFORGE_MYSTRAN, "
+        help="MYSTRAN executable for .bdf decks (default: DIGITWIN_MYSTRAN, "
         "then PATH, then the mystran conda env)",
     )
     p_solve.add_argument("--timeout", type=float, default=600.0)
@@ -2698,7 +2698,7 @@ def _cmd_cfd(args: argparse.Namespace) -> int:
                         "the patch's inward normal, and this command only "
                         "has a case directory: give NAME=VX,VY,VZ here, or "
                         "use the speed form in the Workbench or a work file "
-                        "run with 'meshforge replay'"
+                        "run with 'digitwin replay'"
                     )
                 name, velocity = _parse_inlet_spec(args.inlet)
                 bcs[name] = CfdBC("velocity", velocity)
@@ -2961,7 +2961,7 @@ def _cmd_copilot(args: argparse.Namespace) -> int:
     if isinstance(backend, SessionBackend):
         try:
             wf = backend.session.save_workfile(out_dir / "session.mfwork")
-            replay = f"meshforge replay {shown_path(wf)}"  # no local folder on screen
+            replay = f"digitwin replay {shown_path(wf)}"  # no local folder on screen
         except ValueError as exc:  # an empty journal (no step landed): nothing to replay
             print(f"replay      : none ({exc})", flush=True)
     md, page = render_report(

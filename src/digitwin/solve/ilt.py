@@ -109,7 +109,7 @@ def _gmsh():
         import gmsh
     except ImportError as exc:  # pragma: no cover - gmsh ships with the env
         raise RuntimeError(
-            "the thrombus mesh needs gmsh — install with: pip install 'meshforge[meshing]'"
+            "the thrombus mesh needs gmsh — install with: pip install 'digitwin[meshing]'"
         ) from exc
     return gmsh
 
@@ -172,7 +172,7 @@ def _gmsh_remesh_job(points: np.ndarray, tris: np.ndarray, size: float):
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("meshforge_ilt_remesh")
+        gmsh.model.add("digitwin_ilt_remesh")
         gmsh.model.addDiscreteEntity(2, 1)
         gmsh.model.mesh.addNodes(2, 1, np.arange(1, len(points) + 1), points.ravel())
         gmsh.model.mesh.addElementsByType(1, 2, [], (tris + 1).ravel())
@@ -203,7 +203,7 @@ def _gmsh_fill_job(outer_points, outer_tris, inner_points, inner_tris, size: flo
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("meshforge_ilt")
+        gmsh.model.add("digitwin_ilt")
         offset = 0
         for tag, pts, tris in ((1, outer_points, outer_tris), (2, inner_points, inner_tris)):
             gmsh.model.addDiscreteEntity(2, tag)
@@ -261,10 +261,10 @@ def _run_gmsh(job: str, what: str, *, size: float, timeout: float = GMSH_TIMEOUT
     surface without raising (D93)."""
     from digitwin.io.segment import _kill
 
-    src = str(Path(__file__).resolve().parents[2])  # the dir holding meshforge/
+    src = str(Path(__file__).resolve().parents[2])  # the dir holding digitwin/
     code = ("import sys; sys.path.insert(0, sys.argv[4]); "
             "from digitwin.solve.ilt import _child_main; _child_main(*sys.argv[1:4])")
-    with tempfile.TemporaryDirectory(prefix="meshforge_gmsh_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="digitwin_gmsh_") as tmp:
         in_path, out_path = os.path.join(tmp, "in.npz"), os.path.join(tmp, "out.npz")
         log_path = os.path.join(tmp, "child.log")
         np.savez(in_path, size=np.array(float(size)), **arrays)

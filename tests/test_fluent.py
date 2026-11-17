@@ -344,7 +344,7 @@ def test_fluent3dmeshtofoam_roundtrip(tube_wall):
     foam = find_foam()
     if foam is None:
         pytest.skip("OpenFOAM not available")
-    with tempfile.TemporaryDirectory(prefix="meshforge_fluent_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="digitwin_fluent_") as tmp:
         if " " in tmp:
             pytest.skip("temp dir contains a space — OpenFOAM cannot run")
         case = Path(tmp) / "case"

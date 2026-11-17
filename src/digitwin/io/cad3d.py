@@ -50,14 +50,14 @@ def load_solid(
         import gmsh
     except ImportError as exc:  # pragma: no cover - dep present in CI env
         raise RuntimeError(
-            "3-D CAD import needs gmsh — install with: pip install 'meshforge[meshing]'"
+            "3-D CAD import needs gmsh — install with: pip install 'digitwin[meshing]'"
         ) from exc
     import pyvista as pv
 
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("meshforge_cad3d")
+        gmsh.model.add("digitwin_cad3d")
         try:
             gmsh.model.occ.importShapes(str(path))
         except Exception as exc:

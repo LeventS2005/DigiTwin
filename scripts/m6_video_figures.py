@@ -75,19 +75,19 @@ def report_preview(run: Path, out_dir: Path, flow_metrics: Path | None) -> Path:
     """report.html for the figures: re-rendered from the run's work file by this
     checkout's renderer (a live copilot run keeps its own page if this renderer
     wrote it). Refuses a page that still shows raw markdown."""
-    from digitwin.copilot.report import REPORT_HTML_MARKER
+    from digitwin.copilot.report import REPORT_HTML_MARKERS
 
     out_dir.mkdir(parents=True, exist_ok=True)
     page = run / "report.html"
     live = (run / "transcript.json").is_file()
-    if live and page.is_file() and REPORT_HTML_MARKER in page.read_text():
+    if live and page.is_file() and any(m in page.read_text() for m in REPORT_HTML_MARKERS):
         shutil.copy2(page, out_dir / "report.html")
         if (run / "report.md").is_file():
             shutil.copy2(run / "report.md", out_dir / "report.md")
     else:
         _rerender(run, out_dir, flow_metrics)
     html = (out_dir / "report.html").read_text()
-    if REPORT_HTML_MARKER not in html or "## " in html or "**" in html:
+    if not any(m in html for m in REPORT_HTML_MARKERS) or "## " in html or "**" in html:
         raise SystemExit(f"{out_dir / 'report.html'}: not the HTML report (raw markdown or no renderer marker)")
     return out_dir / "report.html"
 

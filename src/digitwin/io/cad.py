@@ -5,7 +5,7 @@ polylines, loose/reversed/duplicated segments are chained into closed loops,
 and loops are classified into outers + holes. Chains that fail to close are
 reported loudly (free endpoints + gap distances), never silently dropped.
 
-Optional deps: ezdxf (pip extra ``meshforge[cad]``) is lazy-imported; DWG
+Optional deps: ezdxf (pip extra ``digitwin[cad]``) is lazy-imported; DWG
 files additionally need the external ``dwg2dxf`` converter (GNU LibreDWG,
 e.g. ``brew install libredwg``) on PATH.
 """
@@ -353,12 +353,12 @@ def _open_document(path: Path, notes: list[str], counts: dict):
                 "DWG import needs the external converter 'dwg2dxf' (GNU LibreDWG); "
                 "install it (e.g. `brew install libredwg`) or convert to DXF first"
             )
-        with tempfile.TemporaryDirectory(prefix="meshforge_cad_") as td:
+        with tempfile.TemporaryDirectory(prefix="digitwin_cad_") as td:
             out = Path(td) / (path.stem + ".dxf")
             # NEVER `--as r2000`: LibreDWG silently drops every entity (D14).
             # F3: cap the run — dwg2dxf drives GNU LibreDWG, a C parser of
             # hostile binary CAD (the highest-risk parser in the tree); a
-            # malformed .dwg that hangs it would otherwise hang meshforge
+            # malformed .dwg that hangs it would otherwise hang DigiTwin
             # forever. Mirror the solver runners' loud TimeoutExpired handling.
             try:
                 proc = subprocess.run(
@@ -391,7 +391,7 @@ def _open_document(path: Path, notes: list[str], counts: dict):
         try:
             return ezdxf.readfile(str(path)), "dxf"
         except DXFStructureError:
-            with tempfile.TemporaryDirectory(prefix="meshforge_cad_") as td:
+            with tempfile.TemporaryDirectory(prefix="digitwin_cad_") as td:
                 repaired, merged = _repair_dxf_text(
                     path.read_text(encoding="utf-8", errors="replace")
                 )

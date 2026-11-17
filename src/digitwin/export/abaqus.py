@@ -130,7 +130,7 @@ def export_abaqus(
     guard_output_path(out, input_paths=[input_path])
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    lines: list[str] = ["*HEADING", f"meshforge wall export ({wall.backend}, {eltype})"]
+    lines: list[str] = ["*HEADING", f"digitwin wall export ({wall.backend}, {eltype})"]
     lines.extend(body)
 
     if material is not None:

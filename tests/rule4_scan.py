@@ -40,7 +40,7 @@ FORBIDDEN_NAMES = (
     "write_fluent",
 )
 # Tails of the forbidden modules, to resolve relative imports from inside
-# the meshforge package ("..geometry" -> digitwin.geometry).
+# the digitwin package ("..geometry" -> digitwin.geometry).
 _FORBIDDEN_TAILS = tuple(mod.split(".", 1)[1] for mod in FORBIDDEN_MODULES)
 
 
@@ -74,7 +74,7 @@ def meshing_logic_references(path: Path) -> list[str]:
             module = node.module or ""
             if node.level == 0:
                 forbidden_base = _is_forbidden_module(module)
-            else:  # relative import inside the meshforge package
+            else:  # relative import inside the digitwin package
                 forbidden_base = _is_forbidden_relative(module)
             if forbidden_base:
                 hit(node, f"from {'.' * node.level}{module} import ...")

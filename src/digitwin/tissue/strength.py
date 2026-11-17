@@ -3,7 +3,7 @@
 The library is lab-measured failure stress of abdominal aortic aneurysm (AAA)
 wall strips (USP AAA dataset, Mendeley Data doi 10.17632/x64srrc39p.3,
 CC BY 4.0), parsed with full provenance by ``scripts/build_strength_v0.py``
-into the packaged ``meshforge/data/strength_v0.csv``.
+into the packaged ``digitwin/data/strength_v0.csv``.
 
 The index is peak wall stress (PWS) divided by wall strength. It is an
 investigational index, not a diagnosis. Rules:
@@ -242,9 +242,9 @@ def load_strength_library(path: str | Path | None = None) -> StrengthLibrary:
         res = resources.files("digitwin.data").joinpath(LIBRARY_RESOURCE)
         if not res.is_file():
             raise StrengthLibraryError(
-                f"packaged strength library meshforge/data/{LIBRARY_RESOURCE} is missing"
+                f"packaged strength library digitwin/data/{LIBRARY_RESOURCE} is missing"
             )
-        return parse_strength_csv(res.read_text(encoding="utf-8"), f"meshforge/data/{LIBRARY_RESOURCE}")
+        return parse_strength_csv(res.read_text(encoding="utf-8"), f"digitwin/data/{LIBRARY_RESOURCE}")
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"strength library not found: {p}")

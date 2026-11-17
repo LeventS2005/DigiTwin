@@ -91,7 +91,7 @@ def write_nastran_deck(
     lines: list[str] = [
         "SOL 101",
         "CEND",
-        f"TITLE = {spec.heading or f'meshforge deck ({wall.backend}, {kind}, target=nastran)'}",
+        f"TITLE = {spec.heading or f'digitwin deck ({wall.backend}, {kind}, target=nastran)'}",
         "$ UNITS: length=%s, force=%s -> stress = %s/%s^2"
         % (spec.length_unit, spec.force_unit, spec.force_unit, spec.length_unit),
         "SPC = 1",

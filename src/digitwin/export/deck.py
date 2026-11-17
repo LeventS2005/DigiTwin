@@ -1,6 +1,6 @@
 """Complete solver input decks: mesh + material + BCs + loads + step.
 
-Extends the Hardening-B Abaqus export (``abaqus.py``) so meshforge writes
+Extends the Hardening-B Abaqus export (``abaqus.py``) so DigiTwin writes
 ENTIRE runnable decks. Element/surface blocks are shared via
 ``abaqus.mesh_lines`` (trap #12: *SURFACE is hand-written, meshio has none).
 Formulation defaults respect trap #11: Abaqus decks default to hybrid
@@ -487,7 +487,7 @@ class Step:
             if self.initial_temperature is None:
                 raise ValueError(
                     "a transient heat step needs initial_temperature — "
-                    "meshforge never guesses a starting field"
+                    "DigiTwin never guesses a starting field"
                 )
         else:
             stray = [
@@ -1075,7 +1075,7 @@ def write_deck(
 
     lines: list[str] = [
         "*HEADING",
-        spec.heading or f"meshforge deck ({wall.backend}, {eltype}, target={spec.target})",
+        spec.heading or f"digitwin deck ({wall.backend}, {eltype}, target={spec.target})",
         f"** UNITS: length={spec.length_unit}, force={spec.force_unit} -> "
         f"stress = {spec.force_unit}/{spec.length_unit}^2",
         f"** target={spec.target}, formulation={form}",

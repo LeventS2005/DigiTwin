@@ -1,4 +1,4 @@
-"""meshforge — surfaces in, solver-ready wall volume meshes out.
+"""DigiTwin — surfaces in, solver-ready wall volume meshes out.
 
 GUI-agnostic core. All meshing/geometry logic lives here; any GUI only
 drives the service layer (pipeline.MeshingSession, later milestone).

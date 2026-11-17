@@ -554,7 +554,7 @@ def write_wall_deck(wall, out_path: str | Path, *, pressure_mpa: float,
     conn = conn20[:, :8]
     lines = [
         "*HEADING",
-        f"meshforge AAA wall stress (investigational): p {p:.10g} MPa on INNER, INLET + "
+        f"digitwin AAA wall stress (investigational): p {p:.10g} MPa on INNER, INLET + "
         f"OUTLET encastre, E {E:g} MPa, nu {nu:g}, C3D20R",
         "** UNITS: length=mm, force=N -> stress = N/mm^2 = MPa",
         "*NODE",

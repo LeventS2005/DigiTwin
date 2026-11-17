@@ -816,14 +816,14 @@ def _tet_fill(shell_pts, shell_tris, patch_labels, *, mesh_size, optimize=True, 
     except ImportError as exc:
         raise RuntimeError(
             "the lumen tet fallback needs gmsh — install with: "
-            "pip install 'meshforge[meshing]'"
+            "pip install 'digitwin[meshing]'"
         ) from exc
     from scipy.spatial import cKDTree
 
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("meshforge_lumen")
+        gmsh.model.add("digitwin_lumen")
         node_tags = np.arange(1, len(shell_pts) + 1)
         gmsh.model.addDiscreteEntity(2, 1)
         gmsh.model.mesh.addNodes(2, 1, node_tags, shell_pts.ravel())

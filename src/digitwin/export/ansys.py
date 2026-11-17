@@ -79,7 +79,7 @@ _ANSYS_TET_FACES: dict[int, tuple[int, ...]] = {
 _DOF_LABEL = {1: "UX", 2: "UY", 3: "UZ"}
 _FORCE_LABEL = {1: "FX", 2: "FY", 3: "FZ"}
 
-# ANSYS component names are stricter than meshforge group names.
+# ANSYS component names are stricter than digitwin group names.
 _COMPONENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,31}$")
 
 
@@ -145,10 +145,10 @@ def write_ansys_deck(
 
     notes = list(notes or [])
     lines: list[str] = [
-        "/COM,meshforge ANSYS MAPDL archive (CDWRITE,DB style)",
+        "/COM,digitwin ANSYS MAPDL archive (CDWRITE,DB style)",
         "/PREP7",
         "/TITLE,"
-        + (spec.heading or f"meshforge deck ({wall.backend}, {kind}, target=ansys)"),
+        + (spec.heading or f"digitwin deck ({wall.backend}, {kind}, target=ansys)"),
         "! UNITS: length=%s, force=%s -> stress = %s/%s^2"
         % (spec.length_unit, spec.force_unit, spec.force_unit, spec.length_unit),
         "! format-level export only: no ANSYS solver validated this deck (D29)",

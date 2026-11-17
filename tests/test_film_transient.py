@@ -310,7 +310,7 @@ _NODES = [(1, (0.0, 0.0, 0.0)), (2, (1.0, 0.0, 0.0))]
 
 def _two_step_frd(tmp_path):
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(_NODES)
         + _frd_field("NDTEMP", ["T"], {1: [90.0], 2: [80.0]}, time=0.5)
         + _frd_field("NDTEMP", ["T"], {1: [70.0], 2: [60.0]}, time=1.0)
@@ -336,7 +336,7 @@ def test_frd_history_two_steps(tmp_path):
 
 def test_frd_single_step_history(tmp_path):
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(_NODES)
         + _frd_field("NDTEMP", ["T"], {1: [90.0], 2: [80.0]}, time=2.5)
         + " 9999\n"
@@ -358,7 +358,7 @@ def test_frd_malformed_100cl_is_loud(tmp_path):
 
 def test_frd_block_without_100cl_is_loud(tmp_path):
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(_NODES)
         + _frd_field("NDTEMP", ["T"], {1: [90.0], 2: [80.0]}, header=False)
         + " 9999\n"
@@ -371,7 +371,7 @@ def test_frd_block_without_100cl_is_loud(tmp_path):
 
 def test_frd_history_partial_coverage_is_loud(tmp_path):
     text = (
-        "    1C  meshforge fake\n"
+        "    1C  digitwin fake\n"
         + _frd_nodes(_NODES)
         + _frd_field("NDTEMP", ["T"], {1: [90.0], 2: [80.0]}, time=0.5)
         + _frd_field("NDTEMP", ["T"], {1: [70.0]}, time=1.0)  # node 2 missing

@@ -1161,7 +1161,7 @@ def crop_aaa(
     if surface.n_open_edges:
         raise CropError(
             f"surface has {surface.n_open_edges} open edges; the crop needs a "
-            f"watertight surface (run 'meshforge check')"
+            f"watertight surface (run 'digitwin check')"
         )
     if lumen is not None and lumen.n_open_edges:
         raise CropError(f"second surface has {lumen.n_open_edges} open edges; it must be closed")

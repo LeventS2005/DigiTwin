@@ -50,7 +50,7 @@ def port_of(url: str) -> int:
 
 def start_workbench(url: str, log_path: str | Path, *, wait_s: float = START_WAIT_S,
                     popen=subprocess.Popen, sleep=time.sleep) -> tuple[subprocess.Popen, float]:
-    """Start ``meshforge web`` on the port of ``url`` as its own process group
+    """Start ``digitwin web`` on the port of ``url`` as its own process group
     (it outlives the copilot: the window stays live after the run), logging
     to ``log_path``, and wait until ``/health`` answers. Returns the process
     and the seconds it took; a Workbench that never answers is stopped and

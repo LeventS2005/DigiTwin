@@ -12,7 +12,7 @@ constrained bar (sigma_z = -E*alpha*(T(z,t)-T0) per node), session e2e with
 THE PROBE TRAPS (v46_probe, session 31 — independently re-verified):
 ccx's *TEMPERATURE, FILE= is unconditionally LAST-increment (BSTEP/BINC are
 "parameter not recognized" no-ops) and a missing frd is FAIL-OPEN (exit 0,
-fixed bogus temperature) — meshforge therefore always reads the frd itself
+fixed bogus temperature) — DigiTwin therefore always reads the frd itself
 and inlines per-node lines; snapshot times come from the frd's OWN time list
 (adaptive stepping makes them irregular — never assume k*dt); the pointwise
 closed form needs EVERY node axially pinned (an end-clamped bar carries the

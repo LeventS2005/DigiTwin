@@ -284,7 +284,7 @@ def compute_centerline(
     if surface.n_open_edges > 0:
         raise ValueError(
             f"surface has {surface.n_open_edges} open edges; "
-            "centerline needs a watertight surface (run 'meshforge check')"
+            "centerline needs a watertight surface (run 'digitwin check')"
         )
 
     if voxel_size is None:

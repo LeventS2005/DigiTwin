@@ -52,7 +52,7 @@ class SessionBackend:
 
 
 class HttpBackend:
-    """Runs steps on a running Workbench (``meshforge web``/``desktop``) via
+    """Runs steps on a running Workbench (``digitwin web``/``desktop``) via
     ``POST /step/<name>``, so its viewport shows each artifact as it lands.
     A step's domain error comes back as HTTP 400 with the readable reason."""
 
@@ -89,6 +89,6 @@ class HttpBackend:
         except urllib.error.URLError as exc:
             raise RuntimeError(
                 f"the Workbench at {self.base_url} is not reachable ({exc.reason}) — "
-                f"start it with `meshforge web` or drop --server"
+                f"start it with `digitwin web` or drop --server"
             ) from None
         return StepOutcome(True, body.get("summary") or {}, body.get("text") or "")

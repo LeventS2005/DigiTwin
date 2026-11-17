@@ -5,7 +5,7 @@ get embedded in exception messages (ccx/MYSTRAN/OpenFOAM stdout tails,
 ``line!r`` from the .frd/.dat parsers, dwg2dxf stderr). Those messages are
 printed to a terminal by the CLI, where ANSI/OSC control sequences would be
 interpreted — screen clears, cursor moves, title/clipboard changes, or
-success-spoofing. A hostile solver binary (via a ``MESHFORGE_*`` override or
+success-spoofing. A hostile solver binary (via a ``DIGITWIN_*`` override or
 first on PATH) or a crafted ``.frd``/``.F06``/``.dat`` is the injection
 vector. ``scrub`` strips those control characters before the text is
 embedded.

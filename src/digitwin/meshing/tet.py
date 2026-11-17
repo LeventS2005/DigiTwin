@@ -28,7 +28,7 @@ def mesh_shell_pair(
         import gmsh
     except ImportError as exc:
         raise RuntimeError(
-            "mesh_shell_pair needs gmsh — install with: pip install 'meshforge[meshing]'"
+            "mesh_shell_pair needs gmsh — install with: pip install 'digitwin[meshing]'"
         ) from exc
     if not mesh_size > 0:
         raise ValueError(f"mesh_size must be positive, got {mesh_size}")
@@ -52,7 +52,7 @@ def mesh_shell_pair(
     gmsh.initialize()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.model.add("meshforge_shell_pair")
+        gmsh.model.add("digitwin_shell_pair")
         node_tags = np.arange(1, len(shell_pts) + 1)
         gmsh.model.addDiscreteEntity(2, 1)
         gmsh.model.addDiscreteEntity(2, 2)
@@ -144,7 +144,7 @@ class TetBackend:
             import gmsh
         except ImportError as exc:
             raise RuntimeError(
-                "the 'tet' backend needs gmsh — install with: pip install 'meshforge[meshing]'"
+                "the 'tet' backend needs gmsh — install with: pip install 'digitwin[meshing]'"
             ) from exc
 
         lattice = build_wall_lattice(
@@ -166,7 +166,7 @@ class TetBackend:
         gmsh.initialize()
         try:
             gmsh.option.setNumber("General.Terminal", 0)
-            gmsh.model.add("meshforge_wall")
+            gmsh.model.add("digitwin_wall")
             node_tags = np.arange(1, len(shell_pts) + 1)
             if lattice.closed_s:
                 # Closed-loop wall (V9): the boundary is TWO disjoint closed

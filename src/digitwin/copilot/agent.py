@@ -68,8 +68,8 @@ def _client():
     except ImportError as exc:
         raise RuntimeError(
             "the copilot needs the Anthropic SDK — install it with "
-            "`conda install -n meshforge -c conda-forge anthropic` "
-            "(or `pip install 'meshforge[copilot]'`)"
+            "`conda install -n digitwin -c conda-forge anthropic` "
+            "(or `pip install 'digitwin[copilot]'`)"
         ) from exc
     try:
         return anthropic.Anthropic()

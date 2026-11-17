@@ -46,7 +46,7 @@ def test_known_suffix_names_its_own_importer(tmp_path, suffix, panel, subcommand
     message = str(excinfo.value)
     assert suffix in message
     assert panel in message
-    assert f"meshforge {subcommand}" in message
+    assert f"digitwin {subcommand}" in message
     assert "pyvista" not in message.lower()
 
 
@@ -188,8 +188,8 @@ def test_file_sha256_still_hashes_a_real_file(tmp_path):
     from digitwin.io import file_sha256
 
     target = tmp_path / "payload.bin"
-    target.write_bytes(b"meshforge")
-    assert file_sha256(f'"{target}" ') == hashlib.sha256(b"meshforge").hexdigest()
+    target.write_bytes(b"digitwin")
+    assert file_sha256(f'"{target}" ') == hashlib.sha256(b"digitwin").hexdigest()
 
 
 def test_workfile_paths_are_normalised(tmp_path):

@@ -345,7 +345,7 @@ def test_cli_cfd_refuses_the_scalar_form_with_a_reason(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "needs the mesh in memory" in err
     # the remedy must exist: recipes have no cfd step, replay does
-    assert "meshforge replay" in err and "recipe" not in err
+    assert "digitwin replay" in err and "recipe" not in err
 
 
 # ---------------------------------------------------------------------------

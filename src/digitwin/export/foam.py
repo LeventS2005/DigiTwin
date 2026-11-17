@@ -10,7 +10,7 @@ from a WallMesh. OpenFOAM's contract, honoured here:
 - boundary faces are wound outward.
 
 Faces are extracted from canonical outward-oriented local faces per cell
-(hexahedron + tetra — everything meshforge produces); a face seen twice is
+(hexahedron + tetra — everything DigiTwin produces); a face seen twice is
 internal and the first sighting is the owner, so both conventions fall out
 of cell order. Boundary faces must be tiled by the WallMesh's boundary
 groups: an uncovered face is a hard error unless ``default_patch`` collects
@@ -27,7 +27,7 @@ from digitwin.export.neutral import guard_output_path
 from digitwin.meshing.base import WallMesh
 
 # Local vertex orders producing OUTWARD normals (right-hand rule), for the
-# VTK node numbering meshforge writes everywhere. Wedge faces follow the
+# VTK node numbering DigiTwin writes everywhere. Wedge faces follow the
 # positive-volume convention the V22 prism mesher writes (bottom tri wound
 # away from the top — verified against VTK cell volumes).
 _LOCAL_FACES = {

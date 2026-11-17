@@ -95,7 +95,7 @@ def write_lsdyna_deck(
         "*KEYWORD",
         "*TITLE",
         spec.heading
-        or f"meshforge deck ({wall.backend}, {kind}, target=lsdyna)",
+        or f"digitwin deck ({wall.backend}, {kind}, target=lsdyna)",
         "$ UNITS: length=%s, force=%s -> stress = %s/%s^2"
         % (spec.length_unit, spec.force_unit, spec.force_unit, spec.length_unit),
         "$ format-level export only: no LS-DYNA solver validated this deck (D29)",

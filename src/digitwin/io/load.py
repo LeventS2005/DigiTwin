@@ -7,7 +7,7 @@ import pyvista as pv
 
 from digitwin.io.paths import normalize_path
 
-# Suffixes meshforge DOES handle, but through a dedicated importer rather than
+# Suffixes DigiTwin DOES handle, but through a dedicated importer rather than
 # pyvista's reader. "Load surface" is the wrong front door for all of them, so
 # name the right one instead of letting the library's own error through
 # ("This file was not able to be automatically read by pyvista." tells a user
@@ -77,7 +77,7 @@ def load_surface(path: str | Path) -> pv.PolyData:
         suffix, what, panel, subcommand = match
         raise ValueError(
             f"{suffix} is {what} — load it with the {panel} panel "
-            f"(CLI: meshforge {subcommand} <file>), not 'Load surface': "
+            f"(CLI: digitwin {subcommand} <file>), not 'Load surface': "
             f"{path.name}"
         )
     if not path.is_file():
@@ -86,7 +86,7 @@ def load_surface(path: str | Path) -> pv.PolyData:
     if not isinstance(mesh, pv.PolyData):
         raise TypeError(
             f"expected a surface (PolyData), got {type(mesh).__name__} from {path.name}; "
-            "meshforge inspects surfaces, not volume grids"
+            "DigiTwin inspects surfaces, not volume grids"
         )
     if mesh.n_points == 0 or mesh.n_cells == 0:
         raise ValueError(f"surface is empty (0 points or 0 cells): {path.name}")

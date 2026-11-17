@@ -3,7 +3,7 @@
 Runs on the packaged library (src/digitwin/data/strength_v0.csv, derived
 from the open USP AAA dataset, CC BY 4.0) and on toy libraries written here.
 The dataset itself is not needed: the parser that built the CSV
-(scripts/build_strength_v0.py) needs xlrd/openpyxl, which are not meshforge
+(scripts/build_strength_v0.py) needs xlrd/openpyxl, which are not DigiTwin
 dependencies; its ``--check`` mode is the rebuild proof.
 """
 from __future__ import annotations

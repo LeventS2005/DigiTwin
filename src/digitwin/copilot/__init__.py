@@ -9,7 +9,7 @@ a numbers guard: every number in it has to match a tool output.
 
 The steps run in-process (:class:`SessionBackend`) or on a running Workbench
 (:class:`HttpBackend`), so the 3-D view updates live while the copilot works.
-The Anthropic SDK is imported lazily; the rest of meshforge never needs it.
+The Anthropic SDK is imported lazily; the rest of DigiTwin never needs it.
 """
 
 from digitwin.copilot.agent import CopilotRun, run_copilot

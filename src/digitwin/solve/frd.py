@@ -5,7 +5,7 @@ result block (``100CL`` / ``-4`` / ``-5`` / ``-1``) into numpy arrays. Fields
 are fixed-width: ``-1`` data lines carry an I10 id followed by E12.5 values,
 with ``-2`` continuation lines for fields wider than six components.
 
-Only element types meshforge writes are mapped (he8 -> VTK hexahedron,
+Only element types DigiTwin writes are mapped (he8 -> VTK hexahedron,
 te4 -> VTK tetra); anything else fails loudly with the frd type name.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ import numpy as np
 from digitwin.textguard import scrub
 
 # frd element type code -> (name, n_nodes, vtk cell type). frd node order for
-# he8/te4 equals the Abaqus/VTK order meshforge writes (validated by the
+# he8/te4 equals the Abaqus/VTK order DigiTwin writes (validated by the
 # ccx-gated Lame benchmark reading back what write_deck produced).
 _FRD_ELEMENT_TYPES = {
     1: ("he8", 8, 12),   # VTK_HEXAHEDRON
@@ -113,7 +113,7 @@ def read_frd(path: str | Path, *, elements: bool = True) -> FrdModel:
                         name = _KNOWN_UNSUPPORTED.get(etype, f"type {etype}")
                         raise ValueError(
                             f"unsupported frd element type {etype} ({name}) in "
-                            f"{path.name}; meshforge reads he8 and te4 only"
+                            f"{path.name}; DigiTwin reads he8 and te4 only"
                         )
                     elem_types.append(etype)
                     n_nodes = _FRD_ELEMENT_TYPES[etype][1]

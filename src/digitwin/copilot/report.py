@@ -34,7 +34,10 @@ CAVEATS = (
 
 #: stamped on every page this renderer writes; the escaped-markdown page of
 #: M5 lacks it (both carry a twin card, so the card alone tells nothing)
-REPORT_HTML_MARKER = "<!-- meshforge report.html v2 -->"
+REPORT_HTML_MARKER = "<!-- digitwin report.html v2 -->"
+#: every spelling a reader accepts: pages written before the rename carry the
+#: old one; a reader tests ``any(m in text for m in REPORT_HTML_MARKERS)``
+REPORT_HTML_MARKERS = (REPORT_HTML_MARKER, "<!-- meshforge report.html v2 -->")
 
 #: the copilot's tools in pipeline order; a tool that runs again makes every
 #: later tool's result stale
@@ -699,7 +702,7 @@ def _render_html(*, request, ct_name, credit, results, calls, summary_text, guar
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>Aorta twin report — {e(ct_name)}</title><style>{_CSS}</style></head><body>"
         "<main class='page'>"
-        "<header><p class='eyebrow'>meshforge · investigational biomechanics report</p>"
+        "<header><p class='eyebrow'>DigiTwin · investigational biomechanics report</p>"
         "<h1>Aorta twin</h1>"
         f"<p class='lede'>{e(request)}</p>"
         "<dl class='meta'>"

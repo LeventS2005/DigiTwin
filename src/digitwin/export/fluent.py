@@ -107,7 +107,7 @@ def write_fluent(
     n_faces = len(internal) + sum(len(v) for v in patch_faces.values())
 
     lines = [
-        '(0 "meshforge FLUENT mesh (V28); indices hexadecimal, 1-based")',
+        '(0 "digitwin FLUENT mesh (V28); indices hexadecimal, 1-based")',
         "(2 3)",
         f"(10 (0 1 {len(pts):x} 0))",
         f"(12 (0 1 {n_cells:x} 0))",

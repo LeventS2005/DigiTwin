@@ -22,6 +22,7 @@ import re
 
 from digitwin.copilot.report import (
     REPORT_HTML_MARKER,
+    REPORT_HTML_MARKERS,
     render_report,
     shown_path,
     shown_paths,
@@ -596,13 +597,13 @@ def test_report_html_escapes_text_from_tools_claude_and_the_command_line(tmp_pat
 def test_report_hides_an_absolute_replay_path():
     md, page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
                              summary_text=None, guard_note="g", model="m",
-                             replay_hint="meshforge replay /Users/someone/My Runs (1)/session.mfwork")
-    assert "`meshforge replay session.mfwork`" in md and "meshforge replay session.mfwork" in page
+                             replay_hint="digitwin replay /Users/someone/My Runs (1)/session.mfwork")
+    assert "`digitwin replay session.mfwork`" in md and "digitwin replay session.mfwork" in page
     assert "/Users/" not in md + page and "someone" not in md + page
     md2, _ = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
                            summary_text=None, guard_note="g", model="m",
-                           replay_hint="meshforge replay outputs/m5/run/session.mfwork")
-    assert "`meshforge replay outputs/m5/run/session.mfwork`" in md2  # relative stays as is
+                           replay_hint="digitwin replay outputs/m5/run/session.mfwork")
+    assert "`digitwin replay outputs/m5/run/session.mfwork`" in md2  # relative stays as is
 
 
 
@@ -642,6 +643,26 @@ def test_figure_preview_rerenders_an_old_escaped_markdown_report(tmp_path):
     (run / "report.html").write_text(live_page)
     kept = _figures_script().report_preview(run, tmp_path / "p3", None).read_text()
     assert kept == live_page
+
+
+def test_a_page_with_the_pre_rename_marker_is_still_recognised(tmp_path):
+    """Pages written before the rename carry the old marker; the figures script
+    must keep such a live page, not re-render it over the user's run."""
+    assert "digitwin" in REPORT_HTML_MARKER and "meshforge" not in REPORT_HTML_MARKER
+    old_marker = "<!-- meshforge report.html v2 -->"
+    assert REPORT_HTML_MARKER in REPORT_HTML_MARKERS and old_marker in REPORT_HTML_MARKERS
+    _, journal = _journaled_run(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "session.mfwork").write_text(json.dumps({"version": 1, "journal": journal}))
+    (run / "transcript.json").write_text("{}")
+    _, live_page = render_report(request="r", ct_name="ct.nii.gz", credit="c", results={}, calls=[],
+                                 summary_text=None, guard_note="g", model="m")
+    old_page = live_page.replace(REPORT_HTML_MARKER, old_marker)
+    assert old_page != live_page and old_marker in old_page and REPORT_HTML_MARKER not in old_page
+    (run / "report.html").write_text(old_page)
+    kept = _figures_script().report_preview(run, tmp_path / "preview", None).read_text()
+    assert kept == old_page  # recognised as this renderer's page: copied, not re-rendered
 
 
 # --- M6: no local folder on screen or in the transcript -----------------------------
@@ -707,7 +728,7 @@ def test_copilot_cli_prints_and_records_no_local_folder(tmp_path, monkeypatch, c
         assert rc == 1  # no strength index in the fake run
         assert f"report      : {shown}report.html" in printed
         assert f"transcript  : {shown}transcript.json" in printed
-        assert f"replay      : meshforge replay {shown}session.mfwork" in printed
+        assert f"replay      : digitwin replay {shown}session.mfwork" in printed
         assert str(tmp_path) not in printed and "/Users/" not in printed
         record = (out_dir / "transcript.json").read_text()
         assert "someone" not in record and str(tmp_path) not in record

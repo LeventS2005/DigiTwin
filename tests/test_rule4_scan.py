@@ -64,3 +64,22 @@ def test_unrelated_solve_names_do_not_trip(tmp_path: Path) -> None:
     # the listed entry points are.
     source = "def solve(x):\n    return x\n\nresult = solve(2)\n"
     assert _scan(tmp_path, source) == []
+
+
+def test_forbidden_modules_are_spelled_digitwin() -> None:
+    # The guard matches module paths textually: a stale package name here would
+    # let every real digitwin.* import pass unflagged (rule 6, fail loudly).
+    from rule4_scan import FORBIDDEN_MODULES
+
+    assert FORBIDDEN_MODULES and all(m.startswith("digitwin.") for m in FORBIDDEN_MODULES)
+
+
+def test_positive_control_absolute_digitwin_meshing_import_is_flagged(
+    tmp_path: Path,
+) -> None:
+    # Positive control: a scanned source that really imports the meshing layer
+    # by its absolute name must be flagged, in both import forms.
+    for source in ("import digitwin.meshing\n", "from digitwin.meshing import x\n"):
+        hits = _scan(tmp_path, source)
+        assert hits, f"scanner missed an absolute digitwin.meshing import: {source!r}"
+        assert "meshing" in hits[0]
